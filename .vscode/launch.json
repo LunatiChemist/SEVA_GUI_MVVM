@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "SEVA App",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "seva.app.main", // wichtig: Modul, nicht Datei
+      "cwd": "${workspaceFolder}", // dein Projektroot (SEVA_GUI_MOCKUP)
+      "justMyCode": true
+    }
+  ]
+}
