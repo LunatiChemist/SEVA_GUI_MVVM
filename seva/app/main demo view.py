@@ -18,6 +18,7 @@ from views.channel_activity_view import ChannelActivityView
 from views.settings_dialog import SettingsDialog
 from views.data_plotter import DataPlotter
 
+print("easter_egg_here_Hello_world")
 
 # ---- Simple in-memory demo state (standing in for ViewModels) ----
 class DemoState:
