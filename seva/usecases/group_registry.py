@@ -1,4 +1,3 @@
-# seva/usecases/group_registry.py
 from __future__ import annotations
 from typing import Dict, Optional
 from dataclasses import dataclass
@@ -8,21 +7,26 @@ from dataclasses import dataclass
 
 
 @dataclass
-class _BoxMeta:
+class _RunMeta:
     planned_duration_s: Optional[int] = None
+    mode: Optional[str] = None  # optional, could help diagnostics later
 
 
-# group_id -> box_id -> _BoxMeta
-_GROUP_META: Dict[str, Dict[str, _BoxMeta]] = {}
+# group_id -> run_id -> _RunMeta
+_GROUP_META: Dict[str, Dict[str, _RunMeta]] = {}
 
 
-def set_planned_duration(group_id: str, box_id: str, seconds: Optional[int]) -> None:
+def set_planned_duration(
+    group_id: str, run_id: str, seconds: Optional[int], mode: Optional[str] = None
+) -> None:
     meta = _GROUP_META.setdefault(group_id, {})
-    box = meta.setdefault(box_id, _BoxMeta())
-    box.planned_duration_s = seconds
+    run = meta.setdefault(run_id, _RunMeta())
+    run.planned_duration_s = seconds
+    if mode:
+        run.mode = mode
 
 
-def get_planned_duration(group_id: str, box_id: str) -> Optional[int]:
+def get_planned_duration(group_id: str, run_id: str) -> Optional[int]:
     meta = _GROUP_META.get(group_id, {})
-    box = meta.get(box_id)
-    return box.planned_duration_s if box else None
+    run = meta.get(run_id)
+    return run.planned_duration_s if run else None
