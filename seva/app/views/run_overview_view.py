@@ -128,6 +128,9 @@ class RunOverviewView(ttk.Frame):
         vsb.grid(row=0, column=1, sticky="ns")
         hsb.grid(row=1, column=0, sticky="ew")
 
+        # Selection shows full error in details; double-click opens modal
+        self.table.bind("<Double-1>", self._on_row_double_click)
+
     # ------------------------------------------------------------------
     # Public API used by ViewModels/Presenters
     # ------------------------------------------------------------------
@@ -181,6 +184,31 @@ class RunOverviewView(ttk.Frame):
             except Exception as e:
                 print(f"RunOverviewView download box failed: {e}")
 
+    def _on_row_double_click(self, event=None):
+        sel = self.table.selection()
+        if not sel:
+            return
+        item = self.table.item(sel[0])
+        vals = item.get("values") or []
+        full_err = vals[3] if len(vals) > 3 else ""
+        if not full_err:
+            return
+
+        top = tk.Toplevel(self)
+        top.title("Full Error")
+        top.geometry("700x400")
+        top.transient(self.winfo_toplevel())
+        frm = ttk.Frame(top)
+        frm.pack(fill="both", expand=True, padx=8, pady=8)
+        txt = tk.Text(frm, wrap="word")
+        txt.pack(fill="both", expand=True)
+        txt.insert("1.0", full_err)
+        txt.configure(state="disabled")
+
+        btns = ttk.Frame(frm)
+        btns.pack(fill="x", pady=(6,0))
+        ttk.Button(btns, text="Copy", command=lambda: self._copy_to_clipboard(full_err)).pack(side="left")
+        ttk.Button(btns, text="Close", command=top.destroy).pack(side="right")
 
 if __name__ == "__main__":
     root = tk.Tk()

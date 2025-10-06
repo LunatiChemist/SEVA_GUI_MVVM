@@ -167,11 +167,13 @@ class App:
             if not self._ensure_adapter():
                 return
             # collect selection & plan
-            selection = self.plate_vm.get_selection()
-            if not selection:
-                self.win.show_toast("Select at least one well.")
+            configured = self.plate_vm.configured()
+            if not configured:
+                self.win.show_toast("No configured wells to start.")
                 return
 
+            # Falls du die Selektion noch für die UI-Toast brauchst:
+            selection = self.plate_vm.get_selection()
             self.experiment_vm.set_selection(selection)
             plan = self._build_plan_from_vm(selection)
 
@@ -188,7 +190,10 @@ class App:
 
             # Start polling loop
             self._start_polling()
-        except Exception as e:
+        except Exception as e: 
+            # Stop polling and clear group on any start failure
+            self._stop_polling()
+            self._current_group_id = None 
             self.win.show_toast(str(e))
 
     def _on_cancel_group(self) -> None:

@@ -276,7 +276,8 @@ class JobRestAdapter(JobPort):
                     wid = self.slot_to_well.get((box, slot_num))
                     if not wid:
                         continue
-                    s_status = str(slot_info.get("status") or "queued").capitalize()
+                    raw = str(slot_info.get("status")).lower()
+                    s_status = "Error" if raw == "failed" else ("Done" if raw == "done" else ("Running" if raw == "running" else "Queued"))
                     s_msg = slot_info.get("message") or ""
                     snapshot["wells"].append(
                         (wid, s_status, 0, s_msg, str(data.get("run_id") or run_id))
