@@ -24,6 +24,9 @@ from ..usecases.poll_group_status import PollGroupStatus
 from ..usecases.download_group_results import DownloadGroupResults
 from ..usecases.cancel_group import CancelGroup
 from ..adapters.job_rest import JobRestAdapter
+from ..adapters.storage_local import StorageLocal
+from ..usecases.save_plate_layout import SavePlateLayout
+from ..usecases.load_plate_layout import LoadPlateLayout
 
 
 class App:
@@ -103,6 +106,11 @@ class App:
         self.uc_poll: Optional[PollGroupStatus] = None
         self.uc_download: Optional[DownloadGroupResults] = None
         self.uc_cancel: Optional[CancelGroup] = None
+
+        # ---- LocalStorage Adapter ----
+        self._storage = StorageLocal(root_dir=self.settings_vm.results_dir or ".")
+        self.uc_save_layout = SavePlateLayout(self._storage)
+        self.uc_load_layout = LoadPlateLayout(self._storage)
 
         # ---- Polling state ----
         self._current_group_id: Optional[str] = None
@@ -197,10 +205,35 @@ class App:
         self.wellgrid.set_selection([])
 
     def _on_save_layout(self) -> None:
-        self.win.show_toast("Save layout (not wired)")
+        try:
+            configured = self.plate_vm.configured()
+            if not configured:
+                self.win.show_toast("Nothing to save: no configured wells.")
+                return
+            well_map = self.experiment_vm.build_well_params_map(configured)
+            # Use a simple default name; later ask the user
+            name = "layout_latest"
+            self.uc_save_layout(name, configured, well_map)  # type: ignore[misc]
+            self.win.show_toast(f"Layout saved as {name}.csv")
+        except Exception as e:
+            self.win.show_toast(str(e))
 
     def _on_load_layout(self) -> None:
-        self.win.show_toast("Load layout (not wired)")
+        try:
+            name = "layout_latest"  # later: open file picker / presets
+            data = self.uc_load_layout(name)  # type: ignore[misc]
+            wmap: Dict[str, Dict[str, str]] = data.get("well_params_map", {})
+            wells = set(data.get("selection", []))
+            # push into VM
+            for wid, snap in wmap.items():
+                self.experiment_vm.save_params_for(wid, snap)
+            # reflect in UI/VM
+            self.plate_vm.clear_all_configured()
+            self.plate_vm.mark_configured(wells)
+            self.wellgrid.set_configured_wells(wells)
+            self.win.show_toast(f"Layout {name}.csv loaded ({len(wells)} wells).")
+        except Exception as e:
+            self.win.show_toast(str(e))
 
     def _on_open_settings(self) -> None:
         dlg = SettingsDialog(
@@ -334,11 +367,15 @@ class App:
     def _apply_run_overview(self, dto: Dict) -> None:
         boxes = dto.get("boxes", {}) or {}
         for b, meta in boxes.items():
+            # subrun may be a CSV string or a list; normalize to CSV for the view
+            sub = meta.get("subrun")
+            if isinstance(sub, list):
+                sub = ", ".join(sub)
             self.run_overview.set_box_status(
                 b,
                 phase=meta.get("phase", "Idle"),
                 progress_pct=meta.get("progress", 0),
-                sub_run_id=meta.get("subrun"),
+                sub_run_id=sub,
             )
         self.run_overview.set_well_rows(dto.get("wells", []) or [])
         self._apply_channel_activity(dto.get("activity", {}) or {})
@@ -387,23 +424,50 @@ class App:
     # ==================================================================
     # Plan building
     # ==================================================================
+
     def _build_plan_from_vm(self, selection: Iterable[str]) -> Dict:
-        """Transform ExperimentVM fields into a Start plan for the adapter."""
-        # mode (CV/CA/LSV/...) is stored in generic fields, commonly under 'mode'
-        mode = self.experiment_vm.fields.get("mode", "CV")
-        params = dict(self.experiment_vm.fields)
-        # normalize planned duration (used for client-side progress)
-        if "total_duration_s" in params:
-            try:
-                params["total_duration_s"] = int(params["total_duration_s"])
-            except Exception:
-                pass
+        """
+        Build a JobRequest-ready plan for StartExperimentBatch.
+        Collects all configured wells and their stored parameters.
+
+        The UseCase will:
+        - Group wells per box and per identical signature,
+        - Generate one JobRequest per (Box,Signature),
+        - Estimate planned durations (mode-specific) per run.
+
+        Fields tia_gain / sampling_interval are set to None for now
+        until they are exposed in the Settings UI.
+        """
+        # 1) Always start from all configured wells (not just the active selection)
+        configured = self.plate_vm.configured()
+        if not configured:
+            raise RuntimeError("No configured wells to start.")
+
+        # 2) Gather persisted parameters for those wells
+        well_params_map = self.experiment_vm.build_well_params_map(configured)
+        if not well_params_map:
+            raise RuntimeError("No saved parameters found for configured wells.")
+
+        # 3) Optional global settings / defaults
+        folder_name = self.settings_vm.results_dir or "."
+        make_plot = True  # default: let backend create plots
+        tia_gain = None  # will be added later via Settings
+        sampling_interval = None  # will be added later via Settings
+
+        # 4) Compose plan dict for the UseCase
         plan = {
-            "mode": mode,
-            "params": params,
-            "selection": sorted(selection),
-            # optional "group_id" could be added here
+            "selection": sorted(configured),
+            "well_params_map": well_params_map,
+            "folder_name": folder_name,
+            "make_plot": make_plot,
+            "tia_gain": tia_gain,
+            "sampling_interval": sampling_interval,
+            # "group_id": optional custom ID could be added here
         }
+
+        # 5) Debug convenience (optional)
+        print(f"[DEBUG] Built plan for {len(configured)} wells across boxes.")
+
         return plan
 
 

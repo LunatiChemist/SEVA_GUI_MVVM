@@ -152,84 +152,62 @@ class JobRestAdapter(JobPort):
 
     def start_batch(self, plan: Dict) -> Tuple[RunGroupId, Dict[BoxId, List[str]]]:
         """
-        Fan-out by Box, then group slots inside a Box by identical signature.
-        One JobRequest per (Box, Signature). Multiple jobs per Box are supported.
-
+        Post pre-grouped jobs (built by the UseCase) to each box.
         Expected plan keys:
-        - selection: List[WellId]
-        - well_params_map: Dict[WellId, Dict[str,str]]
-        - (optional) tia_gain, sampling_interval, make_plot, folder_name, group_id
+        - jobs: List[Dict] where each job contains:
+            { "box": "A", "wells": ["A1","A5",...], "mode": "CV|DC|AC|LSV|EIS|CDL",
+                "params": {...}, "tia_gain": int|None, "sampling_interval": float|None,
+                "folder_name": str|None, "make_plot": bool, "run_name": str }
+        - (optional) group_id
+        Returns:
+        (group_id, { box: [run_id, ...] })
         """
-        # 1) Validate plan
-        selection: Iterable[str] = plan.get("selection") or []
-        selection = list(selection)
-        if not selection:
-            raise ValueError("start_batch: empty selection")
-
-        well_params_map: Dict[str, Dict[str, str]] = plan.get("well_params_map") or {}
-        if not well_params_map:
-            raise ValueError("start_batch: missing well_params_map")
+        jobs: List[Dict[str, Any]] = plan.get("jobs") or []
+        if not jobs:
+            raise ValueError("start_batch: missing 'jobs' in plan")
 
         group_id: RunGroupId = plan.get("group_id") or str(uuid4())
-        folder_name: Optional[str] = plan.get("folder_name") or group_id
-        tia_gain = plan.get("tia_gain", None)
-        sampling_interval = plan.get("sampling_interval", None)
-        make_plot = bool(plan.get("make_plot", True))
 
-        # 2) Build Box → [(slot, snapshot)]
-        per_box: Dict[BoxId, List[Tuple[int, Dict[str, str]]]] = {}
-        for wid in selection:
-            tpl = self.well_to_slot.get(wid)
-            if not tpl:
-                raise ValueError(f"Unknown well id '{wid}' for configured boxes {self.box_order}")
-            box, slot = tpl
-            snap = well_params_map.get(wid)
-            if not snap:
-                raise ValueError(f"No saved parameters for well '{wid}'")
-            per_box.setdefault(box, []).append((slot, snap))
-
-        # Prepare group mapping: box -> [run_id, ...]
+        # Prepare mapping: group_id -> box -> [run_id,...]
         run_ids: Dict[BoxId, List[str]] = {}
         self._groups[group_id] = {}
 
-        # 3) Inside each Box: group slots by signature and post one JobRequest per signature
-        #    Signature = (mode, normalized_params_json, tia_gain, sampling_interval, make_plot, folder_name)
-        for box, items in per_box.items():
-            sig_to_slots: Dict[Tuple[str, str, Optional[int], Optional[float], bool, str], List[int]] = {}
-            sig_to_params: Dict[Tuple[str, str, Optional[int], Optional[float], bool, str], Dict[str, str]] = {}
+        for job in jobs:
+            box: BoxId = job.get("box")
+            wells: List[str] = list(job.get("wells") or [])
+            if not box or not wells:
+                raise ValueError("start_batch: job requires 'box' and non-empty 'wells'")
 
-            for slot, snap in items:
-                mode = self._derive_mode(snap)
-                params = self._normalize_params(mode, snap)
-                params_key = json.dumps(params, sort_keys=True)
-                signature = (mode, params_key, tia_gain, sampling_interval, make_plot, folder_name)
-                sig_to_slots.setdefault(signature, []).append(slot)
-                sig_to_params[signature] = params
+            # Map wells -> slot labels for this box
+            slots: List[int] = []
+            for wid in wells:
+                tpl = self.well_to_slot.get(wid)
+                if not tpl or tpl[0] != box:
+                    raise ValueError(f"Unknown or mismatched well '{wid}' for box '{box}'")
+                slots.append(tpl[1])
+            devices = [self._slot_label(s) for s in sorted(set(slots))]
 
-            for signature, slots in sig_to_slots.items():
-                mode, params_key, tia_g, samp_i, mk_plot, folder = signature
-                params = sig_to_params[signature]
-                slots = sorted(slots)
+            payload = {
+                "devices": devices,
+                "mode": job.get("mode"),
+                "params": job.get("params") or {},
+                "tia_gain": job.get("tia_gain", None),
+                "sampling_interval": job.get("sampling_interval", None),
+                "run_name": job.get("run_name"),
+                "folder_name": job.get("folder_name") or group_id,
+                "make_plot": bool(job.get("make_plot", True)),
+            }
 
-                payload = {
-                    "devices": [self._slot_label(s) for s in slots],
-                    "mode": mode,
-                    "params": params,
-                    "tia_gain": tia_g,
-                    "sampling_interval": samp_i,
-                    "run_name": self._auto_run_name(box, mode, slots, group_id),
-                    "folder_name": folder,
-                    "make_plot": mk_plot,
-                }
+            url = self._make_url(box, "/jobs")
+            resp = self.sessions[box].post(
+                url, json_body=payload, timeout=self.cfg.request_timeout_s
+            )
+            self._ensure_ok(resp, f"start[{box}]")
+            data = self._json(resp)
+            run_id = str(data.get("run_id") or payload["run_name"])
 
-                url = self._make_url(box, "/jobs")
-                resp = self.sessions[box].post(url, json_body=payload, timeout=self.cfg.request_timeout_s)
-                self._ensure_ok(resp, f"start[{box}]")
-                data = self._json(resp)
-                run_id = str(data.get("run_id") or payload["run_name"])
-
-                self._groups[group_id].setdefault(box, []).append(run_id)
-                run_ids.setdefault(box, []).append(run_id)
+            self._groups[group_id].setdefault(box, []).append(run_id)
+            run_ids.setdefault(box, []).append(run_id)
 
         return group_id, run_ids
 
@@ -367,231 +345,6 @@ class JobRestAdapter(JobPort):
 
     def _slot_label(self, slot: int) -> str:
         return f"slot{slot:02d}"
-
-    def _derive_mode(self, snap: Dict[str, str]) -> str:
-        # Determine mode from run_* flags (exactly one must be true)
-        flags = {
-            "CV": snap.get("run_cv"),
-            "DC": snap.get("run_dc"),
-            "AC": snap.get("run_ac"),
-            "LSV": snap.get("run_lsv"),
-            "EIS": snap.get("run_eis"),
-        }
-        picked = [m for m, v in flags.items() if str(v).strip().lower() in ("1","true","yes","on")]
-        if len(picked) != 1:
-            raise ValueError(f"Exactly one run_* flag must be set (got {picked or 'none'}).")
-        return picked[0]
-
-    def _normalize_params(self, mode: str, snap: Dict[str, str]) -> Dict[str, str]:
-        """
-        Keep this pragmatic for now: pass through the snapshot as params,
-        but strip the run_* flags themselves.
-        Future: mode-specific schema filtering (Controller's /modes/{mode}/params).
-        """
-        params = {k: v for k, v in snap.items() if not k.startswith("run_")}
-        return params
-
-    def _auto_run_name(self, box: str, mode: str, slots: List[int], group_id: str) -> str:
-        short = group_id[:8]
-        if not slots:
-            return f"{box}-{mode}-{short}"
-        smin, smax = min(slots), max(slots)
-        if smin == smax:
-            return f"{box}-{mode}-slot{ smin:02d }-{short}"
-        return f"{box}-{mode}-slot{ smin:02d }to{ smax:02d }-{short}"
-
-    # ---- Duration estimation helpers (mode-specific) ----
-    def _to_float(self, v, default=None):
-        try:
-            return float(v)
-        except Exception:
-            return default
-
-
-    def _to_int(self, v, default=None):
-        try:
-            return int(float(v))
-        except Exception:
-            return default
-
-
-    def _is_true(self, v) -> bool:
-        s = str(v).strip().lower()
-        return s in ("1", "true", "yes", "on")
-
-
-    def _estimate_planned_duration(
-        self, mode: str, params: Dict[str, Any]
-    ) -> Optional[int]:
-        """
-        Estimate planned duration (seconds) per run_id based on mode-specific parameters.
-        Returns None if not enough information is available.
-
-        Rules of thumb (kept simple and robust):
-        - Always clamp to positive numbers and add a small setup buffer.
-        - If multiple cues exist (e.g., DC duration & charge cutoff), take the MIN.
-        - Units assumptions:
-            * currents may be entered in mA (we try 'ea.target_ma' first, fallback to 'target' heuristic)
-            * times are seconds
-        """
-        setup_buffer_s = 5
-
-        mode = (mode or "").strip().upper()
-
-        # ---------- DC (constant electrolysis) ----------
-        if mode == "DC":
-            # primary duration
-            d1 = self._to_float(params.get("ea.duration_s"), None) or self._to_float(
-                params.get("duration_s"), None
-            )
-
-            # secondary from charge cutoff if current-controlled
-            # detect current control
-            ctrl = str(params.get("control_mode") or "").lower()
-            is_current_control = (
-                ("current" in ctrl) if ctrl else True
-            )  # default to current if unknown
-
-            # try to extract target current (in A)
-            i_ma = self._to_float(params.get("ea.target_ma"), None)
-            if i_ma is None:
-                i_ma = self._to_float(params.get("target_ma"), None)
-            if i_ma is None:
-                # generic 'target' often comes from combobox; take if numeric
-                i_ma = self._to_float(params.get("target"), None)
-
-            i_a = (i_ma / 1000.0) if (i_ma is not None) else None
-            q_c = self._to_float(params.get("ea.charge_cutoff_c"), None) or self._to_float(
-                params.get("charge_cutoff_c"), None
-            )
-
-            d2 = None
-            if (
-                is_current_control
-                and (i_a is not None)
-                and (i_a > 0)
-                and (q_c is not None)
-                and (q_c > 0)
-            ):
-                d2 = q_c / i_a
-
-            # take min positive candidate
-            candidates = [x for x in (d1, d2) if (x is not None and x > 0)]
-            if candidates:
-                return int(max(1, min(candidates) + setup_buffer_s))
-            return None
-
-        # ---------- AC (alternating electrolysis) ----------
-        if mode == "AC":
-            d = self._to_float(params.get("ea.duration_s"), None) or self._to_float(
-                params.get("duration_s"), None
-            )
-            if d and d > 0:
-                return int(d + setup_buffer_s)
-            # If later we support "cycles" at frequency: duration ≈ cycles / f
-            return None
-
-        # ---------- CV (cyclic voltammetry) ----------
-        if mode == "CV":
-            v1 = self._to_float(params.get("cv.vertex1_v"), None)
-            v2 = self._to_float(params.get("cv.vertex2_v"), None)
-            scan = self._to_float(params.get("cv.scan_rate_v_s"), None) or self._to_float(
-                params.get("scan_rate_v_s"), None
-            )
-            cycles = self._to_int(params.get("cv.cycles"), None) or self._to_int(
-                params.get("cycles"), None
-            )
-            if (
-                v1 is not None
-                and v2 is not None
-                and scan
-                and scan > 0
-                and cycles
-                and cycles > 0
-            ):
-                span = abs(v2 - v1)
-                t_cycle = 2.0 * span / scan  # forward + backward
-                # optional final leg (often negligible – ignore for now)
-                dur = cycles * t_cycle + setup_buffer_s
-                return int(max(1, dur))
-            return None
-
-        # ---------- LSV (linear sweep) ----------
-        if mode == "LSV":
-            start_v = self._to_float(params.get("lsv.start_v"), None) or self._to_float(
-                params.get("start_v"), None
-            )
-            end_v = self._to_float(params.get("lsv.end_v"), None) or self._to_float(
-                params.get("end_v"), None
-            )
-            scan = self._to_float(params.get("lsv.scan_rate_v_s"), None) or self._to_float(
-                params.get("scan_rate_v_s"), None
-            )
-            if start_v is not None and end_v is not None and scan and scan > 0:
-                dur = abs(end_v - start_v) / scan + setup_buffer_s
-                return int(max(1, dur))
-            return None
-
-        # ---------- EIS (impedance) ----------
-        if mode == "EIS":
-            f_start = self._to_float(
-                params.get("eis.freq_start_hz"), None
-            ) or self._to_float(params.get("freq_start_hz"), None)
-            f_end = self._to_float(params.get("eis.freq_end_hz"), None) or self._to_float(
-                params.get("freq_end_hz"), None
-            )
-            points = self._to_int(params.get("eis.points"), None) or self._to_int(
-                params.get("points"), None
-            )
-            spacing = (
-                (params.get("eis.spacing") or params.get("spacing") or "log")
-                .strip()
-                .lower()
-            )
-            cycles_per_freq = (
-                self._to_int(params.get("eis.cycles_per_freq"), None) or 3
-            )  # heuristic default
-            if (
-                f_start
-                and f_end
-                and f_start > 0
-                and f_end > 0
-                and points
-                and points > 1
-                and cycles_per_freq > 0
-            ):
-                freqs = []
-                if spacing == "lin":
-                    step = (f_end - f_start) / (points - 1)
-                    freqs = [f_start + i * step for i in range(points)]
-                else:
-                    r = (f_end / f_start) ** (1.0 / (points - 1))
-                    freqs = [f_start * (r**i) for i in range(points)]
-                # time per frequency ~ cycles / f
-                total = 0.0
-                for f in freqs:
-                    if f > 0:
-                        total += cycles_per_freq / f
-                return int(max(1, total + setup_buffer_s))
-            return None
-
-        # ---------- CDL (capacitance) ----------
-        if mode == "CDL":
-            va = self._to_float(params.get("cdl.vertex_a_v"), None)
-            vb = self._to_float(params.get("cdl.vertex_b_v"), None)
-            scan = self._to_float(params.get("cv.scan_rate_v_s"), None) or self._to_float(
-                params.get("scan_rate_v_s"), None
-            )
-            cycles = self._to_int(params.get("cdl.cycles"), 1)  # assume 1 if missing
-            if va is not None and vb is not None and scan and scan > 0 and cycles > 0:
-                span = abs(va - vb)
-                t_cycle = 2.0 * span / scan
-                dur = cycles * t_cycle + setup_buffer_s
-                return int(max(1, dur))
-            return None
-
-        # Unknown mode → no estimate
-        return None
 
     @staticmethod
     def _ensure_ok(resp: requests.Response, ctx: str) -> None:
