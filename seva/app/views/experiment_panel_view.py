@@ -59,6 +59,7 @@ class ExperimentPanelView(ttk.Frame):
         self._electrode_display = tk.StringVar(value="3-electrode") # Combobox-Text; mapping to "2E"/"3E"
         self._vars: Dict[str, tk.StringVar] = {}       # Textfelder per field_id
         self._flag_vars: Dict[str, tk.BooleanVar] = {} # Checkmarks per field_id
+        self._mode_frames = {}  # type: dict[str, ttk.Labelframe]
 
         # ------------------------------------------------------------------
         # UI build
@@ -71,6 +72,7 @@ class ExperimentPanelView(ttk.Frame):
         # ---- CV group ----
         self.cv_run_var = tk.BooleanVar(value=False)
         cv = ttk.Labelframe(self, text="Cyclic Voltammetry (CV)")
+        self._mode_frames["CV"] = cv
         cv.grid(row=0, column=0, padx=6, pady=6, sticky="nsew")
         self._make_header_with_tools(cv, check_var=self.cv_run_var, check_text="Run CV",
                                      on_copy=self._on_copy_cv, on_paste=self._on_paste_cv)
@@ -85,6 +87,7 @@ class ExperimentPanelView(ttk.Frame):
         self.dc_run_var = tk.BooleanVar(value=False)
         self.ac_run_var = tk.BooleanVar(value=False)
         dcac = ttk.Labelframe(self, text="Electrolysis (DC/AC)")
+        self._mode_frames["EA"] = dcac  # shared section for DC/AC
         dcac.grid(row=0, column=1, padx=6, pady=6, sticky="nsew")
         tools = ttk.Frame(dcac)
         tools.grid(row=0, column=0, columnspan=2, sticky="ew")
@@ -116,6 +119,7 @@ class ExperimentPanelView(ttk.Frame):
         # ---- CDL group ----
         self.cdl_eval_var = tk.BooleanVar(value=False)
         cdl = ttk.Labelframe(self, text="Capacitance (Cdl)")
+        self._mode_frames["CDL"] = cdl
         cdl.grid(row=1, column=0, padx=6, pady=6, sticky="nsew")
         self._make_header_with_tools(cdl, check_var=self.cdl_eval_var, check_text="Evaluate Cdl",
                                      on_copy=self._on_copy_cdl, on_paste=self._on_paste_cdl)
@@ -126,6 +130,7 @@ class ExperimentPanelView(ttk.Frame):
         # ---- EIS group ----
         self.eis_run_var = tk.BooleanVar(value=False)
         eis = ttk.Labelframe(self, text="Impedance (EIS)")
+        self._mode_frames["EIS"] = eis
         eis.grid(row=1, column=1, padx=6, pady=6, sticky="nsew")
         ttk.Checkbutton(eis, text="Run EIS", variable=self.eis_run_var).grid(row=0, column=0, sticky="w", padx=6, pady=4)
         self._make_labeled_entry(eis, "Freq Start (Hz)", "eis.freq_start_hz", 1)
@@ -133,6 +138,11 @@ class ExperimentPanelView(ttk.Frame):
         self._make_labeled_entry(eis, "Points", "eis.points", 3)
         self._make_labeled_entry(eis, "Spacing (log/lin)", "eis.spacing", 4)
         self._register_flag("run_eis", self.eis_run_var)
+
+        self._set_section_enabled("CV",  bool(self.cv_run_var.get()))
+        self._set_section_enabled("EA",  bool(self.dc_run_var.get()) or bool(self.ac_run_var.get()))
+        self._set_section_enabled("EIS", bool(self.eis_run_var.get()))
+        self._set_section_enabled("CDL", bool(self.cdl_eval_var.get()))
         # ---- Footer: editing well + actions ----
         footer = ttk.Frame(self)
         footer.grid(row=2, column=0, columnspan=2, sticky="ew", padx=6, pady=(4, 6))
@@ -208,16 +218,57 @@ class ExperimentPanelView(ttk.Frame):
                 self._on_change(field_id, var.get())
         var.trace_add("write", _on_var_changed)
 
+
     def _register_flag(self, field_id: str, var: tk.BooleanVar) -> None:
-        """Register a BooleanVar as flag and forward changes via on_change(field_id, '1'/'0')."""
-        self._flag_vars[field_id] = var
-        def _on_flag_changed(*_):
+        def _apply():
+            # 1) an VM melden
             if self._on_change:
                 try:
                     self._on_change(field_id, "1" if var.get() else "0")
                 except Exception as e:
                     print(f"ExperimentPanelView on_change flag error ({field_id}): {e}")
-        var.trace_add("write", _on_flag_changed)
+            # 2) Section toggeln
+            try:
+                if field_id == "run_cv":
+                    self._set_section_enabled("CV", bool(var.get()))
+                elif field_id == "run_dc":
+                    self._set_section_enabled(
+                        "EA", bool(var.get()) or bool(self.ac_run_var.get())
+                    )
+                elif field_id == "run_ac":
+                    self._set_section_enabled(
+                        "EA", bool(var.get()) or bool(self.dc_run_var.get())
+                    )
+                elif field_id == "run_eis":
+                    self._set_section_enabled("EIS", bool(var.get()))
+                elif field_id == "eval_cdl":
+                    self._set_section_enabled("CDL", bool(var.get()))
+            except Exception:
+                pass
+
+        # initial anwenden (Startzustand)
+        _apply()
+        # und künftig bei jeder Änderung auslösen
+        var.trace_add("write", lambda *_: _apply())
+
+    def _set_section_enabled(self, section_key: str, enabled: bool) -> None:
+        """Enable/disable all input widgets within a registered section frame."""
+        frame = self._mode_frames.get(section_key)
+        if not frame:
+            return
+        state = "normal" if enabled else "disabled"
+
+        def _walk(w):
+            for child in w.winfo_children():
+                # Entries & Comboboxen aktivieren/deaktivieren
+                try:
+                    if isinstance(child, (ttk.Entry, ttk.Combobox)):
+                        child.configure(state=state)
+                except Exception:
+                    pass
+                _walk(child)
+
+        _walk(frame)
 
     # ------------------------------------------------------------------
     # Public setters for VM
