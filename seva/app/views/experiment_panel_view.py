@@ -76,11 +76,11 @@ class ExperimentPanelView(ttk.Frame):
         cv.grid(row=0, column=0, padx=6, pady=6, sticky="nsew")
         self._make_header_with_tools(cv, check_var=self.cv_run_var, check_text="Run CV",
                                      on_copy=self._on_copy_cv, on_paste=self._on_paste_cv)
-        self._make_labeled_entry(cv, "Vertex 1 vs. Ref (V)", "cv.vertex1_v", 1)
-        self._make_labeled_entry(cv, "Vertex 2 vs. Ref (V)", "cv.vertex2_v", 2)
-        self._make_labeled_entry(cv, "Final vs. Ref (V)", "cv.final_v", 3)
-        self._make_labeled_entry(cv, "Scan Rate (V/s)", "cv.scan_rate_v_s", 4)
-        self._make_labeled_entry(cv, "Cycle Count", "cv.cycles", 5)
+        self._make_labeled_entry(cv, "Vertex 1 vs. Ref (V)", "vertex1", 1)
+        self._make_labeled_entry(cv, "Vertex 2 vs. Ref (V)", "vertex2", 2)
+        self._make_labeled_entry(cv, "Final vs. Ref (V)", "end", 3)
+        self._make_labeled_entry(cv, "Scan Rate (V/s)", "scan_rate", 4)
+        self._make_labeled_entry(cv, "Cycle Count", "cycles", 5)
         self._register_flag("run_cv", self.cv_run_var)
 
         # ---- DC/AC group ----
@@ -96,11 +96,11 @@ class ExperimentPanelView(ttk.Frame):
         ttk.Button(tools, text="⎘", width=3, command=lambda: self._safe(self._on_copy_dcac)).pack(side="right")
         ttk.Button(tools, text="🗀", width=3, command=lambda: self._safe(self._on_paste_dcac)).pack(side="right")
 
-        self._make_labeled_entry(dcac, "Duration (s)", "ea.duration_s", 1)
-        self._make_labeled_entry(dcac, "Charge Cutoff (C)", "ea.charge_cutoff_c", 2)
-        self._make_labeled_entry(dcac, "Voltage Cutoff (V)", "ea.voltage_cutoff_v", 3)
+        self._make_labeled_entry(dcac, "Duration (s)", "duration", 1)
+        self._make_labeled_entry(dcac, "Charge Cutoff (C)", "charge_cutoff", 2)
+        self._make_labeled_entry(dcac, "Voltage Cutoff (V)", "voltage_cutoff", 3)
         # Frequency is only relevant for AC; VM can disable it via setter
-        self._make_labeled_entry(dcac, "Frequency (Hz)", "ea.frequency_hz", 4)
+        self._make_labeled_entry(dcac, "Frequency (Hz)", "frequency", 4)
         self._register_flag("run_dc", self.dc_run_var)
         self._register_flag("run_ac", self.ac_run_var)
 
@@ -123,8 +123,8 @@ class ExperimentPanelView(ttk.Frame):
         cdl.grid(row=1, column=0, padx=6, pady=6, sticky="nsew")
         self._make_header_with_tools(cdl, check_var=self.cdl_eval_var, check_text="Evaluate Cdl",
                                      on_copy=self._on_copy_cdl, on_paste=self._on_paste_cdl)
-        self._make_labeled_entry(cdl, "Vertex A vs. Ref (V)", "cdl.vertex_a_v", 1)
-        self._make_labeled_entry(cdl, "Vertex B vs. Ref (V)", "cdl.vertex_b_v", 2)
+        self._make_labeled_entry(cdl, "Vertex A vs. Ref (V)", "vertex_a", 1)
+        self._make_labeled_entry(cdl, "Vertex B vs. Ref (V)", "vertex_b", 2)
         self._register_flag("eval_cdl", self.cdl_eval_var)
 
         # ---- EIS group ----
@@ -133,10 +133,10 @@ class ExperimentPanelView(ttk.Frame):
         self._mode_frames["EIS"] = eis
         eis.grid(row=1, column=1, padx=6, pady=6, sticky="nsew")
         ttk.Checkbutton(eis, text="Run EIS", variable=self.eis_run_var).grid(row=0, column=0, sticky="w", padx=6, pady=4)
-        self._make_labeled_entry(eis, "Freq Start (Hz)", "eis.freq_start_hz", 1)
-        self._make_labeled_entry(eis, "Freq End (Hz)", "eis.freq_end_hz", 2)
-        self._make_labeled_entry(eis, "Points", "eis.points", 3)
-        self._make_labeled_entry(eis, "Spacing (log/lin)", "eis.spacing", 4)
+        self._make_labeled_entry(eis, "Freq Start (Hz)", "start_freq", 1)
+        self._make_labeled_entry(eis, "Freq End (Hz)", "end_freq", 2)
+        self._make_labeled_entry(eis, "Points", "points", 3)
+        self._make_labeled_entry(eis, "Spacing (log/lin)", "spacing", 4)
         self._register_flag("run_eis", self.eis_run_var)
 
         self._set_section_enabled("CV",  bool(self.cv_run_var.get()))
@@ -340,3 +340,4 @@ if __name__ == "__main__":
     panel.pack(fill="both", expand=True)
     panel.set_editing_well("15")
     root.mainloop()
+
