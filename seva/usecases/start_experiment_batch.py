@@ -322,7 +322,7 @@ class StartExperimentBatch:
                             "tia_gain": tg,
                             "sampling_interval": si,
                             "folder_name": folder,
-                            "make_plot": mp,
+                            "make_plot": False,
                             "run_name": _auto_run_name(box, mode, wells, group_id),
                         }
                     )

@@ -202,6 +202,9 @@ class App:
             return
         try:
             self.uc_cancel(self._current_group_id)  # prints notice in adapter
+            self._stop_polling()
+            self._current_group_id = None
+            self.win.set_run_group_id("")        # optional UI cleanup
             self.win.show_toast("Cancel requested (API not implemented).")
         except Exception as e:
             self.win.show_toast(str(e))
@@ -421,6 +424,10 @@ class App:
         try:
             snap = self.uc_poll(self._current_group_id)  # type: ignore[misc]
             self.progress_vm.apply_snapshot(snap)
+            if snap.get("all_done"):
+                self._stop_polling()
+                self.win.show_toast("All runs completed.")
+                return
         except Exception as e:
             self.win.show_toast(str(e))
         finally:

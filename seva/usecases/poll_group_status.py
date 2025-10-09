@@ -109,6 +109,9 @@ class PollGroupStatus:
                 well_rows.append((wid, state, box_prog, err, subrun))
 
             snap["wells"] = well_rows
+            snap["all_done"] = bool(boxes) and all(
+                (meta.get("phase") in {"Done", "Failed"}) for meta in boxes.values()
+            )
             return snap
         except Exception as e:
             raise UseCaseError("POLL_FAILED", str(e))
