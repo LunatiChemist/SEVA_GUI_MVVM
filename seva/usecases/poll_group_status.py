@@ -29,6 +29,7 @@ class PollGroupStatus:
         - Progress % is computed per run_id using started_at + planned_duration_s.
         - 99% cap while API status != 'done'; jump to 100% when 'done'.
         """
+        run_info = {}  # run_id -> {"progress": int, "status": str, "error": str}
         try:
             snap = self.job_port.poll_group(run_group_id)
             boxes = snap.get("boxes", {})
@@ -69,6 +70,9 @@ class PollGroupStatus:
                         progress = 99
                     r["progress"] = progress
                     run_progresses.append(progress)
+                    run_info[run_id] = {
+                        "progress": progress,
+                    }
 
                 if run_progresses:
                     box_prog = int(round(sum(run_progresses) / len(run_progresses)))
@@ -104,9 +108,12 @@ class PollGroupStatus:
             for row in snap.get("wells", []):
                 # row format: (well_id, state, progress, error, subrun)
                 wid, state, _, err, subrun = row
-                box = wid[0] if wid else ""
-                box_prog = boxes.get(box, {}).get("progress", 0)
-                well_rows.append((wid, state, box_prog, err, subrun))
+                info = run_info.get(subrun)  # subrun ist die run_id der Zeile
+                if info:
+                    p = info["progress"]
+                else:
+                    p = 0
+                well_rows.append((wid, state, p, err, subrun))
 
             snap["wells"] = well_rows
             snap["all_done"] = bool(boxes) and all(
