@@ -38,56 +38,64 @@ class PollGroupStatus:
             for box_id, meta in boxes.items():
                 runs = meta.get("runs") or []
                 run_progresses = []
+                statuses = []
 
                 for r in runs:
                     run_id = r.get("run_id")
                     status = str(r.get("status") or "queued").lower()
+                    statuses.append(status)
                     started_at = _parse_iso(r.get("started_at"))
-
                     progress = 0
                     if status == "done":
                         progress = 100
-                    elif status == "running" and started_at:
+                    elif status == "failed":
+                        progress = 100
+                    elif status == "running":
                         planned = get_planned_duration(
                             run_group_id, run_id
                         )  # per-run planned duration
-                        if planned and planned > 0:
+                        if planned and planned > 0 and started_at:
                             elapsed = (now - started_at).total_seconds()
                             pct = int(
                                 round(100 * max(0.0, min(1.0, elapsed / planned)))
                             )
-                            # cap at 99% until API says 'done'
                             progress = min(pct, 99)
                         else:
                             progress = 0
                     else:
                         progress = 0
 
+                    if status == "running" and progress > 99:
+                        progress = 99
                     r["progress"] = progress
                     run_progresses.append(progress)
 
-                # Box-level progress = mean of run progresses (or 0 if none)
-                box_prog = (
-                    int(round(sum(run_progresses) / len(run_progresses)))
-                    if run_progresses
-                    else 0
-                )
-                meta["progress"] = box_prog
+                if run_progresses:
+                    box_prog = int(round(sum(run_progresses) / len(run_progresses)))
+                else:
+                    box_prog = 0
 
-                # If all runs are 'done', override progress to 100 for box
-                statuses = {str(r.get("status") or "").lower() for r in runs}
-                if statuses and statuses.issubset({"done"}):
+                statuses_set = set(statuses)
+                has_incomplete = any(s in {"queued", "running"} for s in statuses_set)
+                all_terminal = statuses and not has_incomplete and statuses_set.issubset(
+                    {"done", "failed"}
+                )
+
+                if all_terminal:
                     meta["progress"] = 100
-                    if meta.get("phase") != "Failed":
-                        meta["phase"] = "Done"
-                elif "running" in statuses:
+                elif has_incomplete:
+                    meta["progress"] = min(box_prog, 99)
+                else:
+                    meta["progress"] = box_prog
+
+                if all_terminal:
+                    meta["phase"] = "Failed" if "failed" in statuses_set else "Done"
+                elif "running" in statuses_set:
                     meta["phase"] = "Running"
-                elif "failed" in statuses and "running" not in statuses:
-                    meta["phase"] = "Failed"
-                elif "queued" in statuses and not statuses.intersection(
-                    {"running", "failed"}
-                ):
+                elif "queued" in statuses_set and "running" not in statuses_set:
                     meta["phase"] = "Queued"
+                elif "failed" in statuses_set and "running" not in statuses_set:
+                    meta["phase"] = "Failed"
                 else:
                     meta["phase"] = meta.get("phase") or "Mixed"
 

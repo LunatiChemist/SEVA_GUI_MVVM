@@ -1,11 +1,90 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Dict, Tuple, List, Any, Iterable
+from typing import Dict, Tuple, List, Any, Iterable, Callable
 from uuid import uuid4
 import json
 
 from seva.domain.ports import JobPort, UseCaseError, RunGroupId, BoxId
 from seva.usecases.group_registry import set_planned_duration
+
+# ---- Mode parameter mapping ----
+
+
+def _map_params_cv(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    """Project CV snapshot fields to the REST API payload."""
+
+    def _coerce_float(value: Any) -> Any:
+        if value is None:
+            return value
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return value
+            value = stripped
+        try:
+            return float(value)
+        except Exception:
+            # TODO(validation): enforce numeric input once validation layer exists.
+            return value
+
+    def _coerce_int(value: Any) -> Any:
+        if value is None:
+            return value
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return value
+            value = stripped
+        try:
+            return int(float(value))
+        except Exception:
+            # TODO(validation): enforce numeric input once validation layer exists.
+            return value
+
+    start_raw = snapshot.get("cv.start_v")
+    if start_raw is None or (isinstance(start_raw, str) and not start_raw.strip()):
+        start_value: Any = 0.0
+    else:
+        start_value = _coerce_float(start_raw)
+
+    return {
+        "start": start_value,
+        "vertex1": _coerce_float(snapshot.get("cv.vertex1_v")),
+        "vertex2": _coerce_float(snapshot.get("cv.vertex2_v")),
+        "end": _coerce_float(snapshot.get("cv.final_v")),
+        "scan_rate": _coerce_float(snapshot.get("cv.scan_rate_v_s")),
+        "cycles": _coerce_int(snapshot.get("cv.cycles")),
+    }
+
+
+_MAPPER_REGISTRY: Dict[str, Callable[[Dict[str, Any]], Dict[str, Any]]] = {
+    "CV": _map_params_cv,
+    # TODO(mode:EIS): add mapper when EIS mapping is defined.
+    # TODO(mode:CDL): add mapper when CDL mapping is defined.
+    # TODO(mode:DC): add mapper when DC mapping is defined.
+    # TODO(mode:AC): add mapper when AC mapping is defined.
+}
+
+
+def map_params(mode: str, snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply mode-specific parameter mapping, keeping legacy fields as fallback."""
+    mapper = _MAPPER_REGISTRY.get((mode or "").upper())
+    if not mapper:
+        # TODO: replace with strict mapping once mode is implemented.
+        return {
+            k: v
+            for k, v in snapshot.items()
+            if k
+            not in (
+                "run_cv",
+                "run_eis",
+                "run_cdl",
+                "run_dc",
+                "run_ac",
+                "eval_cdl",
+            )
+        }
+    return mapper(snapshot)
 
 # ---- Local helpers (UseCase-level) ----
 
@@ -32,12 +111,8 @@ def _derive_mode(snap: Dict[str, str]) -> str:
 
 
 def _normalize_params(mode: str, snap: Dict[str, str]) -> Dict[str, Any]:
-    """Keep a mode-focused params dict; strip run_* flags."""
-    return {
-        k: v
-        for k, v in snap.items()
-        if not k.startswith("run_") and not k.startswith("eval_cdl")
-    }
+    """Keep a mode-focused params dict via map_params for backward compatibility."""
+    return map_params(mode, snap)
 
 
 def _auto_run_name(box: str, mode: str, well_ids: List[str], group_id: str) -> str:
@@ -65,7 +140,7 @@ def _estimate_planned_duration(mode: str, params: Dict[str, Any]) -> int | None:
         except Exception:
             return d
 
-    setup = 5
+    setup = 1
     m = (mode or "").upper()
 
     if m == "DC":
@@ -91,10 +166,16 @@ def _estimate_planned_duration(mode: str, params: Dict[str, Any]) -> int | None:
 
     if m == "CV":
         v1 = f(params.get("cv.vertex1_v"), None)
+        if v1 is None:
+            v1 = f(params.get("vertex1"), None)
         v2 = f(params.get("cv.vertex2_v"), None)
+        if v2 is None:
+            v2 = f(params.get("vertex2"), None)
         scan = f(params.get("cv.scan_rate_v_s"), None) or f(
             params.get("scan_rate_v_s"), None
         )
+        if scan is None:
+            scan = f(params.get("scan_rate"), None)
         cycles = i(params.get("cv.cycles"), None) or i(params.get("cycles"), None)
         if (
             v1 is not None
@@ -249,13 +330,16 @@ class StartExperimentBatch:
             # Call adapter with pre-grouped jobs
             adapter_plan = {"jobs": jobs, "group_id": group_id}
             run_group_id, per_box_runs = self.job_port.start_batch(adapter_plan)
+            per_box_remaining = {
+                box: list(runs) for box, runs in per_box_runs.items()
+            }
 
             # Store planned duration per run (mode-specific) for client-side progress
             for job in jobs:
                 box = job["box"]
                 mode = job["mode"]
                 params = job["params"]
-                run_list = per_box_runs.get(box, [])
+                run_list = per_box_remaining.get(box, [])
                 # Heuristic: map in the order we posted jobs per box
                 # (jobs appended per signature; adapter returns per box in the same order)
                 if not run_list:

@@ -1,7 +1,7 @@
 # /opt/box/app.py
 import os, uuid, threading, time, json, zipfile, io, pathlib, datetime
 from typing import Optional, Literal, Dict, List
-
+from datetime import timezone
 import serial.tools.list_ports
 from fastapi import FastAPI, HTTPException, Header, Response
 from pydantic import BaseModel, Field
@@ -179,7 +179,7 @@ def start_job(req: JobRequest, x_api_key: Optional[str] = Header(None)):
         raise HTTPException(400, "Keine gültigen devices angegeben")
 
     # Ordner/Run-ID
-    run_id = req.run_name or datetime.datetime.now().strftime("%Y%m%dT%H%M%S") + "_" + uuid.uuid4().hex[:6]
+    run_id = req.run_name or datetime.datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "_" + uuid.uuid4().hex[:6]
     run_dir = RUNS_ROOT / run_id 
     run_dir.mkdir(parents=True, exist_ok=True)
     if req.folder_name:
@@ -191,7 +191,7 @@ def start_job(req: JobRequest, x_api_key: Optional[str] = Header(None)):
         JOBS[run_id] = JobStatus(
             run_id=run_id,
             mode=req.mode,
-            started_at=datetime.datetime.now().isoformat() + "Z",
+            started_at=datetime.datetime.now(timezone.utc).isoformat() + "Z",
             status="running",
             slots=[SlotStatus(slot=s, status="queued", files=[]) for s in slots],
         )
