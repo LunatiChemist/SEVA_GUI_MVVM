@@ -23,10 +23,15 @@ from ..usecases.start_experiment_batch import StartExperimentBatch
 from ..usecases.poll_group_status import PollGroupStatus
 from ..usecases.download_group_results import DownloadGroupResults
 from ..usecases.cancel_group import CancelGroup
+from ..usecases.test_connection import TestConnection
 from ..adapters.job_rest import JobRestAdapter
 from ..adapters.storage_local import StorageLocal
+from ..adapters.relay_mock import RelayMock
 from ..usecases.save_plate_layout import SavePlateLayout
 from ..usecases.load_plate_layout import LoadPlateLayout
+from ..domain.ports import UseCaseError
+from ..usecases.test_relay import TestRelay
+from ..usecases.set_electrode_mode import SetElectrodeMode
 
 
 class App:
@@ -62,7 +67,7 @@ class App:
             on_copy_params_from=lambda wid: self.plate_vm.cmd_copy_from(wid),
             on_paste_params_to_selection=self.plate_vm.cmd_paste_to_selection,
             on_toggle_enable_selected=self.plate_vm.cmd_toggle_enable_selection,
-            on_reset_selected=lambda: None,
+            on_reset_selected=self._on_reset_well_config,
             on_open_plot=lambda wid: self._open_plot_for_well(wid),
         )
         self.wellgrid.pack(fill="both", expand=True)
@@ -74,12 +79,14 @@ class App:
             on_toggle_control_mode=None,
             on_apply_params=self._on_apply_params,
             on_end_task=self._on_cancel_group,
-            on_copy_cv=None,
-            on_paste_cv=None,
-            on_copy_dcac=None,
-            on_paste_dcac=None,
-            on_copy_cdl=None,
-            on_paste_cdl=None,
+            on_copy_cv=lambda: self._on_copy_mode("CV"),
+            on_paste_cv=lambda: self._on_paste_mode("CV"),
+            on_copy_dcac=lambda: self._on_copy_mode("DCAC"),
+            on_paste_dcac=lambda: self._on_paste_mode("DCAC"),
+            on_copy_cdl=lambda: self._on_copy_mode("CDL"),
+            on_paste_cdl=lambda: self._on_paste_mode("CDL"),
+            on_copy_eis=lambda: self._on_copy_mode("EIS"),
+            on_paste_eis=lambda: self._on_paste_mode("EIS"),
             on_electrode_mode_changed=self._on_electrode_mode_changed,  # relay-only, not part of REST
         )
         self.win.mount_experiment_panel(self.experiment)
@@ -106,11 +113,17 @@ class App:
         self.uc_poll: Optional[PollGroupStatus] = None
         self.uc_download: Optional[DownloadGroupResults] = None
         self.uc_cancel: Optional[CancelGroup] = None
+        self.uc_test_connection: Optional[TestConnection] = None
 
         # ---- LocalStorage Adapter ----
         self._storage = StorageLocal(root_dir=self.settings_vm.results_dir or ".")
         self.uc_save_layout = SavePlateLayout(self._storage)
         self.uc_load_layout = LoadPlateLayout(self._storage)
+
+        # ---- Relay Adapter & UseCases ----
+        self._relay = RelayMock()
+        self.uc_test_relay = TestRelay(self._relay)
+        self.uc_set_electrode_mode = SetElectrodeMode(self._relay)
 
         # ---- Polling state ----
         self._current_group_id: Optional[str] = None
@@ -145,6 +158,7 @@ class App:
         self.uc_poll = PollGroupStatus(self._job_adapter)
         self.uc_download = DownloadGroupResults(self._job_adapter)
         self.uc_cancel = CancelGroup(self._job_adapter)
+        self.uc_test_connection = TestConnection(self._job_adapter)
         return True
 
     # ==================================================================
@@ -244,15 +258,114 @@ class App:
             self.win.show_toast(str(e))
 
     def _on_open_settings(self) -> None:
+        dlg: Optional[SettingsDialog] = None
+
+        def handle_test_connection(box_id: str) -> None:
+            if not dlg:
+                return
+            url_var = dlg.url_vars.get(box_id)
+            if url_var is None:
+                self.win.show_toast(f"Box {box_id}: not available.")
+                return
+            base_url = url_var.get().strip()
+            if not base_url:
+                self.win.show_toast(f"Box {box_id}: URL required for test.")
+                return
+
+            api_key_var = dlg.key_vars.get(box_id)
+            api_key = api_key_var.get().strip() if api_key_var else ""
+            request_timeout = SettingsDialog._parse_int(
+                dlg.request_timeout_var.get(), self.settings_vm.request_timeout_s
+            )
+            download_timeout = SettingsDialog._parse_int(
+                dlg.download_timeout_var.get(), self.settings_vm.download_timeout_s
+            )
+
+            job_port = None
+            uc: Optional[TestConnection] = None
+
+            adapter = self._job_adapter
+            if adapter is None:
+                saved_url = (self.settings_vm.box_urls or {}).get(box_id, "").strip()
+                if saved_url:
+                    if self._ensure_adapter():
+                        adapter = self._job_adapter
+            if adapter and getattr(adapter, "base_urls", {}).get(box_id) == base_url:
+                job_port = adapter
+                uc = self.uc_test_connection
+                if uc is None:
+                    uc = TestConnection(job_port)
+                    self.uc_test_connection = uc
+
+            if job_port is None or uc is None:
+                api_map = {box_id: api_key} if api_key else {}
+                job_port = JobRestAdapter(
+                    base_urls={box_id: base_url},
+                    api_keys=api_map,
+                    request_timeout_s=request_timeout,
+                    download_timeout_s=download_timeout,
+                    retries=0,
+                )
+                uc = TestConnection(job_port)
+
+            assert uc is not None
+            try:
+                result = uc(box_id)
+            except UseCaseError as err:
+                reason = err.message or str(err)
+                self.win.show_toast(f"Box {box_id}: failed ({reason})")
+                return
+            except Exception as exc:
+                self.win.show_toast(f"Box {box_id}: failed ({exc})")
+                return
+
+            status = "ok" if result.get("ok") else "failed"
+            devices = result.get("device_count")
+            device_text = (
+                f"devices={devices}" if devices is not None else "devices=?"
+            )
+            health = result.get("health") or {}
+            reason = str(
+                health.get("message")
+                or health.get("detail")
+                or health.get("error")
+                or ""
+            ).strip()
+            detail = device_text if status == "ok" else (reason or device_text)
+            self.win.show_toast(f"Box {box_id}: {status} ({detail})")
+
+        def handle_test_relay() -> None:
+            if not dlg:
+                return
+            ip = dlg.relay_ip_var.get().strip()
+            port_raw = dlg.relay_port_var.get().strip()
+            if not ip:
+                self.win.show_toast("Relay IP required for test.")
+                return
+            if not port_raw:
+                self.win.show_toast("Relay port required for test.")
+                return
+            try:
+                port = int(port_raw)
+            except ValueError:
+                self.win.show_toast("Relay port must be an integer.")
+                return
+            try:
+                ok = self.uc_test_relay(ip, port)
+            except Exception as e:
+                self.win.show_toast(str(e))
+                return
+            message = "Relay test successful." if ok else "Relay test failed."
+            self.win.show_toast(message)
+
         dlg = SettingsDialog(
             self.win,
-            on_test_connection=lambda b: self.win.show_toast(f"Test box {b} (demo)"),
-            on_test_relay=lambda: self.win.show_toast("Test relay (demo)"),
+            on_test_connection=handle_test_connection,
+            on_test_relay=handle_test_relay,
             on_browse_results_dir=lambda: self.win.show_toast(
                 "Browse results dir (demo)"
             ),
             on_save=self._on_settings_saved,
-            on_cancel=lambda: None,
             on_close=lambda: None,
         )
         # Populate dialog from VM
@@ -295,6 +408,7 @@ class App:
 
         # reset adapter to reflect new settings
         self._job_adapter = None
+        self.uc_test_connection = None
         self.win.show_toast("Settings saved.")
 
     def _on_open_plotter(self) -> None:
@@ -365,9 +479,75 @@ class App:
 
         self.win.show_toast("Parameters applied.")
 
+    def _on_reset_well_config(self) -> None:
+        selection = self.plate_vm.get_selection()
+        if not selection:
+            self.win.show_toast("No wells selected.")
+            return
+
+        for wid in selection:
+            self.experiment_vm.clear_params_for(wid)
+
+        self.plate_vm.clear_configured(selection)
+        self.wellgrid.clear_configured_wells(selection)
+        self._on_selection_changed(selection)
+        self.win.show_toast("Well config reset.")
+
+    def _mode_label(self, mode: str) -> str:
+        return {
+            "CV": "CV",
+            "DCAC": "DC/AC",
+            "CDL": "CDL",
+            "EIS": "EIS",
+        }.get((mode or "").upper(), mode)
+
+    def _on_copy_mode(self, mode: str) -> None:
+        selection = self.plate_vm.get_selection()
+        if len(selection) != 1:
+            self.win.show_toast("Select one well.")
+            return
+        well_id = next(iter(selection))
+        if not self.experiment_vm.get_params_for(well_id):
+            self.win.show_toast("No saved params.")
+            return
+        try:
+            self.experiment_vm.cmd_copy_mode(mode, well_id)
+            self.win.show_toast(f"Copied {self._mode_label(mode)}.")
+        except Exception as e:
+            self.win.show_toast(str(e))
+
+    def _on_paste_mode(self, mode: str) -> None:
+        selection = self.plate_vm.get_selection()
+        if not selection:
+            self.win.show_toast("No wells selected.")
+            return
+
+        clipboard_attr = {
+            "CV": "clipboard_cv",
+            "DCAC": "clipboard_dcac",
+            "CDL": "clipboard_cdl",
+            "EIS": "clipboard_eis",
+        }.get((mode or "").upper())
+        clipboard = getattr(self.experiment_vm, clipboard_attr, {})
+        if not clipboard:
+            self.win.show_toast("Clipboard empty.")
+            return
+
+        try:
+            self.experiment_vm.cmd_paste_mode(mode, selection)
+        except Exception as e:
+            self.win.show_toast(str(e))
+            return
+
+        self.plate_vm.mark_configured(selection)
+        self.wellgrid.add_configured_wells(selection)
+        self._on_selection_changed(selection)
+        self.win.show_toast(f"Pasted {self._mode_label(mode)}.")
+
     def _on_electrode_mode_changed(self, mode: str) -> None:
         try:
-            self.experiment_vm.set_electrode_mode(mode)  # handled by relay later
+            self.experiment_vm.set_electrode_mode(mode)
+            self.uc_set_electrode_mode(mode)
             self.win.show_toast(f"Electrode mode: {mode}")
         except Exception as e:
             self.win.show_toast(str(e))

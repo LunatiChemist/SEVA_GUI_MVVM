@@ -173,7 +173,7 @@ def on_open_settings() -> None:
         on_test_relay=lambda: info("Test relay"),
         on_browse_results_dir=lambda: info("Browse results dir"),
         on_save=lambda settings: info(f"Save settings: {settings}"),
-        on_cancel=close_settings_dialog,
+        on_close=close_settings_dialog,
     )
     state.settings_dialog = dlg
 

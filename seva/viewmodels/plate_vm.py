@@ -76,6 +76,14 @@ class PlateVM:
     def well_to_box(well_id: WellId) -> BoxId:
         if not well_id:
             raise ValueError("Empty well_id")
+        if len(well_id) < 2:
+            raise ValueError(f"Invalid well id '{well_id}'")
+        suffix = well_id[1:]
+        if not suffix.isdigit():
+            raise ValueError(f"Invalid well id '{well_id}'")
+        number = int(suffix)
+        if number <= 0:
+            raise ValueError(f"Invalid well id '{well_id}'")
         prefix = well_id[0].upper()
         if prefix not in {"A", "B", "C", "D"}:
             raise ValueError(f"Invalid box prefix: {prefix}")

@@ -150,6 +150,34 @@ class JobRestAdapter(JobPort):
 
     # ---------- JobPort implementation ----------
 
+    def health(self, box_id: BoxId) -> Dict:
+        session = self.sessions.get(box_id)
+        if session is None:
+            raise ValueError(f"No session configured for box '{box_id}'")
+        url = self._make_url(box_id, "/health")
+        resp = session.get(url, timeout=self.cfg.request_timeout_s)
+        self._ensure_ok(resp, f"health[{box_id}]")
+        data = self._json_any(resp)
+        if not isinstance(data, dict):
+            raise RuntimeError(f"health[{box_id}]: expected dict response")
+        return data
+
+    def list_devices(self, box_id: BoxId) -> List[Dict]:
+        session = self.sessions.get(box_id)
+        if session is None:
+            raise ValueError(f"No session configured for box '{box_id}'")
+        url = self._make_url(box_id, "/devices")
+        resp = session.get(url, timeout=self.cfg.request_timeout_s)
+        self._ensure_ok(resp, f"devices[{box_id}]")
+        data = self._json_any(resp)
+        if not isinstance(data, list):
+            raise RuntimeError(f"devices[{box_id}]: expected list response")
+        cleaned: List[Dict[str, Any]] = []
+        for item in data:
+            if isinstance(item, dict):
+                cleaned.append(item)
+        return cleaned
+
     def start_batch(self, plan: Dict) -> Tuple[RunGroupId, Dict[BoxId, List[str]]]:
         """
         Post pre-grouped jobs (built by the UseCase) to each box.
@@ -360,6 +388,13 @@ class JobRestAdapter(JobPort):
 
     @staticmethod
     def _json(resp: requests.Response) -> Dict[str, Any]:
+        data = JobRestAdapter._json_any(resp)
+        if not isinstance(data, dict):
+            raise RuntimeError("Invalid JSON response: expected object")
+        return data
+
+    @staticmethod
+    def _json_any(resp: requests.Response) -> Any:
         try:
             return resp.json()
         except Exception:

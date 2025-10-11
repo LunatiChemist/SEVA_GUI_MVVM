@@ -5,7 +5,7 @@ Tkinter Toplevel dialog for editing connection and runtime settings.
 Pure View: UI-only, no domain logic.
 
 Updates:
-- Close behavior improved: WM_DELETE_WINDOW triggers same as Cancel button.
+- Close behavior improved: WM_DELETE_WINDOW triggers same as Close button.
 - Relay section (IP/Port + Test button) added.
 - Save button disabled until VM enables it (validation ok).
 """
@@ -33,7 +33,6 @@ class SettingsDialog(tk.Toplevel):
         on_test_relay: OnVoid = None,
         on_browse_results_dir: OnVoid = None,
         on_save: OnSave = None,
-        on_cancel: OnVoid = None,
         on_close: OnVoid = None,
     ) -> None:
         super().__init__(parent)
@@ -46,11 +45,10 @@ class SettingsDialog(tk.Toplevel):
         self._on_test_relay = on_test_relay
         self._on_browse_results_dir = on_browse_results_dir
         self._on_save = on_save
-        self._on_cancel = on_cancel
         self._on_close = on_close
 
         # Close actions
-        self.protocol("WM_DELETE_WINDOW", lambda: self._safe(self._on_cancel))
+        self.protocol("WM_DELETE_WINDOW", self._on_close_clicked)
 
         # Data vars
         self.url_vars: Dict[BoxId, tk.StringVar] = {b: tk.StringVar(value="") for b in boxes}
@@ -127,7 +125,6 @@ class SettingsDialog(tk.Toplevel):
         footer.columnconfigure(0, weight=1)
         self._btn_save = ttk.Button(footer, text="Save", command=self._emit_save)
         self._btn_save.pack(side="right", padx=(0,6))
-        ttk.Button(footer, text="Cancel", command=lambda: self._safe(self._on_cancel)).pack(side="right")
         ttk.Button(footer, text="Close", command=self._on_close_clicked).pack(side="right")
 
     # ------------------------------------------------------------------
@@ -154,12 +151,12 @@ class SettingsDialog(tk.Toplevel):
                 print(f"SettingsDialog on_save failed: {e}")
 
     def _on_close_clicked(self) -> None:
-            if self._on_close:
-                try:
-                    self._on_close()
-                except Exception as e:
-                    print(f"DataPlotter on_close failed: {e}")
-            self.destroy()
+        self._safe(self._on_close)
+        try:
+            if self.winfo_exists():
+                self.destroy()
+        except tk.TclError:
+            pass
 
     # ------------------------------------------------------------------
     # Public setters to initialize dialog fields from VM

@@ -12,8 +12,12 @@ def _parse_iso(ts: Optional[str]) -> Optional[datetime]:
         return None
     try:
         if ts.endswith("Z"):
-            return datetime.fromisoformat(ts.replace("Z", "+00:00"))
-        return datetime.fromisoformat(ts)
+            parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        else:
+            parsed = datetime.fromisoformat(ts)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
     except Exception:
         return None
 
@@ -29,7 +33,7 @@ class PollGroupStatus:
         - Progress % is computed per run_id using started_at + planned_duration_s.
         - 99% cap while API status != 'done'; jump to 100% when 'done'.
         """
-        run_info = {}  # run_id -> {"progress": int, "status": str, "error": str}
+        run_info = {}  # run_id -> {"progress": int, "remaining_s": Optional[int]}
         try:
             snap = self.job_port.poll_group(run_group_id)
             boxes = snap.get("boxes", {})
@@ -47,20 +51,28 @@ class PollGroupStatus:
                     statuses.append(status)
                     started_at = _parse_iso(r.get("started_at"))
                     progress = 0
+                    remaining_s: Optional[int] = None
                     if status == "done":
                         progress = 100
+                        remaining_s = 0
                     elif status == "failed":
                         progress = 100
+                        remaining_s = 0
                     elif status == "running":
                         planned = get_planned_duration(
                             run_group_id, run_id
                         )  # per-run planned duration
                         if planned and planned > 0 and started_at:
-                            elapsed = (now - started_at).total_seconds()
+                            elapsed_seconds = max(
+                                (now - started_at).total_seconds(), 0.0
+                            )
                             pct = int(
-                                round(100 * max(0.0, min(1.0, elapsed / planned)))
+                                round(
+                                    100 * max(0.0, min(1.0, elapsed_seconds / planned))
+                                )
                             )
                             progress = min(pct, 99)
+                            remaining_s = max(int(round(planned - elapsed_seconds)), 0)
                         else:
                             progress = 0
                     else:
@@ -72,6 +84,7 @@ class PollGroupStatus:
                     run_progresses.append(progress)
                     run_info[run_id] = {
                         "progress": progress,
+                        "remaining_s": remaining_s,
                     }
 
                 if run_progresses:
@@ -106,14 +119,25 @@ class PollGroupStatus:
             # Propagate per-well progress: take box progress as coarse proxy
             well_rows = []
             for row in snap.get("wells", []):
-                # row format: (well_id, state, progress, error, subrun)
+                # row format from adapter: (well_id, state, progress, error, subrun)
+                # extend with remaining_s for client display
                 wid, state, _, err, subrun = row
                 info = run_info.get(subrun)  # subrun ist die run_id der Zeile
                 if info:
                     p = info["progress"]
+                    remaining_s = info.get("remaining_s")
                 else:
                     p = 0
-                well_rows.append((wid, state, p, err, subrun))
+                    remaining_s = None
+
+                state_norm = str(state or "").lower()
+                if remaining_s is None:
+                    if state_norm in {"done", "failed"}:
+                        remaining_s = 0
+                    elif state_norm == "queued":
+                        remaining_s = None
+
+                well_rows.append((wid, state, p, err, subrun, remaining_s))
 
             snap["wells"] = well_rows
             snap["all_done"] = bool(boxes) and all(
