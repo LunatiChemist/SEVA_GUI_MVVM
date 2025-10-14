@@ -25,6 +25,7 @@ from ..usecases.download_group_results import DownloadGroupResults
 from ..usecases.cancel_group import CancelGroup
 from ..usecases.test_connection import TestConnection
 from ..adapters.job_rest import JobRestAdapter
+from ..adapters.device_rest import DeviceRestAdapter
 from ..adapters.storage_local import StorageLocal
 from ..adapters.relay_mock import RelayMock
 from ..usecases.save_plate_layout import SavePlateLayout
@@ -109,6 +110,7 @@ class App:
 
         # ---- REST Adapter & UseCases (lazy init after settings) ----
         self._job_adapter: Optional[JobRestAdapter] = None
+        self._device_adapter: Optional[DeviceRestAdapter] = None
         self.uc_start: Optional[StartExperimentBatch] = None
         self.uc_poll: Optional[PollGroupStatus] = None
         self.uc_download: Optional[DownloadGroupResults] = None
@@ -138,7 +140,7 @@ class App:
     # ==================================================================
     def _ensure_adapter(self) -> bool:
         """Build the REST adapter and use cases from SettingsVM if not yet present."""
-        if self._job_adapter:
+        if self._job_adapter and self._device_adapter:
             return True
 
         base_urls = {k: v for k, v in (self.settings_vm.box_urls or {}).items() if v}
@@ -147,18 +149,29 @@ class App:
             return False
 
         api_keys = {k: v for k, v in (self.settings_vm.api_keys or {}).items() if v}
-        self._job_adapter = JobRestAdapter(
-            base_urls=base_urls,
-            api_keys=api_keys,
-            request_timeout_s=self.settings_vm.request_timeout_s,
-            download_timeout_s=self.settings_vm.download_timeout_s,
-            retries=2,
-        )
-        self.uc_start = StartExperimentBatch(self._job_adapter)
-        self.uc_poll = PollGroupStatus(self._job_adapter)
-        self.uc_download = DownloadGroupResults(self._job_adapter)
-        self.uc_cancel = CancelGroup(self._job_adapter)
-        self.uc_test_connection = TestConnection(self._job_adapter)
+        if self._job_adapter is None:
+            self._job_adapter = JobRestAdapter(
+                base_urls=base_urls,
+                api_keys=api_keys,
+                request_timeout_s=self.settings_vm.request_timeout_s,
+                download_timeout_s=self.settings_vm.download_timeout_s,
+                retries=2,
+            )
+            self.uc_start = StartExperimentBatch(self._job_adapter)
+            self.uc_poll = PollGroupStatus(self._job_adapter)
+            self.uc_download = DownloadGroupResults(self._job_adapter)
+            self.uc_cancel = CancelGroup(self._job_adapter)
+
+        if self._device_adapter is None:
+            self._device_adapter = DeviceRestAdapter(
+                base_urls=base_urls,
+                api_keys=api_keys,
+                request_timeout_s=self.settings_vm.request_timeout_s,
+                retries=2,
+            )
+
+        if self._device_adapter:
+            self.uc_test_connection = TestConnection(self._device_adapter)
         return True
 
     # ==================================================================
@@ -277,36 +290,32 @@ class App:
             request_timeout = SettingsDialog._parse_int(
                 dlg.request_timeout_var.get(), self.settings_vm.request_timeout_s
             )
-            download_timeout = SettingsDialog._parse_int(
-                dlg.download_timeout_var.get(), self.settings_vm.download_timeout_s
-            )
 
-            job_port = None
+            device_port: Optional[DeviceRestAdapter] = None
             uc: Optional[TestConnection] = None
 
-            adapter = self._job_adapter
+            adapter = self._device_adapter
             if adapter is None:
                 saved_url = (self.settings_vm.box_urls or {}).get(box_id, "").strip()
                 if saved_url:
                     if self._ensure_adapter():
-                        adapter = self._job_adapter
+                        adapter = self._device_adapter
             if adapter and getattr(adapter, "base_urls", {}).get(box_id) == base_url:
-                job_port = adapter
+                device_port = adapter
                 uc = self.uc_test_connection
                 if uc is None:
-                    uc = TestConnection(job_port)
+                    uc = TestConnection(device_port)
                     self.uc_test_connection = uc
 
-            if job_port is None or uc is None:
+            if device_port is None or uc is None:
                 api_map = {box_id: api_key} if api_key else {}
-                job_port = JobRestAdapter(
+                device_port = DeviceRestAdapter(
                     base_urls={box_id: base_url},
                     api_keys=api_map,
                     request_timeout_s=request_timeout,
-                    download_timeout_s=download_timeout,
                     retries=0,
                 )
-                uc = TestConnection(job_port)
+                uc = TestConnection(device_port)
 
             assert uc is not None
             try:
@@ -408,6 +417,7 @@ class App:
 
         # reset adapter to reflect new settings
         self._job_adapter = None
+        self._device_adapter = None
         self.uc_test_connection = None
         self.win.show_toast("Settings saved.")
 
@@ -623,9 +633,8 @@ class App:
         Collects all configured wells and their stored parameters.
 
         The UseCase will:
-        - Group wells per box and per identical signature,
-        - Generate one JobRequest per (Box,Signature),
-        - Estimate planned durations (mode-specific) per run.
+        - Route each configured well to its box prefix,
+        - Generate one JobRequest per well.
 
         Fields tia_gain / sampling_interval are set to None for now
         until they are exposed in the Settings UI.

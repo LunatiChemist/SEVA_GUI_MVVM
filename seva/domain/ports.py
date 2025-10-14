@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Literal, Optional, Protocol, Tuple
+from typing import Any, Dict, Iterable, List, Literal, Optional, Protocol, Tuple
 
 WellId = str
 BoxId = str
@@ -23,8 +23,6 @@ class JobPort(Protocol):
     Future: LiveData could be added here.
     """
 
-    def health(self, box_id: BoxId) -> Dict: ...  # {"ok": bool, "devices": int, ...}
-    def list_devices(self, box_id: BoxId) -> List[Dict]: ...  # [{"slot": "...", ...}]
     def start_batch(
         self, plan: Dict
     ) -> Tuple[
@@ -38,9 +36,12 @@ class JobPort(Protocol):
 
 
 class DevicePort(Protocol):
-    """Optional capabilities/device metadata from boxes."""
+    """Device metadata and capability endpoints provided by the boxes."""
 
-    def list_devices(self) -> List[Dict]: ...
+    def health(self, box_id: BoxId) -> Dict[str, Any]: ...
+    def list_devices(self, box_id: BoxId) -> List[Dict[str, Any]]: ...
+    def list_modes(self, box_id: BoxId) -> List[Dict[str, Any]]: ...
+    def get_mode_params(self, box_id: BoxId, mode: str) -> Dict[str, Any]: ...
 
 
 class RelayPort(Protocol):

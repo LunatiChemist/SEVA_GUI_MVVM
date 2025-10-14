@@ -12,24 +12,11 @@ from seva.domain.ports import BoxId, JobPort, RunGroupId
 class JobRestMock(JobPort):
     """Offline substitute for ``JobRestAdapter`` with deterministic responses."""
 
-    health_status: Dict[BoxId, Dict[str, Any]] = field(default_factory=dict)
-    devices: Dict[BoxId, List[Dict[str, Any]]] = field(default_factory=dict)
-
     def __post_init__(self) -> None:
         self._groups: Dict[RunGroupId, Dict[BoxId, List[str]]] = {}
         self._runs: Dict[Tuple[RunGroupId, BoxId, str], Dict[str, Any]] = {}
 
     # ---------- JobPort ----------
-
-    def health(self, box_id: BoxId) -> Dict[str, Any]:
-        devices = self.devices.get(box_id, [])
-        status = {"ok": True, "devices": len(devices)}
-        status.update(self.health_status.get(box_id, {}))
-        return dict(status)
-
-    def list_devices(self, box_id: BoxId) -> List[Dict[str, Any]]:
-        entries = self.devices.get(box_id, [])
-        return [dict(entry) for entry in entries]
 
     def start_batch(
         self, plan: Dict[str, Any]

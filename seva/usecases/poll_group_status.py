@@ -1,25 +1,30 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Dict, Optional
-from datetime import datetime, timezone
+from typing import Any, Dict, Optional
 
 from seva.domain.ports import JobPort, UseCaseError, RunGroupId
-from seva.usecases.group_registry import get_planned_duration
 
 
-def _parse_iso(ts: Optional[str]) -> Optional[datetime]:
-    if not ts:
+def _coerce_int(value: Any, *, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return default
+
+
+def _coerce_optional_int(value: Any) -> Optional[int]:
+    if value is None:
         return None
     try:
-        if ts.endswith("Z"):
-            parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-        else:
-            parsed = datetime.fromisoformat(ts)
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
-    except Exception:
-        return None
+        return int(value)
+    except (TypeError, ValueError):
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return None
 
 
 @dataclass
@@ -27,85 +32,49 @@ class PollGroupStatus:
     job_port: JobPort
 
     def __call__(self, run_group_id: RunGroupId) -> Dict:
-        """
-        Enrich raw snapshot from adapter with client-side progress %.
-        - Status (queued/running/done/failed) from API is authoritative.
-        - Progress % is computed per run_id using started_at + planned_duration_s.
-        - 99% cap while API status != 'done'; jump to 100% when 'done'.
-        """
-        run_info = {}  # run_id -> {"progress": int, "remaining_s": Optional[int]}
+        """Attach server-side progress metrics to the poll snapshot."""
+        run_info: Dict[str, Dict[str, Optional[int]]] = {}
         try:
             snap = self.job_port.poll_group(run_group_id)
-            boxes = snap.get("boxes", {})
-            now = datetime.now(timezone.utc)
+            boxes = snap.get("boxes", {}) or {}
+            all_boxes_terminal = bool(boxes)
 
-            # Compute per-run progress and box aggregates
             for box_id, meta in boxes.items():
                 runs = meta.get("runs") or []
-                run_progresses = []
-                statuses = []
+                statuses: list[str] = []
+                progresses: list[int] = []
 
-                for r in runs:
-                    run_id = r.get("run_id")
-                    status = str(r.get("status") or "queued").lower()
+                for run in runs:
+                    run_id = run.get("run_id")
+                    status = str(run.get("status") or "queued").lower()
                     statuses.append(status)
-                    started_at = _parse_iso(r.get("started_at"))
-                    progress = 0
-                    remaining_s: Optional[int] = None
-                    if status == "done":
-                        progress = 100
-                        remaining_s = 0
-                    elif status == "failed":
-                        progress = 100
-                        remaining_s = 0
-                    elif status == "running":
-                        planned = get_planned_duration(
-                            run_group_id, run_id
-                        )  # per-run planned duration
-                        if planned and planned > 0 and started_at:
-                            elapsed_seconds = max(
-                                (now - started_at).total_seconds(), 0.0
-                            )
-                            pct = int(
-                                round(
-                                    100 * max(0.0, min(1.0, elapsed_seconds / planned))
-                                )
-                            )
-                            progress = min(pct, 99)
-                            remaining_s = max(int(round(planned - elapsed_seconds)), 0)
-                        else:
-                            progress = 0
-                    else:
-                        progress = 0
 
-                    if status == "running" and progress > 99:
-                        progress = 99
-                    r["progress"] = progress
-                    run_progresses.append(progress)
-                    run_info[run_id] = {
-                        "progress": progress,
-                        "remaining_s": remaining_s,
-                    }
+                    progress_pct = _coerce_int(run.get("progress_pct"), default=0)
+                    remaining_s = _coerce_optional_int(run.get("remaining_s"))
 
-                if run_progresses:
-                    box_prog = int(round(sum(run_progresses) / len(run_progresses)))
+                    run["progress_pct"] = progress_pct
+                    run["progress"] = progress_pct
+                    run["remaining_s"] = remaining_s
+                    progresses.append(progress_pct)
+
+                    if run_id:
+                        run_info[run_id] = {
+                            "progress_pct": progress_pct,
+                            "remaining_s": remaining_s,
+                        }
+
+                if progresses:
+                    meta["progress"] = int(round(sum(progresses) / len(progresses)))
                 else:
-                    box_prog = 0
+                    meta["progress"] = 0
 
-                statuses_set = set(statuses)
+                statuses_set = {s for s in statuses if s}
                 has_incomplete = any(s in {"queued", "running"} for s in statuses_set)
-                all_terminal = statuses and not has_incomplete and statuses_set.issubset(
+                all_terminal_box = bool(runs) and not has_incomplete and statuses_set.issubset(
                     {"done", "failed"}
                 )
 
-                if all_terminal:
-                    meta["progress"] = 100
-                elif has_incomplete:
-                    meta["progress"] = min(box_prog, 99)
-                else:
-                    meta["progress"] = box_prog
-
-                if all_terminal:
+                if all_terminal_box:
                     meta["phase"] = "Failed" if "failed" in statuses_set else "Done"
                 elif "running" in statuses_set:
                     meta["phase"] = "Running"
@@ -116,33 +85,21 @@ class PollGroupStatus:
                 else:
                     meta["phase"] = meta.get("phase") or "Mixed"
 
-            # Propagate per-well progress: take box progress as coarse proxy
+                if not all_terminal_box:
+                    all_boxes_terminal = False
+
             well_rows = []
             for row in snap.get("wells", []):
-                # row format from adapter: (well_id, state, progress, error, subrun)
-                # extend with remaining_s for client display
-                wid, state, _, err, subrun = row
-                info = run_info.get(subrun)  # subrun ist die run_id der Zeile
-                if info:
-                    p = info["progress"]
-                    remaining_s = info.get("remaining_s")
-                else:
-                    p = 0
-                    remaining_s = None
-
-                state_norm = str(state or "").lower()
-                if remaining_s is None:
-                    if state_norm in {"done", "failed"}:
-                        remaining_s = 0
-                    elif state_norm == "queued":
-                        remaining_s = None
-
-                well_rows.append((wid, state, p, err, subrun, remaining_s))
+                if len(row) < 5:
+                    continue
+                wid, state, _, err, subrun = row[:5]
+                info = run_info.get(subrun) or {}
+                progress_pct = info.get("progress_pct", 0) or 0
+                remaining_s = info.get("remaining_s")
+                well_rows.append((wid, state, progress_pct, err, subrun, remaining_s))
 
             snap["wells"] = well_rows
-            snap["all_done"] = bool(boxes) and all(
-                (meta.get("phase") in {"Done", "Failed"}) for meta in boxes.values()
-            )
+            snap["all_done"] = bool(boxes) and all_boxes_terminal
             return snap
-        except Exception as e:
-            raise UseCaseError("POLL_FAILED", str(e))
+        except Exception as exc:
+            raise UseCaseError("POLL_FAILED", str(exc))

@@ -3,17 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
-from seva.domain.ports import BoxId, JobPort, UseCaseError
+from seva.domain.ports import BoxId, DevicePort, UseCaseError
 
 
 @dataclass
 class TestConnection:
-    job_port: JobPort
+    device_port: DevicePort
 
     def __call__(self, box_id: BoxId) -> Dict[str, Any]:
         try:
-            health = self.job_port.health(box_id)
-            devices = self.job_port.list_devices(box_id)
+            health = self.device_port.health(box_id)
+            devices = self.device_port.list_devices(box_id)
         except Exception as exc:
             raise UseCaseError("TEST_CONNECTION_FAILED", str(exc))
 

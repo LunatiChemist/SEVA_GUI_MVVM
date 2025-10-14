@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import json
 from dataclasses import dataclass
-from typing import Dict, Iterable, Tuple, Optional, Any, List
+from typing import Dict, Iterable, Tuple, Optional, Any, List, Set
 from uuid import uuid4
 
 import requests
@@ -96,7 +96,7 @@ class JobRestAdapter(JobPort):
       - GET  {base}/runs/{run_id}/zip  -> application/zip
 
     Notes:
-      - Cancel: not implemented server-side → we only print a notice.
+      - Cancel: not implemented server-side -> we only print a notice.
       - Box list is dynamic from base_urls keys (alphabetic order).
       - Well/slot mapping uses a prebuilt registry (no ad-hoc arithmetic in call sites).
     """
@@ -133,10 +133,14 @@ class JobRestAdapter(JobPort):
         self.slot_to_well: Dict[Tuple[BoxId, int], str] = {}
         self._build_registry()
 
+        # Cached run snapshots + terminal tracking
+        self._run_cache: Dict[str, Dict[str, Any]] = {}
+        self._terminal_runs: Set[str] = set()
+
     # ---------- Registry ----------
 
     def _build_registry(self) -> None:
-        """Build well_id ↔ (box,slot) mapping harmonized with WellGrid IDs.
+        """Build well_id <-> (box,slot) mapping harmonized with WellGrid IDs.
         Pattern: for each box in alphabetic order, slots 1..10 map to
         A1..A10, B11..B20, C21..C30, ...
         """
@@ -237,66 +241,90 @@ class JobRestAdapter(JobPort):
             self._groups[group_id].setdefault(box, []).append(run_id)
             run_ids.setdefault(box, []).append(run_id)
 
+            normalized = self._normalize_job_status(
+                box, data, fallback_run_id=run_id
+            )
+            self._store_run_snapshot(normalized)
+
         return group_id, run_ids
 
     def cancel_group(self, run_group_id: RunGroupId) -> None:
         print("Cancel not implemented on API side.")
 
     def poll_group(self, run_group_id: RunGroupId) -> Dict:
-        """
-        Poll status for ALL run_ids per box and return a raw snapshot.
-        We do NOT compute % here (UseCase handles that). No finished_at expected.
-
-        Returns:
-        {
-            "boxes": {
-            "A": {
-                "runs": [ {"run_id": "...", "status": "running|done|failed", "started_at": "iso|None"} , ... ],
-                "phase": "Queued|Running|Done|Failed|Mixed",
-                "subrun": "runA1, runA2"  # CSV of run_ids
-            },
-            ...
-            },
-            "wells": [ (well_id, slot_status, 0, message, run_id), ... ],
-            "activity": { well_id: slot_status, ... }
-        }
-        """
+        """Bulk poll run snapshots using POST /jobs/status and cached terminals."""
         box_runs: Dict[BoxId, List[str]] = self._groups.get(run_group_id, {}) or {}
         snapshot = {"boxes": {}, "wells": [], "activity": {}}
 
+        has_runs = False
+        all_terminal = True
+
         for box, run_list in box_runs.items():
-            run_entries = []
-            phases = set()
+            unique_runs: List[str] = list(dict.fromkeys(run_list))
+            if not unique_runs:
+                snapshot["boxes"][box] = {"runs": [], "phase": "Queued", "subrun": None}
+                all_terminal = False
+                continue
 
-            for run_id in run_list:
-                url = self._make_url(box, f"/jobs/{run_id}")
-                resp = self.sessions[box].get(url, timeout=self.cfg.request_timeout_s)
-                if resp.status_code == 404:
-                    # Unknown/queued from server view; keep placeholder
-                    run_entries.append(
-                        {"run_id": run_id, "status": "queued", "started_at": None}
-                    )
-                    phases.add("Queued")
-                    continue
+            pending_ids: List[str] = []
+            for run_id in unique_runs:
+                if run_id not in self._terminal_runs:
+                    pending_ids.append(run_id)
 
-                self._ensure_ok(resp, f"status[{box}]")
-                data = self._json(resp)
-
-                job_status = str(data.get("status") or "queued").lower()
-                started_at = data.get("started_at")  # ISO or None
-                run_entries.append(
-                    {
-                        "run_id": str(data.get("run_id") or run_id),
-                        "status": job_status,
-                        "started_at": started_at,
-                    }
+            if pending_ids:
+                url = self._make_url(box, "/jobs/status")
+                resp = self.sessions[box].post(
+                    url,
+                    json_body={"run_ids": pending_ids},
+                    timeout=self.cfg.request_timeout_s,
                 )
-                phases.add(job_status.capitalize())
+                self._ensure_ok(resp, f"status[{box}]")
+                payload = self._json_any(resp)
+                if not isinstance(payload, list):
+                    raise RuntimeError("Invalid JSON response: expected list of runs")
+                for item in payload:
+                    if not isinstance(item, dict):
+                        continue
+                    normalized = self._normalize_job_status(box, item)
+                    self._store_run_snapshot(normalized)
 
-                # Slots → per-well rows & activity
+            run_entries: List[Dict[str, Any]] = []
+            statuses_capitalized: Set[str] = set()
+            box_has_incomplete = False
+
+            for run_id in unique_runs:
+                data = self._run_cache.get(run_id)
+                if not data:
+                    data = {
+                        "box": box,
+                        "run_id": run_id,
+                        "status": "queued",
+                        "started_at": None,
+                        "ended_at": None,
+                        "progress_pct": 0,
+                        "remaining_s": None,
+                        "slots": [],
+                    }
+                    self._run_cache[run_id] = data
+                    self._terminal_runs.discard(run_id)
+
+                status = str(data.get("status") or "queued").lower()
+                run_entry = {
+                    "run_id": data.get("run_id", run_id),
+                    "status": status,
+                    "started_at": data.get("started_at"),
+                    "ended_at": data.get("ended_at"),
+                    "progress_pct": data.get("progress_pct", 0),
+                    "remaining_s": data.get("remaining_s"),
+                }
+                run_entries.append(run_entry)
+                statuses_capitalized.add(run_entry["status"].capitalize())
+
+                if not self._is_terminal(status):
+                    box_has_incomplete = True
+
                 for slot_info in data.get("slots") or []:
-                    # API model: {slot: "slot01", status: "running|done|failed", message: str, files: [...]}
-                    slot_label = slot_info.get("slot")  # "slotNN"
+                    slot_label = slot_info.get("slot")
                     try:
                         slot_num = int(str(slot_label).replace("slot", ""))
                     except Exception:
@@ -304,29 +332,52 @@ class JobRestAdapter(JobPort):
                     wid = self.slot_to_well.get((box, slot_num))
                     if not wid:
                         continue
-                    raw = str(slot_info.get("status")).lower()
-                    s_status = "Error" if raw == "failed" else ("Done" if raw == "done" else ("Running" if raw == "running" else "Queued"))
+                    raw = str(slot_info.get("status") or "queued").lower()
+                    s_status = (
+                        "Error"
+                        if raw == "failed"
+                        else (
+                            "Done"
+                            if raw == "done"
+                            else ("Running" if raw == "running" else "Queued")
+                        )
+                    )
                     s_msg = slot_info.get("message") or ""
                     snapshot["wells"].append(
-                        (wid, s_status, 0, s_msg, str(data.get("run_id") or run_id))
+                        (
+                            wid,
+                            s_status,
+                            data.get("progress_pct", 0),
+                            s_msg,
+                            run_entry["run_id"],
+                        )
                     )
                     snapshot["activity"][wid] = s_status
 
-            # Box-level aggregation (no percentages here)
+            if run_entries:
+                has_runs = True
+            else:
+                all_terminal = False
+
             if not run_entries:
                 box_phase = "Queued"
+            elif len(statuses_capitalized) == 1:
+                box_phase = next(iter(statuses_capitalized))
             else:
-                up = {e["status"].capitalize() for e in run_entries}
-                box_phase = "Mixed" if len(up) > 1 else next(iter(up))
+                box_phase = "Mixed"
 
             snapshot["boxes"][box] = {
                 "runs": run_entries,
                 "phase": box_phase,
-                "subrun": (
-                    ", ".join([e["run_id"] for e in run_entries]) if run_entries else None
-                ),
+                "subrun": ", ".join(entry["run_id"] for entry in run_entries)
+                if run_entries
+                else None,
             }
 
+            if box_has_incomplete:
+                all_terminal = False
+
+        snapshot["all_done"] = bool(box_runs) and has_runs and all_terminal
         return snapshot
 
     def download_group_zip(self, run_group_id: RunGroupId, target_dir: str) -> str:
@@ -374,6 +425,75 @@ class JobRestAdapter(JobPort):
 
     def _slot_label(self, slot: int) -> str:
         return f"slot{slot:02d}"
+
+    def _store_run_snapshot(self, snapshot: Dict[str, Any]) -> None:
+        run_id = snapshot.get("run_id")
+        if not run_id:
+            return
+        self._run_cache[run_id] = snapshot
+        status = str(snapshot.get("status") or "").lower()
+        if self._is_terminal(status):
+            self._terminal_runs.add(run_id)
+        else:
+            self._terminal_runs.discard(run_id)
+
+    @staticmethod
+    def _is_terminal(status: str) -> bool:
+        normalized = status.lower()
+        return normalized in {"done", "failed", "canceled", "cancelled"}
+
+    def _normalize_job_status(
+        self, box: BoxId, payload: Dict[str, Any], *, fallback_run_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise RuntimeError("Invalid job status payload: expected object")
+        run_id_raw = payload.get("run_id") or fallback_run_id
+        if not run_id_raw:
+            raise RuntimeError("Job status payload missing run_id")
+        run_id = str(run_id_raw)
+        status = str(payload.get("status") or "queued").lower()
+        progress_raw = payload.get("progress_pct")
+        try:
+            progress_pct = int(progress_raw)
+        except Exception:
+            progress_pct = 0
+        remaining_raw = payload.get("remaining_s")
+        if isinstance(remaining_raw, (int, float)):
+            remaining_s: Optional[int] = int(remaining_raw)
+        elif remaining_raw is not None:
+            try:
+                remaining_s = int(float(remaining_raw))
+            except Exception:
+                remaining_s = None
+        else:
+            remaining_s = None
+        slots_raw = payload.get("slots") or []
+        slots: List[Dict[str, Any]] = []
+        for slot in slots_raw:
+            if not isinstance(slot, dict):
+                continue
+            slots.append(
+                {
+                    "slot": slot.get("slot"),
+                    "status": str(slot.get("status") or "queued").lower(),
+                    "message": slot.get("message"),
+                    "started_at": slot.get("started_at"),
+                    "ended_at": slot.get("ended_at"),
+                    "files": slot.get("files") or [],
+                }
+            )
+        normalized = {
+            "box": box,
+            "run_id": run_id,
+            "status": status,
+            "started_at": payload.get("started_at"),
+            "ended_at": payload.get("ended_at"),
+            "progress_pct": progress_pct,
+            "remaining_s": remaining_s,
+            "slots": slots,
+            "mode": payload.get("mode"),
+        }
+        return normalized
 
     @staticmethod
     def _ensure_ok(resp: requests.Response, ctx: str) -> None:
