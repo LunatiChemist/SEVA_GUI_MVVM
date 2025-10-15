@@ -1,9 +1,16 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Dict, Tuple, List, Any, Iterable, Callable
+from typing import Dict, List, Any, Iterable, Callable, Optional
 from uuid import uuid4
 
-from seva.domain.ports import JobPort, UseCaseError, RunGroupId, BoxId
+from seva.domain.ports import (
+    BoxId,
+    DevicePort,
+    JobPort,
+    RunGroupId,
+    UseCaseError,
+    WellId,
+)
 
 # ---- Mode parameter mapping ----
 
@@ -125,12 +132,36 @@ def _auto_run_name(box: str, mode: str, well_ids: List[str], group_id: str) -> s
 
 
 @dataclass
+class WellValidationResult:
+    """Structured summary for per-well validation feedback."""
+
+    well_id: WellId
+    box_id: BoxId
+    mode: str
+    ok: bool
+    errors: List[Dict[str, Any]]
+    warnings: List[Dict[str, Any]]
+
+
+@dataclass
+class StartBatchResult:
+    """Aggregate outcome for a batch start attempt."""
+
+    run_group_id: Optional[RunGroupId]
+    per_box_runs: Dict[BoxId, List[str]]
+    started_wells: List[WellId]
+    validations: List[WellValidationResult]
+
+
+@dataclass
 class StartExperimentBatch:
     job_port: JobPort
+    device_port: DevicePort
 
-    def __call__(self, plan: Dict) -> Tuple[RunGroupId, Dict[BoxId, List[str]]]:
+    def __call__(self, plan: Dict) -> StartBatchResult:
         """
         Build one job per configured well and post them via JobPort.
+        Returns a StartBatchResult capturing per-well validation outcomes.
         Plan (input) must contain:
           - selection: List[WellId] (configured wells)
           - well_params_map: Dict[WellId, Dict[str,str]] (per-well snapshots incl. run_* flags)
@@ -154,7 +185,14 @@ class StartExperimentBatch:
             sampling_interval = plan.get("sampling_interval", None)
             make_plot = bool(plan.get("make_plot", True))
 
+            def _issue_list(raw: Any) -> List[Dict[str, Any]]:
+                if not isinstance(raw, list):
+                    return []
+                return [entry for entry in raw if isinstance(entry, dict)]
+
+            validations: List[WellValidationResult] = []
             jobs: List[Dict[str, Any]] = []
+            started_wells: List[WellId] = []
             for wid in selection:
                 if not wid or len(wid) < 2:
                     raise ValueError(f"Invalid well id '{wid}'")
@@ -165,6 +203,32 @@ class StartExperimentBatch:
 
                 mode = _derive_mode(snap)
                 params = _normalize_params(mode, snap)
+
+                try:
+                    validation_payload = self.device_port.validate_mode(
+                        box, mode, params
+                    )
+                except Exception as exc:
+                    raise UseCaseError("VALIDATION_FAILED", f"{wid}: {exc}")
+
+                ok_flag = bool(validation_payload.get("ok"))
+                errors = _issue_list(validation_payload.get("errors"))
+                warnings = _issue_list(validation_payload.get("warnings"))
+                if validation_payload.get("ok") is None and not errors:
+                    ok_flag = True
+
+                well_validation = WellValidationResult(
+                    well_id=wid,
+                    box_id=box,
+                    mode=mode,
+                    ok=ok_flag and not errors,
+                    errors=errors,
+                    warnings=warnings,
+                )
+                validations.append(well_validation)
+
+                if not well_validation.ok:
+                    continue
 
                 jobs.append(
                     {
@@ -179,11 +243,27 @@ class StartExperimentBatch:
                         "run_name": _auto_run_name(box, mode, [wid], group_id),
                     }
                 )
+                started_wells.append(wid)
+
+            if not jobs:
+                return StartBatchResult(
+                    run_group_id=None,
+                    per_box_runs={},
+                    started_wells=[],
+                    validations=validations,
+                )
 
             # Call adapter with one job per well
             adapter_plan = {"jobs": jobs, "group_id": group_id}
             run_group_id, per_box_runs = self.job_port.start_batch(adapter_plan)
 
-            return run_group_id, per_box_runs
+            return StartBatchResult(
+                run_group_id=run_group_id,
+                per_box_runs=per_box_runs,
+                started_wells=started_wells,
+                validations=validations,
+            )
+        except UseCaseError:
+            raise
         except Exception as e:
             raise UseCaseError("START_FAILED", str(e))

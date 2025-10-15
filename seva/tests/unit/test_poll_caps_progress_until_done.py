@@ -40,11 +40,11 @@ def test_poll_group_status_passes_through_server_metrics():
     result = uc("group-1")
 
     runs = result["boxes"]["A"]["runs"]
-    assert runs[0]["progress"] == 42
     assert runs[0]["progress_pct"] == 42
     assert runs[0]["remaining_s"] == 120
-    assert runs[1]["progress"] == 100
     assert runs[1]["remaining_s"] == 0
+    assert "progress" not in runs[0]
+    assert "progress" not in runs[1]
 
     wells = result["wells"]
     assert wells[0] == ("A1", "Running", 42, "", "run-1", 120)
@@ -83,7 +83,7 @@ def test_poll_group_status_sets_all_done_for_terminal_boxes():
     result = uc("group-2")
 
     assert result["all_done"] is True
-    assert result["boxes"]["A"]["phase"] == "Failed"
+    assert result["boxes"]["A"]["phase"] == snapshot["boxes"]["A"]["phase"]
     wells = result["wells"]
     assert wells[0][-1] == 0
     assert wells[1][-1] == 0

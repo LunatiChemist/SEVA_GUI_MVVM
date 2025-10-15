@@ -1,7 +1,52 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Dict, Iterable, List, Optional
+
+_PATH_SEGMENT_RE = re.compile(r"[^0-9A-Za-z_-]+")
+_CLIENT_DATETIME_RE = re.compile(r"[^0-9A-Za-zT_-]+")
+
+
+def _value_or_none(value: Optional[str]) -> Optional[str]:
+    """Return a trimmed string or None when the input is empty."""
+    if value is None:
+        return None
+    trimmed = value.strip()
+    return trimmed if trimmed else None
+
+
+def sanitize_path_segment(raw: Optional[str]) -> Optional[str]:
+    """Sanitize a path segment to keep only safe characters for local storage."""
+    candidate = _value_or_none(raw)
+    if candidate is None:
+        return None
+    sanitized = _PATH_SEGMENT_RE.sub("_", candidate)
+    # Collapse duplicate separators so the segment stays compact.
+    sanitized = re.sub(r"_+", "_", sanitized)
+    sanitized = re.sub(r"-+", "-", sanitized)
+    sanitized = sanitized.strip("_-")
+    return sanitized or None
+
+
+def sanitize_client_datetime(raw: Optional[str]) -> Optional[str]:
+    """Normalize the client timestamp so it can be safely used as folder name."""
+    candidate = _value_or_none(raw)
+    if candidate is None:
+        return None
+    normalized = (
+        candidate.replace(":", "-")
+        .replace(" ", "_")
+        .replace("/", "-")
+        .replace("\\", "-")
+        .replace(".", "-")
+    )
+    sanitized = _CLIENT_DATETIME_RE.sub("-", normalized)
+    # Keep markers human-readable by squashing repeated underscores/dashes.
+    sanitized = re.sub(r"-{2,}", "-", sanitized)
+    sanitized = re.sub(r"_{2,}", "_", sanitized)
+    sanitized = sanitized.strip("_-")
+    return sanitized or None
 
 
 def collect_box_runs(
@@ -25,6 +70,34 @@ def collect_box_runs(
         if run_ids:
             fallback[box] = run_ids
     return fallback
+
+
+def build_group_root(
+    results_dir: Optional[str],
+    experiment_name: Optional[str],
+    client_datetime: Optional[str],
+    *,
+    subdir: Optional[str] = None,
+    fallback_segment: Optional[str] = None,
+) -> str:
+    """Compose the absolute group root path based on the storage schema."""
+    base = os.path.abspath(results_dir or ".")
+    experiment_segment = sanitize_path_segment(experiment_name)
+    subdir_segment = sanitize_path_segment(subdir)
+    timestamp_segment = sanitize_client_datetime(client_datetime)
+
+    # Only build the schema when both experiment and timestamp are known.
+    if experiment_segment and timestamp_segment:
+        segments = [base, experiment_segment]
+        if subdir_segment:
+            segments.append(subdir_segment)
+        segments.append(timestamp_segment)
+        return os.path.abspath(os.path.join(*segments))
+
+    if fallback_segment:
+        return os.path.abspath(os.path.join(base, str(fallback_segment)))
+
+    return base
 
 
 def build_zip_paths(

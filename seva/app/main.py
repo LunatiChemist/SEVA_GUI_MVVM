@@ -1,6 +1,9 @@
 # seva/app/main.py
 from __future__ import annotations
-from typing import Dict, Set, Optional, Iterable, Tuple
+import os
+import subprocess
+import sys
+from typing import Dict, Set, Optional, Iterable, List
 
 # ---- Views (UI-only) ----
 from .views.main_window import MainWindowView
@@ -19,9 +22,13 @@ from ..viewmodels.settings_vm import SettingsVM
 from ..viewmodels.live_data_vm import LiveDataVM
 
 # ---- UseCases & Adapter ----
-from ..usecases.start_experiment_batch import StartExperimentBatch
+from ..usecases.start_experiment_batch import (
+    StartBatchResult,
+    StartExperimentBatch,
+    WellValidationResult,
+)
 from ..usecases.poll_group_status import PollGroupStatus
-from ..usecases.download_group_results import DownloadGroupResults
+from ..usecases.download_group_results import DownloadGroupResults, GroupStorageHint
 from ..usecases.cancel_group import CancelGroup
 from ..usecases.test_connection import TestConnection
 from ..adapters.job_rest import JobRestAdapter
@@ -119,6 +126,9 @@ class App:
 
         # ---- LocalStorage Adapter ----
         self._storage = StorageLocal(root_dir=self.settings_vm.results_dir or ".")
+
+        # Download metadata cache per group for result-path resolution.
+        self._group_storage_hints: Dict[str, GroupStorageHint] = {}
         self.uc_save_layout = SavePlateLayout(self._storage)
         self.uc_load_layout = LoadPlateLayout(self._storage)
 
@@ -157,7 +167,6 @@ class App:
                 download_timeout_s=self.settings_vm.download_timeout_s,
                 retries=2,
             )
-            self.uc_start = StartExperimentBatch(self._job_adapter)
             self.uc_poll = PollGroupStatus(self._job_adapter)
             self.uc_download = DownloadGroupResults(self._job_adapter)
             self.uc_cancel = CancelGroup(self._job_adapter)
@@ -170,7 +179,10 @@ class App:
                 retries=2,
             )
 
-        if self._device_adapter:
+        if self._job_adapter and self._device_adapter:
+            self.uc_start = StartExperimentBatch(
+                self._job_adapter, self._device_adapter
+            )
             self.uc_test_connection = TestConnection(self._device_adapter)
         return True
 
@@ -205,22 +217,58 @@ class App:
             plan = self._build_plan_from_vm(selection)
 
             # Start via UseCase
-            group_id, subruns = self.uc_start(plan)  # type: ignore[misc]
+            result: StartBatchResult = self.uc_start(plan)  # type: ignore[misc]
+            self._handle_start_validations(result)
+
+            if not result.run_group_id:
+                if not result.started_wells:
+                    self.win.show_toast("No runs started. Fix validation errors.")
+                else:
+                    self.win.show_toast("Validation stopped some wells. Nothing started.")
+                return
+
+            group_id = result.run_group_id
+            subruns = result.per_box_runs
+
+            storage_hint = self._derive_storage_hint(plan)
+            if any(
+                (
+                    storage_hint.experiment_name,
+                    storage_hint.client_datetime,
+                    storage_hint.subdir,
+                )
+            ):
+                self._group_storage_hints[group_id] = storage_hint
+            else:
+                self._group_storage_hints.pop(group_id, None)
+
             self._current_group_id = group_id
             self.win.set_run_group_id(group_id)
-            self.win.show_toast(
-                f"Started group {group_id} on {', '.join(sorted(subruns.keys()))}"
-            )
+
+            started_boxes = ", ".join(sorted(subruns.keys()))
+            skipped = sum(1 for entry in result.validations if not entry.ok)
+            started_count = len(result.started_wells)
+            if skipped:
+                self.win.show_toast(
+                    f"Started group {group_id} ({started_count} wells, skipped {skipped})."
+                )
+            else:
+                if started_boxes:
+                    self.win.show_toast(
+                        f"Started group {group_id} on {started_boxes}"
+                    )
+                else:
+                    self.win.show_toast(f"Started group {group_id}.")
 
             # Mark configured in UI (keep the Demo flow)
-            self.wellgrid.add_configured_wells(selection)
+            self.wellgrid.add_configured_wells(result.started_wells)
 
             # Start polling loop
             self._start_polling()
-        except Exception as e: 
+        except Exception as e:
             # Stop polling and clear group on any start failure
             self._stop_polling()
-            self._current_group_id = None 
+            self._current_group_id = None
             self.win.show_toast(str(e))
 
     def _on_cancel_group(self) -> None:
@@ -230,6 +278,7 @@ class App:
         try:
             self.uc_cancel(self._current_group_id)  # prints notice in adapter
             self._stop_polling()
+            self._group_storage_hints.pop(self._current_group_id, None)
             self._current_group_id = None
             self.win.set_run_group_id("")        # optional UI cleanup
             self.win.show_toast("Cancel requested (API not implemented).")
@@ -448,14 +497,34 @@ class App:
             self.win.show_toast("No active group.")
             return
         try:
-            out_dir = self.uc_download(self._current_group_id, self.settings_vm.results_dir)  # type: ignore[misc]
+            storage_hint = self._group_storage_hints.get(self._current_group_id)
+            out_dir = self.uc_download(
+                self._current_group_id,
+                self.settings_vm.results_dir,
+                storage_hint=storage_hint,
+            )  # type: ignore[misc]
             self.win.show_toast(f"Downloaded to {out_dir}")
+            self._open_results_folder(out_dir)
         except Exception as e:
             self.win.show_toast(str(e))
 
     def _on_download_box_results(self, box_id: str) -> None:
         # Group ZIPs are per group; per-box filtering could be added in adapter if needed
         self._on_download_group_results()
+
+    def _open_results_folder(self, path: str) -> None:
+        """Open the download folder using the platform default file browser."""
+        if not path or not os.path.isdir(path):
+            return
+        try:
+            if sys.platform.startswith("win"):
+                os.startfile(path)  # type: ignore[attr-defined]
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", path])
+            else:
+                subprocess.Popen(["xdg-open", path])
+        except Exception as exc:
+            self.win.show_toast(f"Could not open folder: {exc}")
 
     # ==================================================================
     # VM ↔ View glue
@@ -623,9 +692,73 @@ class App:
         finally:
             self._schedule_poll()
 
+    def _handle_start_validations(self, result: StartBatchResult) -> None:
+        if not result.validations:
+            return
+
+        invalid = [entry for entry in result.validations if not entry.ok]
+        warning_candidates = [
+            entry for entry in result.validations if entry.ok and entry.warnings
+        ]
+
+        def _summarize(
+            entries: List[WellValidationResult], attr: str
+        ) -> str:
+            snippets: List[str] = []
+            for entry in entries:
+                issues = getattr(entry, attr)
+                if not issues:
+                    continue
+                parts: List[str] = []
+                for issue in issues:
+                    if not isinstance(issue, dict):
+                        continue
+                    field = str(issue.get("field", "") or "*")
+                    code = str(issue.get("code", "issue"))
+                    parts.append(f"{field}:{code}")
+                if not parts:
+                    continue
+                snippets.append(f"{entry.well_id} ({entry.mode}): {', '.join(parts)}")
+            if not snippets:
+                return ""
+            preview = "; ".join(snippets[:3])
+            if len(snippets) > 3:
+                preview += f"; +{len(snippets) - 3} more"
+            return preview
+
+        if invalid:
+            summary = _summarize(invalid, "errors")
+            message = (
+                f"Validation blocked wells: {summary}"
+                if summary
+                else "Validation blocked wells."
+            )
+            self.win.show_toast(message)
+
+        if warning_candidates:
+            summary = _summarize(warning_candidates, "warnings")
+            if summary:
+                self.win.show_toast(f"Validation warnings: {summary}")
+
     # ==================================================================
     # Plan building
     # ==================================================================
+
+    def _derive_storage_hint(self, plan: Dict) -> GroupStorageHint:
+        """Extract storage metadata from the start plan for later downloads."""
+        storage_payload = plan.get("storage")
+        if not isinstance(storage_payload, dict):
+            storage_payload = {}
+
+        experiment_name = storage_payload.get("experiment_name") or plan.get("experiment_name")
+        client_datetime = storage_payload.get("client_datetime") or plan.get("client_datetime")
+        subdir = storage_payload.get("subdir") or plan.get("subdir")
+
+        return GroupStorageHint(
+            experiment_name=experiment_name,
+            client_datetime=client_datetime,
+            subdir=subdir,
+        )
 
     def _build_plan_from_vm(self, selection: Iterable[str]) -> Dict:
         """
@@ -651,7 +784,7 @@ class App:
 
         # 3) Optional global settings / defaults
         folder_name = self.settings_vm.results_dir or "."
-        make_plot = True  # default: let backend create plots
+        make_plot = False  # default: let backend create plots
         tia_gain = None  # will be added later via Settings
         sampling_interval = None  # will be added later via Settings
 

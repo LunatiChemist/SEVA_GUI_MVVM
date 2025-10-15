@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -41,6 +42,30 @@ class _RetryingSession:
                 return self.session.get(
                     url,
                     headers=self._headers(accept=accept),
+                    timeout=timeout or self.cfg.request_timeout_s,
+                )
+            except Exception as exc:
+                last_err = exc
+        raise last_err  # type: ignore[misc]
+
+    def post(
+        self,
+        url: str,
+        *,
+        json_body: Optional[Dict[str, Any]] = None,
+        timeout: Optional[int] = None,
+    ) -> requests.Response:
+        last_err: Optional[Exception] = None
+        data = None if json_body is None else json.dumps(json_body)
+        headers = self._headers(accept="application/json")
+        if json_body is not None:
+            headers["Content-Type"] = "application/json"
+        for _ in range(self.cfg.retries + 1):
+            try:
+                return self.session.post(
+                    url,
+                    data=data,
+                    headers=headers,
                     timeout=timeout or self.cfg.request_timeout_s,
                 )
             except Exception as exc:
@@ -114,6 +139,21 @@ class DeviceRestAdapter(DevicePort):
         if not isinstance(data, dict):
             raise RuntimeError(
                 f"mode_params[{box_id}:{mode}]: expected object response"
+            )
+        return data
+
+    def validate_mode(
+        self, box_id: BoxId, mode: str, params: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        if not mode:
+            raise ValueError("validate_mode requires 'mode'")
+        url = self._make_url(box_id, f"/modes/{mode}/validate")
+        resp = self._session(box_id).post(url, json_body=dict(params or {}))
+        self._ensure_ok(resp, f"mode_validate[{box_id}:{mode}]")
+        data = self._json_any(resp)
+        if not isinstance(data, dict):
+            raise RuntimeError(
+                f"mode_validate[{box_id}:{mode}]: expected object response"
             )
         return data
 

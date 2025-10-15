@@ -1,30 +1,8 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 from seva.domain.ports import JobPort, UseCaseError, RunGroupId
-
-
-def _coerce_int(value: Any, *, default: int = 0) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        try:
-            return int(float(value))
-        except (TypeError, ValueError):
-            return default
-
-
-def _coerce_optional_int(value: Any) -> Optional[int]:
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        try:
-            return int(float(value))
-        except (TypeError, ValueError):
-            return None
 
 
 @dataclass
@@ -39,51 +17,30 @@ class PollGroupStatus:
             boxes = snap.get("boxes", {}) or {}
             all_boxes_terminal = bool(boxes)
 
-            for box_id, meta in boxes.items():
+            for _, meta in boxes.items():
                 runs = meta.get("runs") or []
                 statuses: list[str] = []
-                progresses: list[int] = []
+
+                if not runs:
+                    all_boxes_terminal = False
+                    continue
 
                 for run in runs:
                     run_id = run.get("run_id")
                     status = str(run.get("status") or "queued").lower()
                     statuses.append(status)
 
-                    progress_pct = _coerce_int(run.get("progress_pct"), default=0)
-                    remaining_s = _coerce_optional_int(run.get("remaining_s"))
-
-                    run["progress_pct"] = progress_pct
-                    run["progress"] = progress_pct
-                    run["remaining_s"] = remaining_s
-                    progresses.append(progress_pct)
-
                     if run_id:
                         run_info[run_id] = {
-                            "progress_pct": progress_pct,
-                            "remaining_s": remaining_s,
+                            "progress_pct": run.get("progress_pct"),
+                            "remaining_s": run.get("remaining_s"),
                         }
-
-                if progresses:
-                    meta["progress"] = int(round(sum(progresses) / len(progresses)))
-                else:
-                    meta["progress"] = 0
 
                 statuses_set = {s for s in statuses if s}
                 has_incomplete = any(s in {"queued", "running"} for s in statuses_set)
                 all_terminal_box = bool(runs) and not has_incomplete and statuses_set.issubset(
                     {"done", "failed"}
                 )
-
-                if all_terminal_box:
-                    meta["phase"] = "Failed" if "failed" in statuses_set else "Done"
-                elif "running" in statuses_set:
-                    meta["phase"] = "Running"
-                elif "queued" in statuses_set and "running" not in statuses_set:
-                    meta["phase"] = "Queued"
-                elif "failed" in statuses_set and "running" not in statuses_set:
-                    meta["phase"] = "Failed"
-                else:
-                    meta["phase"] = meta.get("phase") or "Mixed"
 
                 if not all_terminal_box:
                     all_boxes_terminal = False
@@ -92,9 +49,11 @@ class PollGroupStatus:
             for row in snap.get("wells", []):
                 if len(row) < 5:
                     continue
-                wid, state, _, err, subrun = row[:5]
+                wid, state, progress_value, err, subrun = row[:5]
                 info = run_info.get(subrun) or {}
-                progress_pct = info.get("progress_pct", 0) or 0
+                progress_pct = info.get("progress_pct")
+                if progress_pct is None:
+                    progress_pct = progress_value
                 remaining_s = info.get("remaining_s")
                 well_rows.append((wid, state, progress_pct, err, subrun, remaining_s))
 
