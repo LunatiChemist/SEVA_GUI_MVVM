@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Dict, List, Any, Iterable, Callable, Optional
 from uuid import uuid4
 
@@ -119,18 +120,6 @@ def _normalize_params(mode: str, snap: Dict[str, str]) -> Dict[str, Any]:
     """Keep a mode-focused params dict via map_params for backward compatibility."""
     return map_params(mode, snap)
 
-
-def _auto_run_name(box: str, mode: str, well_ids: List[str], group_id: str) -> str:
-    """Generate a stable run_name per job."""
-    nums = sorted(int(w[1:]) for w in well_ids if w and w[0] == box)
-    short = group_id[:8]
-    if not nums:
-        return f"{box}-{mode}-{short}"
-    if len(nums) == 1:
-        return f"{box}-{mode}-well{nums[0]:02d}-{short}"
-    return f"{box}-{mode}-well{nums[0]:02d}to{nums[-1]:02d}-{short}"
-
-
 @dataclass
 class WellValidationResult:
     """Structured summary for per-well validation feedback."""
@@ -165,7 +154,7 @@ class StartExperimentBatch:
         Plan (input) must contain:
           - selection: List[WellId] (configured wells)
           - well_params_map: Dict[WellId, Dict[str,str]] (per-well snapshots incl. run_* flags)
-          - optional: folder_name, tia_gain, sampling_interval, make_plot, group_id
+          - optional: tia_gain, sampling_interval, make_plot, group_id
         """
         try:
             selection: Iterable[str] = plan.get("selection") or []
@@ -180,10 +169,34 @@ class StartExperimentBatch:
                 )
 
             group_id: RunGroupId = plan.get("group_id") or str(uuid4())
-            folder_name = plan.get("folder_name") or group_id
             tia_gain = plan.get("tia_gain", None)
             sampling_interval = plan.get("sampling_interval", None)
             make_plot = bool(plan.get("make_plot", True))
+            storage_raw = plan.get("storage") or {}
+
+            def _clean_text(value: Any) -> str:
+                return str(value).strip() if isinstance(value, str) else ""
+
+            experiment_name = _clean_text(storage_raw.get("experiment_name"))
+            if not experiment_name:
+                raise UseCaseError(
+                    "METADATA_MISSING", "Experiment name must be configured."
+                )
+            subdir_value = _clean_text(storage_raw.get("subdir"))
+            client_datetime = _clean_text(storage_raw.get("client_datetime"))
+            if not client_datetime:
+                client_datetime = (
+                    datetime.now(timezone.utc)
+                    .replace(microsecond=0)
+                    .isoformat()
+                    .replace("+00:00", "Z")
+                )
+
+            storage_payload = {
+                "experiment_name": experiment_name,
+                "subdir": subdir_value or None,
+                "client_datetime": client_datetime,
+            }
 
             def _issue_list(raw: Any) -> List[Dict[str, Any]]:
                 if not isinstance(raw, list):
@@ -238,9 +251,10 @@ class StartExperimentBatch:
                         "params": params,
                         "tia_gain": tia_gain,
                         "sampling_interval": sampling_interval,
-                        "folder_name": folder_name,
                         "make_plot": make_plot,
-                        "run_name": _auto_run_name(box, mode, [wid], group_id),
+                        "experiment_name": storage_payload["experiment_name"],
+                        "subdir": storage_payload["subdir"],
+                        "client_datetime": storage_payload["client_datetime"],
                     }
                 )
                 started_wells.append(wid)
@@ -254,7 +268,11 @@ class StartExperimentBatch:
                 )
 
             # Call adapter with one job per well
-            adapter_plan = {"jobs": jobs, "group_id": group_id}
+            adapter_plan = {
+                "jobs": jobs,
+                "group_id": group_id,
+                "storage": storage_payload,
+            }
             run_group_id, per_box_runs = self.job_port.start_batch(adapter_plan)
 
             return StartBatchResult(

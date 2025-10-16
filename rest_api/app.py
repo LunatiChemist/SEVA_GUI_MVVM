@@ -1,10 +1,12 @@
 # /opt/box/app.py
-import os, uuid, threading, zipfile, io, pathlib, datetime, platform, subprocess
+import logging, os, uuid, threading, zipfile, io, pathlib, datetime, platform, subprocess
 from typing import Optional, Literal, Dict, List, Any
 from datetime import timezone
 import serial.tools.list_ports
-from fastapi import Body, FastAPI, HTTPException, Header, Response
+from fastapi import Body, FastAPI, HTTPException, Header, Request, Response
 from fastapi.responses import FileResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
 from pydantic import BaseModel, Field
 from contextlib import asynccontextmanager
 
@@ -50,6 +52,41 @@ _resolve_run_directory = storage.resolve_run_directory
 configure_run_storage_root = storage.configure_runs_root
 
 API_VERSION = "1.0"
+
+try:
+    from seva.utils.logging import configure_root as _configure_logging, level_name as _level_name
+except Exception:  # pragma: no cover - fallback when GUI package unavailable
+    def _configure_logging(default_level: int | str = logging.INFO) -> int:
+        level = logging.INFO
+        if isinstance(default_level, str):
+            candidate = getattr(logging, default_level.upper(), None)
+            if isinstance(candidate, int):
+                level = candidate
+        else:
+            try:
+                level = int(default_level)
+            except Exception:
+                level = logging.INFO
+        if not logging.getLogger().handlers:
+            logging.basicConfig(
+                level=level,
+                format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+                datefmt="%H:%M:%S",
+            )
+        logging.getLogger().setLevel(level)
+        return level
+
+    def _level_name(level: int) -> str:
+        return logging.getLevelName(level)
+
+else:
+    def _level_name(level: int) -> str:
+        return logging.getLevelName(level)
+
+
+_configure_logging()
+log = logging.getLogger("rest_api")
+log.debug("REST API logger initialized at %s", _level_name(logging.getLogger().level))
 
 
 def _detect_pybeep_version() -> str:
@@ -97,6 +134,10 @@ def _build_error_detail(code: str, message: str, hint: Optional[str] = None) -> 
 
 
 def http_error(status_code: int, code: str, message: str, hint: Optional[str] = None) -> HTTPException:
+    if status_code == 422:
+        log.info("Validation failed [%s]: %s", code, message)
+        if hint:
+            log.debug("Validation hint: %s", hint)
     return HTTPException(status_code=status_code, detail=_build_error_detail(code, message, hint))
 
 
@@ -301,6 +342,16 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Potentiostat Box API", version=API_VERSION, lifespan=lifespan)
 # TODO(metrics): optional Prometheus /metrics exporter (future)
+
+
+@app.exception_handler(RequestValidationError)
+async def handle_request_validation(
+    request: Request, exc: RequestValidationError
+):
+    errors = exc.errors()
+    log.info("Validation 422 path=%s issues=%d", request.url.path, len(errors))
+    log.debug("Validation detail: %s", errors)
+    return await request_validation_exception_handler(request, exc)
 
 # ---------- Auth Helper ----------
 def require_key(x_api_key: Optional[str]):
@@ -604,8 +655,9 @@ def jobs_bulk_status(req: JobStatusBulkRequest, x_api_key: Optional[str] = Heade
                 message=f"Unbekannte run_ids: {missing_str}",
                 hint="Nur bekannte run_ids anfragen.",
             )
-        # Preserve the request order when returning the enriched snapshots.
-        return [job_snapshot(JOBS[rid]) for rid in run_ids]
+        snapshots = [job_snapshot(JOBS[rid]) for rid in run_ids]
+    log.debug("jobs/status bulk request count=%d", len(run_ids))
+    return snapshots
 
 
 @app.get("/jobs", response_model=List[JobOverview])
@@ -745,6 +797,21 @@ def start_job(req: JobRequest, x_api_key: Optional[str] = Header(None)):
             else:
                 JOB_GROUP_FOLDERS.pop(run_id, None)
 
+        log.info(
+            "Job start run_id=%s mode=%s devices=%s slots=%s",
+            run_id,
+            req.mode,
+            req.devices if req.devices != "all" else "all",
+            slots,
+        )
+        log.debug(
+            "Job storage run_id=%s group_id=%s folder=%s experiment=%s",
+            run_id,
+            raw_group_id or "-",
+            storage_folder or "-",
+            storage_info.experiment,
+        )
+
         for slot_status in slot_statuses:
             t = threading.Thread(
                 target=_run_one_slot,
@@ -811,6 +878,7 @@ def cancel_job(run_id: str, x_api_key: Optional[str] = Header(None)):
                 if SLOT_RUNS.get(slot) == run_id:
                     del SLOT_RUNS[slot]
 
+    log.info("Job cancel requested run_id=%s queued_slots=%d", run_id, len(queued_slots))
     return {"run_id": run_id, "status": "cancelled"}
 
 
@@ -847,6 +915,7 @@ def list_run_files(run_id: str, x_api_key: Optional[str] = Header(None)):
         if path.is_file()
     ]
     files.sort()
+    log.info("List files run_id=%s count=%d", run_id, len(files))
     return {"files": files}
 
 
@@ -898,6 +967,8 @@ def get_run_file(run_id: str, path: str, x_api_key: Optional[str] = Header(None)
             hint="Pfad relativ zum Run-Verzeichnis angeben.",
         )
 
+    rel_path = target_path.relative_to(run_root).as_posix()
+    log.info("Serve file run_id=%s path=%s", run_id, rel_path)
     return FileResponse(path=target_path, filename=target_path.name)
 
 
@@ -914,12 +985,16 @@ def get_run_zip(run_id: str, x_api_key: Optional[str] = Header(None)):
         )
     # ZIP im Speicher bauen
     buf = io.BytesIO()
+    file_count = 0
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for path in run_dir.rglob("*"):
             if path.is_file():
                 zf.write(path, arcname=path.relative_to(run_dir))
+                file_count += 1
     buf.seek(0)
-    return Response(content=buf.read(),
+    content = buf.read()
+    log.info("Serve zip run_id=%s files=%d size=%d", run_id, file_count, len(content))
+    return Response(content=content,
                     media_type="application/zip",
                     headers={"Content-Disposition": f'attachment; filename="{run_id}.zip"'})
 
@@ -930,4 +1005,3 @@ def rescan(x_api_key: Optional[str] = Header(None)):
     discover_devices()
     with DEVICE_SCAN_LOCK:
         return {"devices": list(DEVICES.keys())}
-

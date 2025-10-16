@@ -1,6 +1,7 @@
 # seva/adapters/job_rest.py
 from __future__ import annotations
 
+import logging
 import os
 import json
 from dataclasses import dataclass
@@ -8,9 +9,21 @@ from typing import Dict, Iterable, Tuple, Optional, Any, List, Set
 from uuid import uuid4
 
 import requests
+from requests import exceptions as req_exc
 
 # Domain Port
 from seva.domain.ports import JobPort, RunGroupId, BoxId
+
+from .api_errors import (
+    ApiClientError,
+    ApiError,
+    ApiServerError,
+    ApiTimeoutError,
+    build_error_message,
+    extract_error_code,
+    extract_error_hint,
+    parse_error_payload,
+)
 
 
 @dataclass
@@ -50,6 +63,7 @@ class _RetryingSession:
         stream: bool = False,
     ):
         last_err: Optional[Exception] = None
+        context = f"GET {url}"
         for _ in range(self.cfg.retries + 1):
             try:
                 return self.session.get(
@@ -59,9 +73,17 @@ class _RetryingSession:
                     timeout=timeout or self.cfg.request_timeout_s,
                     stream=stream,
                 )
-            except Exception as e:
-                last_err = e
-        raise last_err  # type: ignore[misc]
+            except (req_exc.Timeout, req_exc.ConnectionError) as exc:
+                last_err = ApiTimeoutError(f"Timeout contacting {url}", context=context)
+            except Exception as exc:
+                last_err = exc
+        if last_err is None:
+            raise ApiError("Unexpected request failure", context=context)
+        if isinstance(last_err, ApiError):
+            raise last_err
+        if isinstance(last_err, req_exc.RequestException):
+            raise ApiError(str(last_err), context=context) from last_err
+        raise last_err
 
     def post(
         self,
@@ -71,6 +93,7 @@ class _RetryingSession:
         timeout: Optional[int] = None,
     ):
         last_err: Optional[Exception] = None
+        context = f"POST {url}"
         data = None if json_body is None else json.dumps(json_body)
         for _ in range(self.cfg.retries + 1):
             try:
@@ -80,9 +103,17 @@ class _RetryingSession:
                     headers=self._headers(json_body=json_body is not None),
                     timeout=timeout or self.cfg.request_timeout_s,
                 )
-            except Exception as e:
-                last_err = e
-        raise last_err  # type: ignore[misc]
+            except (req_exc.Timeout, req_exc.ConnectionError) as exc:
+                last_err = ApiTimeoutError(f"Timeout contacting {url}", context=context)
+            except Exception as exc:
+                last_err = exc
+        if last_err is None:
+            raise ApiError("Unexpected request failure", context=context)
+        if isinstance(last_err, ApiError):
+            raise last_err
+        if isinstance(last_err, req_exc.RequestException):
+            raise ApiError(str(last_err), context=context) from last_err
+        raise last_err
 
 
 class JobRestAdapter(JobPort):
@@ -109,6 +140,7 @@ class JobRestAdapter(JobPort):
         download_timeout_s: int = 60,
         retries: int = 2,
     ) -> None:
+        self._log = logging.getLogger(__name__)
         self.base_urls = dict(base_urls)
         self.api_keys = dict(api_keys or {})
         self.cfg = _HttpConfig(
@@ -187,9 +219,15 @@ class JobRestAdapter(JobPort):
         Post pre-grouped jobs (built by the UseCase) to each box.
         Expected plan keys:
         - jobs: List[Dict] where each job contains:
-            { "box": "A", "wells": ["A1","A5",...], "mode": "CV|DC|AC|LSV|EIS|CDL",
-                "params": {...}, "tia_gain": int|None, "sampling_interval": float|None,
-                "folder_name": str|None, "make_plot": bool, "run_name": str }
+            {
+                "box": "A",
+                "wells": ["A1"],
+                "mode": "CV|DC|AC|LSV|EIS|CDL",
+                "params": {...},
+                "tia_gain": int|None,
+                "sampling_interval": float|None,
+                "make_plot": bool,
+            }
         - (optional) group_id
         Returns:
         (group_id, { box: [run_id, ...] })
@@ -199,6 +237,7 @@ class JobRestAdapter(JobPort):
             raise ValueError("start_batch: missing 'jobs' in plan")
 
         group_id: RunGroupId = plan.get("group_id") or str(uuid4())
+        storage_meta: Dict[str, Any] = plan.get("storage") or {}
 
         # Prepare mapping: group_id -> box -> [run_id,...]
         run_ids: Dict[BoxId, List[str]] = {}
@@ -219,15 +258,34 @@ class JobRestAdapter(JobPort):
                 slots.append(tpl[1])
             devices = [self._slot_label(s) for s in sorted(set(slots))]
 
+            experiment_name = job.get("experiment_name") or storage_meta.get(
+                "experiment_name"
+            )
+            if isinstance(experiment_name, str):
+                experiment_name = experiment_name.strip()
+            if not experiment_name:
+                raise ValueError("start_batch: missing experiment_name in job plan")
+            subdir = job.get("subdir", storage_meta.get("subdir"))
+            if isinstance(subdir, str):
+                subdir = subdir.strip() or None
+            client_datetime = job.get("client_datetime") or storage_meta.get(
+                "client_datetime"
+            )
+            if isinstance(client_datetime, str):
+                client_datetime = client_datetime.strip()
+            if not client_datetime:
+                raise ValueError("start_batch: missing client_datetime in job plan")
+
             payload = {
                 "devices": devices,
                 "mode": job.get("mode"),
                 "params": job.get("params") or {},
                 "tia_gain": job.get("tia_gain", None),
                 "sampling_interval": job.get("sampling_interval", None),
-                "run_name": job.get("run_name"),
-                "folder_name": job.get("folder_name") or group_id,
                 "make_plot": bool(job.get("make_plot", True)),
+                "experiment_name": experiment_name,
+                "subdir": subdir,
+                "client_datetime": client_datetime,
             }
 
             url = self._make_url(box, "/jobs")
@@ -236,7 +294,10 @@ class JobRestAdapter(JobPort):
             )
             self._ensure_ok(resp, f"start[{box}]")
             data = self._json(resp)
-            run_id = str(data.get("run_id") or payload["run_name"])
+            run_id_raw = data.get("run_id")
+            if not run_id_raw:
+                raise RuntimeError("start_batch: response missing run_id")
+            run_id = str(run_id_raw)
 
             self._groups[group_id].setdefault(box, []).append(run_id)
             run_ids.setdefault(box, []).append(run_id)
@@ -249,7 +310,34 @@ class JobRestAdapter(JobPort):
         return group_id, run_ids
 
     def cancel_group(self, run_group_id: RunGroupId) -> None:
-        print("Cancel not implemented on API side.")
+        self._log.info("Cancel group %s requested.", run_group_id)
+        box_runs = self._groups.get(run_group_id, {})
+        if not box_runs:
+            return
+        for box, runs in box_runs.items():
+            session = self.sessions.get(box)
+            if session is None:
+                self._log.warning(
+                    "Cancel group %s: no session configured for box %s",
+                    run_group_id,
+                    box,
+                )
+                continue
+            for run_id in runs:
+                url = self._make_url(box, f"/jobs/{run_id}/cancel")
+                try:
+                    resp = session.post(url, timeout=self.cfg.request_timeout_s)
+                except Exception as exc:
+                    raise ApiError(str(exc), context=f"cancel[{box}:{run_id}]") from exc
+                if resp.status_code == 404:
+                    self._log.info(
+                        "Cancel group %s: run %s on box %s already gone.",
+                        run_group_id,
+                        run_id,
+                        box,
+                    )
+                    continue
+                self._ensure_ok(resp, f"cancel[{box}:{run_id}]")
 
     def poll_group(self, run_group_id: RunGroupId) -> Dict:
         """Bulk poll run snapshots using POST /jobs/status and cached terminals."""
@@ -272,6 +360,12 @@ class JobRestAdapter(JobPort):
                     pending_ids.append(run_id)
 
             if pending_ids:
+                self._log.debug(
+                    "Poll group %s: box=%s pending_ids=%d",
+                    run_group_id,
+                    box,
+                    len(pending_ids),
+                )
                 url = self._make_url(box, "/jobs/status")
                 resp = self.sessions[box].post(
                     url,
@@ -499,12 +593,28 @@ class JobRestAdapter(JobPort):
     def _ensure_ok(resp: requests.Response, ctx: str) -> None:
         if 200 <= resp.status_code < 300:
             return
-        body = ""
-        try:
-            body = resp.text[:300]
-        except Exception:
-            pass
-        raise RuntimeError(f"{ctx}: HTTP {resp.status_code} {body}")
+        status = resp.status_code
+        payload = parse_error_payload(resp)
+        message = build_error_message(ctx, status, payload)
+        code = extract_error_code(payload)
+        hint = extract_error_hint(payload)
+        if 400 <= status < 500:
+            raise ApiClientError(
+                message,
+                status=status,
+                code=code,
+                hint=hint,
+                payload=payload,
+                context=ctx,
+            )
+        if 500 <= status < 600:
+            raise ApiServerError(
+                message,
+                status=status,
+                payload=payload,
+                context=ctx,
+            )
+        raise ApiError(message, status=status, payload=payload, context=ctx)
 
     @staticmethod
     def _json(resp: requests.Response) -> Dict[str, Any]:

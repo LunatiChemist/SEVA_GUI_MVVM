@@ -38,10 +38,14 @@ class _SessionStub:
         self,
         url: str,
         *,
+        accept: str = "application/json",
         headers: Optional[Dict[str, str]] = None,
         timeout: Optional[int] = None,
     ) -> _ResponseStub:
-        self.calls.append({"url": url, "headers": headers or {}, "timeout": timeout})
+        hdrs = dict(headers or {})
+        if accept and "Accept" not in hdrs:
+            hdrs["Accept"] = accept
+        self.calls.append({"url": url, "headers": hdrs, "timeout": timeout})
         if self._idx >= len(self._responses):
             raise RuntimeError("No stub response configured")
         resp = self._responses[self._idx]

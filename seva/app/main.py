@@ -1,9 +1,14 @@
 # seva/app/main.py
 from __future__ import annotations
+import logging
 import os
+import shutil
 import subprocess
 import sys
-from typing import Dict, Set, Optional, Iterable, List
+import tempfile
+from datetime import datetime, timezone
+from tkinter import filedialog
+from typing import Any, Dict, Set, Optional, Iterable, List
 
 # ---- Views (UI-only) ----
 from .views.main_window import MainWindowView
@@ -28,7 +33,7 @@ from ..usecases.start_experiment_batch import (
     WellValidationResult,
 )
 from ..usecases.poll_group_status import PollGroupStatus
-from ..usecases.download_group_results import DownloadGroupResults, GroupStorageHint
+from ..usecases.download_group_results import DownloadGroupResults
 from ..usecases.cancel_group import CancelGroup
 from ..usecases.test_connection import TestConnection
 from ..adapters.job_rest import JobRestAdapter
@@ -40,12 +45,23 @@ from ..usecases.load_plate_layout import LoadPlateLayout
 from ..domain.ports import UseCaseError
 from ..usecases.test_relay import TestRelay
 from ..usecases.set_electrode_mode import SetElectrodeMode
+from ..adapters.api_errors import (
+    ApiClientError,
+    ApiError,
+    ApiServerError,
+    ApiTimeoutError,
+    extract_error_hint,
+)
+from ..utils import logging as logging_utils
+
+logging_utils.configure_root()
 
 
 class App:
     """Bootstrap: wire Views <-> ViewModels, REST adapter, and simple polling."""
 
     def __init__(self) -> None:
+        self._log = logging.getLogger(__name__)
         # Main window with toolbar callback wiring
         self.win = MainWindowView(
             on_submit=self._on_submit,
@@ -56,6 +72,9 @@ class App:
             on_open_settings=self._on_open_settings,
             on_open_data_plotter=self._on_open_plotter,
         )
+        self._last_download_dir: Optional[str] = None
+        self.win.bind("<Control-Shift-o>", self._on_open_download_folder_hotkey)
+        self.win.bind("<Control-Shift-O>", self._on_open_download_folder_hotkey)
 
         # ---- ViewModels ----
         self.plate_vm = PlateVM(on_selection_changed=self._on_selection_changed)
@@ -125,10 +144,11 @@ class App:
         self.uc_test_connection: Optional[TestConnection] = None
 
         # ---- LocalStorage Adapter ----
-        self._storage = StorageLocal(root_dir=self.settings_vm.results_dir or ".")
+        self._storage_root = os.environ.get("SEVA_STORAGE_ROOT") or "."
+        self._storage = StorageLocal(root_dir=self._storage_root)
+        self._load_user_settings()
 
         # Download metadata cache per group for result-path resolution.
-        self._group_storage_hints: Dict[str, GroupStorageHint] = {}
         self.uc_save_layout = SavePlateLayout(self._storage)
         self.uc_load_layout = LoadPlateLayout(self._storage)
 
@@ -144,6 +164,22 @@ class App:
         # ---- Initial UI state (demo-ish) ----
         self._seed_demo_state()
         self.win.set_status_message("Ready.")
+
+    def _load_user_settings(self) -> None:
+        payload: Optional[Dict] = None
+        try:
+            payload = self._storage.load_user_settings()
+        except Exception as exc:
+            self.win.show_toast(f"Could not load settings: {exc}")
+        if payload is not None:
+            self.settings_vm.apply_dict(payload)
+        self._apply_logging_preferences()
+
+    def _apply_logging_preferences(self) -> None:
+        level = logging_utils.apply_gui_preferences(self.settings_vm.debug_logging)
+        self._log.debug(
+            "Effective GUI log level: %s", logging_utils.level_name(level)
+        )
 
     # ==================================================================
     # Adapter wiring
@@ -215,6 +251,16 @@ class App:
             selection = self.plate_vm.get_selection()
             self.experiment_vm.set_selection(selection)
             plan = self._build_plan_from_vm(selection)
+            boxes = sorted(
+                {str(wid)[0] for wid in configured if isinstance(wid, str) and wid}
+            )
+            summary = {
+                "wells": len(configured),
+                "boxes": boxes or ["-"],
+                "stream": bool(self.settings_vm.use_streaming),
+            }
+            self._log.info("Submitting start request: %s", summary)
+            self._log.debug("Start selection=%s", sorted(configured))
 
             # Start via UseCase
             result: StartBatchResult = self.uc_start(plan)  # type: ignore[misc]
@@ -229,18 +275,13 @@ class App:
 
             group_id = result.run_group_id
             subruns = result.per_box_runs
-
-            storage_hint = self._derive_storage_hint(plan)
-            if any(
-                (
-                    storage_hint.experiment_name,
-                    storage_hint.client_datetime,
-                    storage_hint.subdir,
-                )
-            ):
-                self._group_storage_hints[group_id] = storage_hint
-            else:
-                self._group_storage_hints.pop(group_id, None)
+            self._log.info(
+                "Start response: group=%s wells=%d boxes=%s",
+                group_id,
+                len(result.started_wells),
+                sorted(subruns.keys()),
+            )
+            self._log.debug("Start run map: %s", subruns)
 
             self._current_group_id = group_id
             self.win.set_run_group_id(group_id)
@@ -269,21 +310,22 @@ class App:
             # Stop polling and clear group on any start failure
             self._stop_polling()
             self._current_group_id = None
-            self.win.show_toast(str(e))
+            self._toast_error(e)
 
     def _on_cancel_group(self) -> None:
         if not self._current_group_id or not self._ensure_adapter():
             self.win.show_toast("No active group.")
             return
         try:
-            self.uc_cancel(self._current_group_id)  # prints notice in adapter
+            current = self._current_group_id
+            self._log.info("Cancel requested for group %s", current)
+            self.uc_cancel(current)  # prints notice in adapter
             self._stop_polling()
-            self._group_storage_hints.pop(self._current_group_id, None)
             self._current_group_id = None
             self.win.set_run_group_id("")        # optional UI cleanup
             self.win.show_toast("Cancel requested (API not implemented).")
         except Exception as e:
-            self.win.show_toast(str(e))
+            self._toast_error(e)
 
     def _on_cancel_selection(self) -> None:
         self.wellgrid.set_selection([])
@@ -297,8 +339,8 @@ class App:
             well_map = self.experiment_vm.build_well_params_map(configured)
             # Use a simple default name; later ask the user
             name = "layout_latest"
-            self.uc_save_layout(name, configured, well_map)  # type: ignore[misc]
-            self.win.show_toast(f"Layout saved as {name}.csv")
+            saved_path = self.uc_save_layout(name, configured, well_map)  # type: ignore[misc]
+            self.win.show_toast(f"Saved {saved_path.name}")
         except Exception as e:
             self.win.show_toast(str(e))
 
@@ -307,7 +349,16 @@ class App:
             name = "layout_latest"  # later: open file picker / presets
             data = self.uc_load_layout(name)  # type: ignore[misc]
             wmap: Dict[str, Dict[str, str]] = data.get("well_params_map", {})
-            wells = set(data.get("selection", []))
+            selection = data.get("selection") or []
+            wells_list: List[str] = []
+            if isinstance(selection, list):
+                for item in selection:
+                    wid = str(item)
+                    if wid not in wells_list:
+                        wells_list.append(wid)
+            if not wells_list:
+                wells_list = sorted(str(wid) for wid in wmap.keys())
+            wells = set(wells_list)
             # push into VM
             for wid, snap in wmap.items():
                 self.experiment_vm.save_params_for(wid, snap)
@@ -315,9 +366,21 @@ class App:
             self.plate_vm.clear_all_configured()
             self.plate_vm.mark_configured(wells)
             self.wellgrid.set_configured_wells(wells)
-            self.win.show_toast(f"Layout {name}.csv loaded ({len(wells)} wells).")
+            if wells_list:
+                self.wellgrid.set_selection(wells_list)
+            self.win.show_toast(
+                f"Loaded {self._format_layout_filename(name)} ({len(wells_list)} wells)."
+            )
         except Exception as e:
             self.win.show_toast(str(e))
+
+    def _format_layout_filename(self, name: str) -> str:
+        filename = name
+        if filename.endswith(".json"):
+            filename = filename[:-5]
+        if not filename.startswith("layout_"):
+            filename = f"layout_{filename}"
+        return f"{filename}.json"
 
     def _on_open_settings(self) -> None:
         dlg: Optional[SettingsDialog] = None
@@ -374,7 +437,7 @@ class App:
                 self.win.show_toast(f"Box {box_id}: failed ({reason})")
                 return
             except Exception as exc:
-                self.win.show_toast(f"Box {box_id}: failed ({exc})")
+                self._toast_error(exc, context=f"Box {box_id}")
                 return
 
             status = "ok" if result.get("ok") else "failed"
@@ -416,13 +479,36 @@ class App:
             message = "Relay test successful." if ok else "Relay test failed."
             self.win.show_toast(message)
 
+        def handle_browse_results_dir() -> None:
+            if not dlg:
+                return
+            current = dlg.results_dir_var.get().strip()
+            if not current:
+                current = self.settings_vm.results_dir or "."
+            initial_dir = current
+            if initial_dir and not os.path.isdir(initial_dir):
+                home_dir = os.path.expanduser("~")
+                initial_dir = home_dir if os.path.isdir(home_dir) else ""
+            try:
+                selected = filedialog.askdirectory(
+                    parent=dlg,
+                    initialdir=initial_dir or None,
+                    title="Select Results Directory",
+                )
+            except Exception as exc:
+                self.win.show_toast(f"Could not open folder picker: {exc}")
+                return
+            if not selected:
+                return
+            new_dir = os.path.normpath(selected)
+            self.settings_vm.set_results_dir(new_dir)
+            dlg.set_results_dir(new_dir)
+
         dlg = SettingsDialog(
             self.win,
             on_test_connection=handle_test_connection,
             on_test_relay=handle_test_relay,
-            on_browse_results_dir=lambda: self.win.show_toast(
-                "Browse results dir (demo)"
-            ),
+            on_browse_results_dir=handle_browse_results_dir,
             on_save=self._on_settings_saved,
             on_close=lambda: None,
         )
@@ -434,35 +520,56 @@ class App:
         )
         dlg.set_poll_interval(self.settings_vm.poll_interval_ms)
         dlg.set_results_dir(self.settings_vm.results_dir)
+        dlg.set_experiment_name(self.settings_vm.experiment_name)
+        dlg.set_subdir(self.settings_vm.subdir)
         dlg.set_use_streaming(self.settings_vm.use_streaming)
+        dlg.set_debug_logging(self.settings_vm.debug_logging)
         dlg.set_relay_config(self.settings_vm.relay_ip, self.settings_vm.relay_port)
         dlg.set_save_enabled(self.settings_vm.is_valid())
 
     def _on_settings_saved(self, cfg: dict) -> None:
-        # push back into VM
-        self.settings_vm.box_urls = dict(cfg.get("box_urls", {}))
-        self.settings_vm.api_keys = dict(cfg.get("api_keys", {}))
-        t = cfg.get("timeouts", {}) or {}
-        self.settings_vm.request_timeout_s = int(
-            t.get("request_s", self.settings_vm.request_timeout_s)
-        )
-        self.settings_vm.download_timeout_s = int(
-            t.get("download_s", self.settings_vm.download_timeout_s)
-        )
-        self.settings_vm.poll_interval_ms = int(
-            cfg.get("poll_interval_ms", self.settings_vm.poll_interval_ms)
-        )
-        self.settings_vm.results_dir = (
-            cfg.get("results_dir", self.settings_vm.results_dir) or "."
-        )
-        self.settings_vm.use_streaming = bool(
-            cfg.get("use_streaming", self.settings_vm.use_streaming)
-        )
-        r = cfg.get("relay", {}) or {}
-        self.settings_vm.relay_ip = r.get("ip", self.settings_vm.relay_ip) or ""
-        self.settings_vm.relay_port = int(
-            r.get("port", self.settings_vm.relay_port) or 0
-        )
+        payload = dict(cfg or {})
+        raw_dir = str(payload.get("results_dir") or ".").strip() or "."
+        expanded_dir = os.path.expanduser(raw_dir)
+        target_dir = os.path.abspath(expanded_dir)
+
+        if not os.path.isdir(target_dir):
+            self.win.show_toast(f"Results directory does not exist: {raw_dir}")
+            return
+
+        tmp_fd: Optional[int] = None
+        tmp_path: str = ""
+        try:
+            tmp_fd, tmp_path = tempfile.mkstemp(
+                dir=target_dir, prefix="seva_results_dir_", suffix=".tmp"
+            )
+            os.close(tmp_fd)
+            tmp_fd = None
+            os.remove(tmp_path)
+            tmp_path = ""
+        except Exception as exc:
+            if tmp_fd is not None:
+                try:
+                    os.close(tmp_fd)
+                except OSError:
+                    pass
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+            self.win.show_toast(f"Results directory not writable: {exc}")
+            return
+
+        payload["results_dir"] = os.path.normpath(expanded_dir)
+
+        try:
+            self.settings_vm.apply_dict(payload)
+            self._storage.save_user_settings(self.settings_vm.to_dict())
+            self._apply_logging_preferences()
+        except Exception as exc:
+            self.win.show_toast(f"Could not save settings: {exc}")
+            return
 
         # reset adapter to reflect new settings
         self._job_adapter = None
@@ -497,20 +604,52 @@ class App:
             self.win.show_toast("No active group.")
             return
         try:
-            storage_hint = self._group_storage_hints.get(self._current_group_id)
             out_dir = self.uc_download(
                 self._current_group_id,
                 self.settings_vm.results_dir,
-                storage_hint=storage_hint,
             )  # type: ignore[misc]
-            self.win.show_toast(f"Downloaded to {out_dir}")
-            self._open_results_folder(out_dir)
+            self._log.info(
+                "Downloaded group %s to %s", self._current_group_id, out_dir
+            )
+            resolved_dir = os.path.abspath(out_dir)
+            self._last_download_dir = resolved_dir
+            self.win.show_toast(self._build_download_toast(resolved_dir))
         except Exception as e:
-            self.win.show_toast(str(e))
+            self._toast_error(e)
 
     def _on_download_box_results(self, box_id: str) -> None:
         # Group ZIPs are per group; per-box filtering could be added in adapter if needed
         self._on_download_group_results()
+
+    def _build_download_toast(self, path: str) -> str:
+        short_path = self._shorten_download_path(path)
+        if self._can_open_results_folder():
+            return f"Downloaded to {short_path} (Ctrl+Shift+O to open)"
+        return f"Downloaded to {short_path}"
+
+    def _shorten_download_path(self, path: str, max_len: int = 60) -> str:
+        normalized = os.path.normpath(path)
+        if len(normalized) <= max_len:
+            return normalized
+        suffix_len = max(3, max_len - 3)
+        return f"...{normalized[-suffix_len:]}"
+
+    def _can_open_results_folder(self) -> bool:
+        if sys.platform.startswith("win"):
+            return hasattr(os, "startfile")
+        if sys.platform == "darwin":
+            return True
+        return shutil.which("xdg-open") is not None
+
+    def _on_open_download_folder_hotkey(self, event=None):
+        if not self._last_download_dir:
+            self.win.show_toast("Nothing downloaded yet.")
+            return "break"
+        if not self._can_open_results_folder():
+            self.win.show_toast("Open folder not supported on this platform.")
+            return "break"
+        self._open_results_folder(self._last_download_dir)
+        return "break"
 
     def _open_results_folder(self, path: str) -> None:
         """Open the download folder using the platform default file browser."""
@@ -522,7 +661,10 @@ class App:
             elif sys.platform == "darwin":
                 subprocess.Popen(["open", path])
             else:
-                subprocess.Popen(["xdg-open", path])
+                opener = shutil.which("xdg-open")
+                if not opener:
+                    raise RuntimeError("xdg-open not available")
+                subprocess.Popen([opener, path])
         except Exception as exc:
             self.win.show_toast(f"Could not open folder: {exc}")
 
@@ -688,9 +830,89 @@ class App:
                 self.win.show_toast("All runs completed.")
                 return
         except Exception as e:
-            self.win.show_toast(str(e))
+            self._toast_error(e)
         finally:
             self._schedule_poll()
+
+    # ==================================================================
+    # Error handling helpers
+    # ==================================================================
+
+    def _toast_error(self, err: Exception, *, context: Optional[str] = None) -> None:
+        message = self._format_error_message(err)
+        if context:
+            message = f"{context}: {message}"
+        self.win.show_toast(message)
+
+    def _format_error_message(self, err: Exception) -> str:
+        if isinstance(err, UseCaseError):
+            self._log.warning("UseCase error (%s): %s", err.code, err.message)
+            return err.message
+        if isinstance(err, ApiTimeoutError):
+            self._log.warning("API timeout (%s)", getattr(err, "context", ""))
+            return "Request timed out. Check connection."
+        if isinstance(err, ApiClientError):
+            status = err.status or 0
+            hint = err.hint or extract_error_hint(getattr(err, "payload", None))
+            if status == 422:
+                return self._compose_error_message("Invalid parameters", hint)
+            if status == 409:
+                slot = self._extract_slot_hint(err) or hint
+                return self._compose_error_message("Slot busy", slot)
+            if status in (401, 403):
+                return "Auth failed / API key invalid."
+            label = f"Request failed (HTTP {status})" if status else "Request failed"
+            return self._compose_error_message(label, hint)
+        if isinstance(err, ApiServerError):
+            self._log.error(
+                "Server error while calling box (%s)", getattr(err, "context", "")
+            )
+            return "Box error, try again."
+        if isinstance(err, ApiError):
+            self._log.warning("API error (%s): %s", getattr(err, "context", ""), err)
+            return str(err)
+        self._log.exception("Unexpected error")
+        return str(err)
+
+    def _compose_error_message(self, base: str, hint: Optional[str]) -> str:
+        hint_text = (hint or "").strip()
+        if hint_text:
+            return f"{base}: {hint_text}"
+        if base.endswith("."):
+            return base
+        return f"{base}."
+
+    def _extract_slot_hint(self, err: ApiClientError) -> Optional[str]:
+        payload = getattr(err, "payload", None)
+        slot = self._find_slot(payload)
+        if slot:
+            return slot
+        hint = err.hint or extract_error_hint(payload)
+        if hint:
+            cleaned = hint.replace(",", " ").replace(";", " ")
+            for token in cleaned.split():
+                lower = token.lower()
+                if lower.startswith("slot"):
+                    parts = token.split("=", 1)
+                    return parts[1] if len(parts) == 2 else token
+        return None
+
+    def _find_slot(self, data: Any) -> Optional[str]:
+        if isinstance(data, dict):
+            for key in ("slot", "slot_id", "well", "well_id"):
+                value = data.get(key)
+                if value:
+                    return str(value)
+            for value in data.values():
+                slot = self._find_slot(value)
+                if slot:
+                    return slot
+        elif isinstance(data, list):
+            for item in data:
+                slot = self._find_slot(item)
+                if slot:
+                    return slot
+        return None
 
     def _handle_start_validations(self, result: StartBatchResult) -> None:
         if not result.validations:
@@ -744,21 +966,32 @@ class App:
     # Plan building
     # ==================================================================
 
-    def _derive_storage_hint(self, plan: Dict) -> GroupStorageHint:
-        """Extract storage metadata from the start plan for later downloads."""
-        storage_payload = plan.get("storage")
-        if not isinstance(storage_payload, dict):
-            storage_payload = {}
+    def _current_client_datetime(self) -> str:
+        """Return a UTC timestamp suitable for the client_datetime payload."""
+        timestamp = datetime.now().replace(microsecond=0)
+        return timestamp.isoformat().replace("+00:00", "Z")
 
-        experiment_name = storage_payload.get("experiment_name") or plan.get("experiment_name")
-        client_datetime = storage_payload.get("client_datetime") or plan.get("client_datetime")
-        subdir = storage_payload.get("subdir") or plan.get("subdir")
-
-        return GroupStorageHint(
-            experiment_name=experiment_name,
-            client_datetime=client_datetime,
-            subdir=subdir,
+    def _build_storage_metadata(self) -> Dict[str, str]:
+        """Collect experiment storage metadata from settings and transient overrides."""
+        experiment_name = (self.settings_vm.experiment_name or "").strip()
+        if not experiment_name:
+            raise RuntimeError("Experiment name must be set in Settings.")
+        subdir = (self.settings_vm.subdir or "").strip()
+        override_dt = (
+            self.experiment_vm.fields.get("storage.client_datetime")
+            if hasattr(self.experiment_vm, "fields")
+            else None
         )
+        client_datetime = str(override_dt).strip() if override_dt else ""
+        if not client_datetime:
+            client_datetime = self._current_client_datetime()
+        storage = {
+            "experiment_name": experiment_name,
+            "subdir": subdir,
+            "client_datetime": client_datetime,
+            "results_dir": self.settings_vm.results_dir,
+        }
+        return storage
 
     def _build_plan_from_vm(self, selection: Iterable[str]) -> Dict:
         """
@@ -783,24 +1016,31 @@ class App:
             raise RuntimeError("No saved parameters found for configured wells.")
 
         # 3) Optional global settings / defaults
-        folder_name = self.settings_vm.results_dir or "."
         make_plot = False  # default: let backend create plots
         tia_gain = None  # will be added later via Settings
         sampling_interval = None  # will be added later via Settings
 
         # 4) Compose plan dict for the UseCase
+        storage_meta = self._build_storage_metadata()
         plan = {
             "selection": sorted(configured),
             "well_params_map": well_params_map,
-            "folder_name": folder_name,
             "make_plot": make_plot,
             "tia_gain": tia_gain,
             "sampling_interval": sampling_interval,
+            "storage": storage_meta,
             # "group_id": optional custom ID could be added here
         }
 
         # 5) Debug convenience (optional)
-        print(f"[DEBUG] Built plan for {len(configured)} wells across boxes.")
+        boxes = sorted(
+            {str(wid)[0] for wid in configured if isinstance(wid, str) and wid}
+        )
+        self._log.debug(
+            "Built plan for %d wells across boxes %s",
+            len(configured),
+            ", ".join(boxes) if boxes else "-",
+        )
 
         return plan
 

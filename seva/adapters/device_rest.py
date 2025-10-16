@@ -5,8 +5,20 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import requests
+from requests import exceptions as req_exc
 
 from seva.domain.ports import BoxId, DevicePort
+
+from .api_errors import (
+    ApiClientError,
+    ApiError,
+    ApiServerError,
+    ApiTimeoutError,
+    build_error_message,
+    extract_error_code,
+    extract_error_hint,
+    parse_error_payload,
+)
 
 
 @dataclass
@@ -37,6 +49,7 @@ class _RetryingSession:
         accept: str = "application/json",
     ) -> requests.Response:
         last_err: Optional[Exception] = None
+        context = f"GET {url}"
         for _ in range(self.cfg.retries + 1):
             try:
                 return self.session.get(
@@ -45,8 +58,17 @@ class _RetryingSession:
                     timeout=timeout or self.cfg.request_timeout_s,
                 )
             except Exception as exc:
-                last_err = exc
-        raise last_err  # type: ignore[misc]
+                if isinstance(exc, (req_exc.Timeout, req_exc.ConnectionError)):
+                    last_err = ApiTimeoutError(f"Timeout contacting {url}", context=context)
+                else:
+                    last_err = exc
+        if last_err is None:
+            raise ApiError("Unexpected request failure", context=context)
+        if isinstance(last_err, ApiError):
+            raise last_err
+        if isinstance(last_err, req_exc.RequestException):
+            raise ApiError(str(last_err), context=context) from last_err
+        raise last_err
 
     def post(
         self,
@@ -56,6 +78,7 @@ class _RetryingSession:
         timeout: Optional[int] = None,
     ) -> requests.Response:
         last_err: Optional[Exception] = None
+        context = f"POST {url}"
         data = None if json_body is None else json.dumps(json_body)
         headers = self._headers(accept="application/json")
         if json_body is not None:
@@ -69,8 +92,17 @@ class _RetryingSession:
                     timeout=timeout or self.cfg.request_timeout_s,
                 )
             except Exception as exc:
-                last_err = exc
-        raise last_err  # type: ignore[misc]
+                if isinstance(exc, (req_exc.Timeout, req_exc.ConnectionError)):
+                    last_err = ApiTimeoutError(f"Timeout contacting {url}", context=context)
+                else:
+                    last_err = exc
+        if last_err is None:
+            raise ApiError("Unexpected request failure", context=context)
+        if isinstance(last_err, ApiError):
+            raise last_err
+        if isinstance(last_err, req_exc.RequestException):
+            raise ApiError(str(last_err), context=context) from last_err
+        raise last_err
 
 
 class DeviceRestAdapter(DevicePort):
@@ -178,16 +210,28 @@ class DeviceRestAdapter(DevicePort):
     def _ensure_ok(resp: requests.Response, ctx: str) -> None:
         if 200 <= resp.status_code < 300:
             return
-
-        body = ""
-        try:
-            body = resp.text[:300]
-        except Exception:
-            pass
-
-        if resp.status_code in (401, 403):
-            raise RuntimeError(f"{ctx}: HTTP {resp.status_code} unauthorized {body}")
-        raise RuntimeError(f"{ctx}: HTTP {resp.status_code} {body}")
+        status = resp.status_code
+        payload = parse_error_payload(resp)
+        message = build_error_message(ctx, status, payload)
+        code = extract_error_code(payload)
+        hint = extract_error_hint(payload)
+        if 400 <= status < 500:
+            raise ApiClientError(
+                message,
+                status=status,
+                code=code,
+                hint=hint,
+                payload=payload,
+                context=ctx,
+            )
+        if 500 <= status < 600:
+            raise ApiServerError(
+                message,
+                status=status,
+                payload=payload,
+                context=ctx,
+            )
+        raise ApiError(message, status=status, payload=payload, context=ctx)
 
     @staticmethod
     def _json_any(resp: requests.Response) -> Any:

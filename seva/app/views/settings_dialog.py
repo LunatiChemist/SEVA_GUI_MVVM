@@ -57,7 +57,10 @@ class SettingsDialog(tk.Toplevel):
         self.download_timeout_var = tk.StringVar(value="60")
         self.poll_interval_var = tk.StringVar(value="750")
         self.results_dir_var = tk.StringVar(value=".")
+        self.experiment_name_var = tk.StringVar(value="")
+        self.subdir_var = tk.StringVar(value="")
         self.use_streaming_var = tk.BooleanVar(value=False)
+        self.debug_logging_var = tk.BooleanVar(value=False)
         self.relay_ip_var = tk.StringVar(value="")
         self.relay_port_var = tk.StringVar(value="")
 
@@ -113,11 +116,17 @@ class SettingsDialog(tk.Toplevel):
         ttk.Label(storage, text="Results directory").grid(row=0, column=0, sticky="w")
         ttk.Entry(storage, textvariable=self.results_dir_var).grid(row=0, column=1, sticky="ew", padx=(0,8))
         ttk.Button(storage, text="Browse", command=lambda: self._safe(self._on_browse_results_dir)).grid(row=0, column=2, sticky="w")
+        ttk.Label(storage, text="Experiment name").grid(row=1, column=0, sticky="w", pady=(4,0))
+        ttk.Entry(storage, textvariable=self.experiment_name_var).grid(row=1, column=1, sticky="ew", padx=(0,8), pady=(4,0))
+        ttk.Label(storage, text="Optional subdirectory").grid(row=2, column=0, sticky="w")
+        ttk.Entry(storage, textvariable=self.subdir_var).grid(row=2, column=1, sticky="ew", padx=(0,8))
+        ttk.Label(storage, text="Paths are generated on the Box").grid(row=3, column=0, columnspan=3, sticky="w", pady=(2,0))
 
         # Streaming flag
         flags = ttk.Frame(self)
         flags.grid(row=4, column=0, sticky="ew", **pad)
         ttk.Checkbutton(flags, text="Use streaming (SSE/WebSocket)", variable=self.use_streaming_var).pack(side="left")
+        ttk.Checkbutton(flags, text="Enable debug logging", variable=self.debug_logging_var).pack(side="left", padx=(12, 0))
 
         # Footer buttons
         footer = ttk.Frame(self)
@@ -134,14 +143,17 @@ class SettingsDialog(tk.Toplevel):
             "api_keys": {b: self.key_vars[b].get() for b in self._boxes},
             "timeouts": {
                 "request_s": self._parse_int(self.request_timeout_var.get(), 10),
-                "download_s": self._parse_int(self.download_timeout_var.get(), 60),
-            },
-            "poll_interval_ms": self._parse_int(self.poll_interval_var.get(), 750),
-            "results_dir": self.results_dir_var.get().strip() or ".",
-            "use_streaming": bool(self.use_streaming_var.get()),
-            "relay": {
-                "ip": self.relay_ip_var.get().strip(),
-                "port": self._parse_int(self.relay_port_var.get(), 0),
+            "download_s": self._parse_int(self.download_timeout_var.get(), 60),
+        },
+        "poll_interval_ms": self._parse_int(self.poll_interval_var.get(), 750),
+        "results_dir": self.results_dir_var.get().strip() or ".",
+        "experiment_name": self.experiment_name_var.get().strip(),
+        "subdir": self.subdir_var.get().strip(),
+        "use_streaming": bool(self.use_streaming_var.get()),
+        "debug_logging": bool(self.debug_logging_var.get()),
+        "relay": {
+            "ip": self.relay_ip_var.get().strip(),
+            "port": self._parse_int(self.relay_port_var.get(), 0),
             },
         }
         if self._on_save:
@@ -181,8 +193,17 @@ class SettingsDialog(tk.Toplevel):
     def set_results_dir(self, path: str) -> None:
         self.results_dir_var.set(path)
 
+    def set_experiment_name(self, name: str) -> None:
+        self.experiment_name_var.set(name)
+
+    def set_subdir(self, value: str) -> None:
+        self.subdir_var.set(value)
+
     def set_use_streaming(self, enabled: bool) -> None:
         self.use_streaming_var.set(bool(enabled))
+
+    def set_debug_logging(self, enabled: bool) -> None:
+        self.debug_logging_var.set(bool(enabled))
 
     def set_relay_config(self, ip: str, port: int) -> None:
         self.relay_ip_var.set(ip)
