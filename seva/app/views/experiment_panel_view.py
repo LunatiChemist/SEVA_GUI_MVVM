@@ -39,6 +39,8 @@ class ExperimentPanelView(ttk.Frame):
         on_paste_dcac: OnVoid = None,
         on_copy_cdl: OnVoid = None,
         on_paste_cdl: OnVoid = None,
+        on_copy_eis: OnVoid = None,
+        on_paste_eis: OnVoid = None,
         on_electrode_mode_changed: Optional[Callable[[str], None]] = None,  # "2E" | "3E"
     ) -> None:
         super().__init__(parent)
@@ -54,6 +56,8 @@ class ExperimentPanelView(ttk.Frame):
         self._on_paste_dcac = on_paste_dcac
         self._on_copy_cdl = on_copy_cdl
         self._on_paste_cdl = on_paste_cdl
+        self._on_copy_eis = on_copy_eis
+        self._on_paste_eis = on_paste_eis
         self._on_electrode_mode_changed = on_electrode_mode_changed
         self._selection_count_var = tk.StringVar(value="")          # optional Counter
         self._electrode_display = tk.StringVar(value="3-electrode") # Combobox-Text; mapping to "2E"/"3E"
@@ -132,7 +136,13 @@ class ExperimentPanelView(ttk.Frame):
         eis = ttk.Labelframe(self, text="Impedance (EIS)")
         self._mode_frames["EIS"] = eis
         eis.grid(row=1, column=1, padx=6, pady=6, sticky="nsew")
-        ttk.Checkbutton(eis, text="Run EIS", variable=self.eis_run_var).grid(row=0, column=0, sticky="w", padx=6, pady=4)
+        self._make_header_with_tools(
+            eis,
+            check_var=self.eis_run_var,
+            check_text="Run EIS",
+            on_copy=self._on_copy_eis,
+            on_paste=self._on_paste_eis,
+        )
         self._make_labeled_entry(eis, "Freq Start (Hz)", "eis.freq_start_hz", 1)
         self._make_labeled_entry(eis, "Freq End (Hz)", "eis.freq_end_hz", 2)
         self._make_labeled_entry(eis, "Points", "eis.points", 3)

@@ -73,12 +73,11 @@ class WellGridView(ttk.Frame):
         toolbar = ttk.Frame(self)
         toolbar.pack(fill="x", pady=(0, 4))
 
-        ttk.Button(toolbar, text="Enable/Disable",
-                   command=lambda: self._safe(self._on_toggle_enable_selected)).pack(side="left")
-        ttk.Button(toolbar, text="Paste Params",
-                   command=lambda: self._safe(self._on_paste_params_to_selection)).pack(side="left", padx=(6, 0))
-        ttk.Button(toolbar, text="Reset Selection",
-                   command=lambda: self._safe(self._on_reset_selected)).pack(side="left", padx=(6, 0))
+        ttk.Button(
+            toolbar,
+            text="Reset Well Config",
+            command=lambda: self._safe(self._on_reset_selected),
+        ).pack(side="left")
 
         grid = ttk.Frame(self)
         grid.pack(fill="both", expand=True)
