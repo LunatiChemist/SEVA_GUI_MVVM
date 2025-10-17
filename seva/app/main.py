@@ -2,13 +2,18 @@
 from __future__ import annotations
 import logging
 import os
+import random
+import re
 import shutil
+import string
 import subprocess
 import sys
 import tempfile
+from collections import defaultdict
+import time
 from datetime import datetime, timezone
 from tkinter import filedialog
-from typing import Any, Dict, Set, Optional, Iterable, List
+from typing import Any, Dict, Set, Optional, Iterable, List, TYPE_CHECKING
 
 # ---- Views (UI-only) ----
 from .views.main_window import MainWindowView
@@ -32,6 +37,7 @@ from ..usecases.start_experiment_batch import (
     StartExperimentBatch,
     WellValidationResult,
 )
+from ..usecases.validate_start_plan import ValidateStartPlan
 from ..usecases.poll_group_status import PollGroupStatus
 from ..usecases.download_group_results import DownloadGroupResults
 from ..usecases.cancel_group import CancelGroup
@@ -54,6 +60,14 @@ from ..adapters.api_errors import (
 )
 from ..utils import logging as logging_utils
 
+if TYPE_CHECKING:
+    from ..usecases.cancel_runs import CancelRuns
+
+try:
+    from ..usecases.cancel_runs import CancelRuns as _CancelRunsClass
+except ImportError:
+    _CancelRunsClass = None
+
 logging_utils.configure_root()
 
 
@@ -66,7 +80,6 @@ class App:
         self.win = MainWindowView(
             on_submit=self._on_submit,
             on_cancel_group=self._on_cancel_group,
-            on_cancel_selection=self._on_cancel_selection,
             on_save_layout=self._on_save_layout,
             on_load_layout=self._on_load_layout,
             on_open_settings=self._on_open_settings,
@@ -106,6 +119,7 @@ class App:
             on_toggle_control_mode=None,
             on_apply_params=self._on_apply_params,
             on_end_task=self._on_cancel_group,
+            on_end_selection=self._on_end_selection,
             on_copy_cv=lambda: self._on_copy_mode("CV"),
             on_paste_cv=lambda: self._on_paste_mode("CV"),
             on_copy_dcac=lambda: self._on_copy_mode("DCAC"),
@@ -122,7 +136,6 @@ class App:
             self.win.tab_run_overview,
             boxes=("A", "B", "C", "D"),
             on_cancel_group=self._on_cancel_group,
-            on_cancel_selection=self._on_cancel_selection,
             on_download_group_results=self._on_download_group_results,
             on_download_box_results=self._on_download_box_results,
             on_open_plot=self._on_open_plotter,
@@ -138,17 +151,21 @@ class App:
         self._job_adapter: Optional[JobRestAdapter] = None
         self._device_adapter: Optional[DeviceRestAdapter] = None
         self.uc_start: Optional[StartExperimentBatch] = None
+        self.uc_validate_start_plan: Optional[ValidateStartPlan] = None
         self.uc_poll: Optional[PollGroupStatus] = None
         self.uc_download: Optional[DownloadGroupResults] = None
         self.uc_cancel: Optional[CancelGroup] = None
+        self.uc_cancel_runs: Optional['CancelRuns'] = None
         self.uc_test_connection: Optional[TestConnection] = None
+
+        # ---- Download metadata per group ----
+        self._group_storage_meta: Dict[str, Dict[str, str]] = {}
 
         # ---- LocalStorage Adapter ----
         self._storage_root = os.environ.get("SEVA_STORAGE_ROOT") or "."
         self._storage = StorageLocal(root_dir=self._storage_root)
         self._load_user_settings()
 
-        # Download metadata cache per group for result-path resolution.
         self.uc_save_layout = SavePlateLayout(self._storage)
         self.uc_load_layout = LoadPlateLayout(self._storage)
 
@@ -172,7 +189,10 @@ class App:
         except Exception as exc:
             self.win.show_toast(f"Could not load settings: {exc}")
         if payload is not None:
-            self.settings_vm.apply_dict(payload)
+            try:
+                self.settings_vm.apply_dict(payload)
+            except ValueError as exc:
+                self.win.show_toast(str(exc))
         self._apply_logging_preferences()
 
     def _apply_logging_preferences(self) -> None:
@@ -186,7 +206,11 @@ class App:
     # ==================================================================
     def _ensure_adapter(self) -> bool:
         """Build the REST adapter and use cases from SettingsVM if not yet present."""
-        if self._job_adapter and self._device_adapter:
+        if (
+            self._job_adapter
+            and self._device_adapter
+            and (self.uc_cancel_runs or _CancelRunsClass is None)
+        ):
             return True
 
         base_urls = {k: v for k, v in (self.settings_vm.box_urls or {}).items() if v}
@@ -207,6 +231,9 @@ class App:
             self.uc_download = DownloadGroupResults(self._job_adapter)
             self.uc_cancel = CancelGroup(self._job_adapter)
 
+        if _CancelRunsClass and self._job_adapter and self.uc_cancel_runs is None:
+            self.uc_cancel_runs = _CancelRunsClass(self._job_adapter)
+
         if self._device_adapter is None:
             self._device_adapter = DeviceRestAdapter(
                 base_urls=base_urls,
@@ -219,6 +246,7 @@ class App:
             self.uc_start = StartExperimentBatch(
                 self._job_adapter, self._device_adapter
             )
+            self.uc_validate_start_plan = ValidateStartPlan(self._device_adapter)
             self.uc_test_connection = TestConnection(self._device_adapter)
         return True
 
@@ -262,9 +290,26 @@ class App:
             self._log.info("Submitting start request: %s", summary)
             self._log.debug("Start selection=%s", sorted(configured))
 
+            if not self.uc_validate_start_plan:
+                raise RuntimeError("Start validation use case is not initialized.")
+            validations = self.uc_validate_start_plan(plan)  # type: ignore[misc]
+            has_invalid = any(not entry.ok for entry in validations)
+            has_warnings = any(entry.ok and entry.warnings for entry in validations)
+
+            if has_invalid or has_warnings:
+                self._handle_start_validations(validations)
+
+            if has_invalid:
+                self.win.show_toast("No runs started. Fix validation errors.")
+                return
+
+            plan["all_or_nothing"] = True
+
             # Start via UseCase
             result: StartBatchResult = self.uc_start(plan)  # type: ignore[misc]
-            self._handle_start_validations(result)
+
+            if result.validations != validations:
+                self._handle_start_validations(result.validations)
 
             if not result.run_group_id:
                 if not result.started_wells:
@@ -275,6 +320,17 @@ class App:
 
             group_id = result.run_group_id
             subruns = result.per_box_runs
+            storage_payload = plan.get("storage") or {}
+            normalized_storage = {
+                "experiment": str(storage_payload.get("experiment_name") or "").strip(),
+                "subdir": str(storage_payload.get("subdir") or "").strip(),
+                "client_datetime": str(storage_payload.get("client_datetime") or "").strip(),
+                "results_dir": str(
+                    storage_payload.get("results_dir") or self.settings_vm.results_dir or ""
+                ).strip()
+                or self.settings_vm.results_dir,
+            }
+            self._group_storage_meta[group_id] = normalized_storage
             self._log.info(
                 "Start response: group=%s wells=%d boxes=%s",
                 group_id,
@@ -327,8 +383,49 @@ class App:
         except Exception as e:
             self._toast_error(e)
 
-    def _on_cancel_selection(self) -> None:
-        self.wellgrid.set_selection([])
+    def _on_end_selection(self) -> None:
+        selection = sorted(self.plate_vm.get_selection())
+        if not selection:
+            self.win.show_toast("Select at least one well.")
+            return
+        if not self._ensure_adapter():
+            return
+        cancel_runs = self.uc_cancel_runs
+        if cancel_runs is None:
+            self.win.show_toast("Cancel selected runs not available.")
+            return
+
+        rows = (self.progress_vm.last_snapshot or {}).get("wells") or []
+        selected = set(selection)
+        box_to_runs: Dict[str, Set[str]] = defaultdict(set)
+
+        for row in rows:
+            if not isinstance(row, (list, tuple)) or len(row) < 5:
+                continue
+            well_id = str(row[0] or "").strip()
+            if well_id not in selected:
+                continue
+            run_id = str(row[-1] or "").strip()
+            if not run_id:
+                continue
+            box_id = well_id[:1].upper()
+            if not box_id or not box_id.isalpha():
+                continue
+            box_to_runs[box_id].add(run_id)
+
+        payload = {box: sorted(runs) for box, runs in box_to_runs.items() if runs}
+        if not payload:
+            self.win.show_toast("Selected wells have no active runs.")
+            return
+
+        try:
+            self._log.info(
+                "End selection requested for wells: %s", ", ".join(selection)
+            )
+            cancel_runs(payload)
+            self.win.show_toast("Abort requested for selected runs.")
+        except Exception as exc:
+            self._toast_error(exc, context="Cancel runs")
 
     def _on_save_layout(self) -> None:
         try:
@@ -337,50 +434,76 @@ class App:
                 self.win.show_toast("Nothing to save: no configured wells.")
                 return
             well_map = self.experiment_vm.build_well_params_map(configured)
-            # Use a simple default name; later ask the user
-            name = "layout_latest"
-            saved_path = self.uc_save_layout(name, configured, well_map)  # type: ignore[misc]
+            default_name = f"layout_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            initial_dir = os.path.abspath(self._storage_root)
+            if not os.path.isdir(initial_dir):
+                initial_dir = os.getcwd()
+            path = filedialog.asksaveasfilename(
+                parent=self.win,
+                defaultextension=".json",
+                filetypes=[("Layout JSON", "layout_*.json")],
+                initialfile=default_name,
+                initialdir=initial_dir,
+                title="Save Layout",
+            )
+            if not path:
+                return
+            saved_path = self.uc_save_layout(path, configured, well_map)  # type: ignore[misc]
             self.win.show_toast(f"Saved {saved_path.name}")
         except Exception as e:
             self.win.show_toast(str(e))
 
     def _on_load_layout(self) -> None:
         try:
-            name = "layout_latest"  # later: open file picker / presets
-            data = self.uc_load_layout(name)  # type: ignore[misc]
-            wmap: Dict[str, Dict[str, str]] = data.get("well_params_map", {})
-            selection = data.get("selection") or []
+            initial_dir = os.path.abspath(self._storage_root)
+            if not os.path.isdir(initial_dir):
+                initial_dir = os.getcwd()
+            path = filedialog.askopenfilename(
+                parent=self.win,
+                filetypes=[("Layout JSON", "layout_*.json")],
+                initialdir=initial_dir,
+                title="Load Layout",
+            )
+            if not path:
+                return
+            data = self.uc_load_layout(path)  # type: ignore[misc]
+            raw_map = data.get("well_params_map") or {}
+            wmap: Dict[str, Dict[str, str]] = {}
+            if isinstance(raw_map, dict):
+                for wid, snapshot in raw_map.items():
+                    wid_str = str(wid)
+                    if isinstance(snapshot, dict):
+                        wmap[wid_str] = dict(snapshot)
+                    else:
+                        wmap[wid_str] = {}
+            selection_raw = data.get("selection")
             wells_list: List[str] = []
-            if isinstance(selection, list):
-                for item in selection:
+            if isinstance(selection_raw, list):
+                for item in selection_raw:
                     wid = str(item)
                     if wid not in wells_list:
                         wells_list.append(wid)
+            elif isinstance(selection_raw, str):
+                wells_list = [selection_raw]
             if not wells_list:
-                wells_list = sorted(str(wid) for wid in wmap.keys())
-            wells = set(wells_list)
-            # push into VM
+                wells_list = sorted(wmap.keys())
+            self.experiment_vm.well_params.clear()
             for wid, snap in wmap.items():
                 self.experiment_vm.save_params_for(wid, snap)
-            # reflect in UI/VM
+            configured_wells = set(wmap.keys()) or set(wells_list)
             self.plate_vm.clear_all_configured()
-            self.plate_vm.mark_configured(wells)
-            self.wellgrid.set_configured_wells(wells)
+            self.plate_vm.mark_configured(configured_wells)
+            self.wellgrid.set_configured_wells(configured_wells)
             if wells_list:
-                self.wellgrid.set_selection(wells_list)
-            self.win.show_toast(
-                f"Loaded {self._format_layout_filename(name)} ({len(wells_list)} wells)."
-            )
+                first_well = wells_list[0]
+                self.experiment_vm.set_selection({first_well})
+                self.experiment_vm.fields = dict(wmap.get(first_well, {}))
+                self.wellgrid.set_selection([first_well])
+            else:
+                self.experiment_vm.set_selection(set())
+            self.win.show_toast(f"Loaded {os.path.basename(path)}")
         except Exception as e:
             self.win.show_toast(str(e))
-
-    def _format_layout_filename(self, name: str) -> str:
-        filename = name
-        if filename.endswith(".json"):
-            filename = filename[:-5]
-        if not filename.startswith("layout_"):
-            filename = f"layout_{filename}"
-        return f"{filename}.json"
 
     def _on_open_settings(self) -> None:
         dlg: Optional[SettingsDialog] = None
@@ -600,20 +723,33 @@ class App:
         dp.set_run_info(self._current_group_id or "—", selection_summary)
 
     def _on_download_group_results(self) -> None:
-        if not self._current_group_id or not self._ensure_adapter():
+        group_id = self._current_group_id
+        if not group_id or not self._ensure_adapter():
             self.win.show_toast("No active group.")
+            return
+        storage_meta = self._group_storage_meta.get(group_id)
+        if not storage_meta:
+            self.win.show_toast(
+                "Missing storage metadata for the active group. Start must finish before downloading."
+            )
+            return
+        results_dir = storage_meta.get("results_dir") or self.settings_vm.results_dir
+        if not results_dir:
+            self.win.show_toast("Results directory is not configured for downloads.")
             return
         try:
             out_dir = self.uc_download(
-                self._current_group_id,
-                self.settings_vm.results_dir,
+                group_id,
+                results_dir,
+                storage_meta,
+                cleanup="archive",
             )  # type: ignore[misc]
             self._log.info(
-                "Downloaded group %s to %s", self._current_group_id, out_dir
+                "Downloaded group %s to %s", group_id, out_dir
             )
             resolved_dir = os.path.abspath(out_dir)
             self._last_download_dir = resolved_dir
-            self.win.show_toast(self._build_download_toast(resolved_dir))
+            self.win.show_toast(self._build_download_toast(group_id, resolved_dir))
         except Exception as e:
             self._toast_error(e)
 
@@ -621,11 +757,21 @@ class App:
         # Group ZIPs are per group; per-box filtering could be added in adapter if needed
         self._on_download_group_results()
 
-    def _build_download_toast(self, path: str) -> str:
+    def _build_download_toast(self, group_id: str, path: str) -> str:
         short_path = self._shorten_download_path(path)
+        descriptor = ""
+        meta = self._group_storage_meta.get(group_id) if group_id else None
+        if meta:
+            parts = [
+                str(meta.get("experiment") or "").strip(),
+                str(meta.get("subdir") or "").strip(),
+                str(meta.get("client_datetime") or "").strip(),
+            ]
+            descriptor = "/".join([p for p in parts if p])
+        target = f"{descriptor} → {short_path}" if descriptor else short_path
         if self._can_open_results_folder():
-            return f"Downloaded to {short_path} (Ctrl+Shift+O to open)"
-        return f"Downloaded to {short_path}"
+            return f"Results unpacked to {target} (Ctrl+Shift+O to open)"
+        return f"Results unpacked to {target}"
 
     def _shorten_download_path(self, path: str, max_len: int = 60) -> str:
         normalized = os.path.normpath(path)
@@ -724,15 +870,23 @@ class App:
 
     def _on_copy_mode(self, mode: str) -> None:
         selection = self.plate_vm.get_selection()
-        if len(selection) != 1:
-            self.win.show_toast("Select one well.")
+        if len(selection) == 0:
+            self.win.show_toast("Select one well to copy.")
+            return
+        if len(selection) > 1:
+            self.win.show_toast("Select exactly one well to copy.")
             return
         well_id = next(iter(selection))
-        if not self.experiment_vm.get_params_for(well_id):
-            self.win.show_toast("No saved params.")
+        try:
+            snapshot = self.experiment_vm.build_mode_snapshot_for_copy(mode)
+        except Exception as e:
+            self.win.show_toast(str(e))
+            return
+        if not snapshot:
+            self.win.show_toast("No params in form.")
             return
         try:
-            self.experiment_vm.cmd_copy_mode(mode, well_id)
+            self.experiment_vm.cmd_copy_mode(mode, well_id, source_snapshot=snapshot)
             self.win.show_toast(f"Copied {self._mode_label(mode)}.")
         except Exception as e:
             self.win.show_toast(str(e))
@@ -791,7 +945,8 @@ class App:
 
     def _apply_channel_activity(self, mapping: Dict[str, str]) -> None:
         self.activity.set_activity(mapping)
-        self.activity.set_updated_at("Updated")
+        now_str = time.strftime("%H:%M:%S")
+        self.activity.set_updated_at(f"Updated at {now_str}")
 
     def _open_plot_for_well(self, well_id: str) -> None:
         self.win.show_toast(f"Open PNG for {well_id}")
@@ -914,13 +1069,16 @@ class App:
                     return slot
         return None
 
-    def _handle_start_validations(self, result: StartBatchResult) -> None:
-        if not result.validations:
+    def _handle_start_validations(
+        self, validations: Iterable[WellValidationResult]
+    ) -> None:
+        entries = list(validations)
+        if not entries:
             return
 
-        invalid = [entry for entry in result.validations if not entry.ok]
+        invalid = [entry for entry in entries if not entry.ok]
         warning_candidates = [
-            entry for entry in result.validations if entry.ok and entry.warnings
+            entry for entry in entries if entry.ok and entry.warnings
         ]
 
         def _summarize(
@@ -966,10 +1124,23 @@ class App:
     # Plan building
     # ==================================================================
 
+    @staticmethod
+    def _local_dt_slug() -> str:
+        """Return a slug-safe timestamp based on the local timezone."""
+        return datetime.now().astimezone().strftime("%Y-%m-%dT%H-%M-%S")
+
+    @staticmethod
+    def _slug(value: str) -> str:
+        """Normalize text to a lowercase slug with underscores."""
+        text = str(value or "").lower()
+        cleaned = re.sub(r"[^a-z0-9_]+", "_", text)
+        cleaned = re.sub(r"_+", "_", cleaned).strip("_")
+        return cleaned
+
     def _current_client_datetime(self) -> str:
         """Return a UTC timestamp suitable for the client_datetime payload."""
         timestamp = datetime.now().replace(microsecond=0)
-        return timestamp.isoformat().replace("+00:00", "Z")
+        return timestamp.isoformat().replace(":", "-").replace("+00:00", "Z")
 
     def _build_storage_metadata(self) -> Dict[str, str]:
         """Collect experiment storage metadata from settings and transient overrides."""
@@ -1029,7 +1200,7 @@ class App:
             "tia_gain": tia_gain,
             "sampling_interval": sampling_interval,
             "storage": storage_meta,
-            # "group_id": optional custom ID could be added here
+            # group_id is injected below
         }
 
         # 5) Debug convenience (optional)
@@ -1041,6 +1212,22 @@ class App:
             len(configured),
             ", ".join(boxes) if boxes else "-",
         )
+
+        experiment_slug = self._slug(storage_meta.get("experiment_name") or "exp")
+        if not experiment_slug:
+            experiment_slug = "exp"
+        subdir_slug = self._slug(storage_meta.get("subdir") or "")
+        datetime_slug = self._slug(self._local_dt_slug())
+        rand_suffix = "".join(
+            random.choices(string.ascii_lowercase + string.digits, k=4)
+        )
+        parts = [
+            experiment_slug,
+            subdir_slug or None,
+            datetime_slug,
+            rand_suffix,
+        ]
+        plan["group_id"] = "grp_" + "__".join(filter(None, parts))
 
         return plan
 

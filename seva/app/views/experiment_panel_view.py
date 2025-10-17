@@ -7,7 +7,7 @@ the original SEVA GUI layout:
 - Checkboxes to enable/disable each experiment mode (Run CV/DC/AC/EIS, Evaluate Cdl)
 - Copy/Paste buttons per group (to/from a temporary clipboard handled by VM)
 - Display of currently edited well
-- Buttons: "Update Parameters" and "End Task"
+- Buttons: "Update Parameters", "End Selection", and "End Task"
 
 This is a pure View (UI-only). It exposes callbacks and setters; no domain or
 HTTP logic is included.
@@ -33,6 +33,7 @@ class ExperimentPanelView(ttk.Frame):
         on_toggle_control_mode: OnVoid = None,
         on_apply_params: OnVoid = None,
         on_end_task: OnVoid = None,
+        on_end_selection: OnVoid = None,
         on_copy_cv: OnVoid = None,
         on_paste_cv: OnVoid = None,
         on_copy_dcac: OnVoid = None,
@@ -50,6 +51,7 @@ class ExperimentPanelView(ttk.Frame):
         self._on_toggle_control_mode = on_toggle_control_mode
         self._on_apply_params = on_apply_params
         self._on_end_task = on_end_task
+        self._on_end_selection = on_end_selection
         self._on_copy_cv = on_copy_cv
         self._on_paste_cv = on_paste_cv
         self._on_copy_dcac = on_copy_dcac
@@ -159,6 +161,7 @@ class ExperimentPanelView(ttk.Frame):
         footer.columnconfigure(0, weight=1)
         footer.columnconfigure(1, weight=1)
         footer.columnconfigure(2, weight=1)
+        footer.columnconfigure(3, weight=1)
 
         self.editing_well_var = tk.StringVar(value="–")
         ttk.Label(footer, textvariable=self.editing_well_var).grid(row=0, column=0, sticky="w")
@@ -166,8 +169,15 @@ class ExperimentPanelView(ttk.Frame):
         ttk.Button(footer, text="Update Parameters", command=lambda: self._safe(self._on_apply_params)).grid(
             row=0, column=1, sticky="", padx=6
         )
+        end_selection_btn = ttk.Button(
+            footer,
+            text="End Selection",
+            command=lambda: self._safe(self._on_end_selection),
+        )
+        end_selection_btn.grid(row=0, column=2, sticky="e", padx=6)
+        self._add_tooltip(end_selection_btn, "Abort only selected runs")
         ttk.Button(footer, text="End Task", command=lambda: self._safe(self._on_end_task)).grid(
-            row=0, column=2, sticky="e", padx=6
+            row=0, column=3, sticky="e", padx=6
         )
 
         # Electrode Mode (global for all wells)
@@ -334,6 +344,41 @@ class ExperimentPanelView(ttk.Frame):
             var.set("")
         for var in self._flag_vars.values():
             var.set(False)
+
+    # ------------------------------------------------------------------
+    def _add_tooltip(self, widget: tk.Widget, text: str) -> None:
+        """Attach a lightweight tooltip to a widget (no external dependency)."""
+        if not text:
+            return
+
+        state: Dict[str, Optional[tk.Toplevel]] = {"tip": None}
+
+        def _show(_: object) -> None:
+            if state["tip"] is not None:
+                return
+            try:
+                x = widget.winfo_rootx() + 16
+                y = widget.winfo_rooty() + widget.winfo_height() + 6
+            except Exception:
+                return
+
+            tip = tk.Toplevel(widget)
+            tip.wm_overrideredirect(True)
+            tip.wm_geometry(f"+{x}+{y}")
+            ttk.Label(tip, text=text, relief="solid", padding=(6, 3)).pack()
+            state["tip"] = tip
+
+        def _hide(_: object) -> None:
+            tip = state["tip"]
+            if tip is not None:
+                tip.destroy()
+                state["tip"] = None
+
+        widget.bind("<Enter>", _show, add="+")
+        widget.bind("<Leave>", _hide, add="+")
+        widget.bind("<ButtonPress>", _hide, add="+")
+        widget.bind("<FocusOut>", _hide, add="+")
+        setattr(widget, "_seva_tooltip_ref", state)
 
     # ------------------------------------------------------------------
     def _safe(self, fn: Optional[Callable[[], None]]):

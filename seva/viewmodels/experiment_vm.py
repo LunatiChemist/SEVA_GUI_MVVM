@@ -65,6 +65,27 @@ class ExperimentVM:
     clipboard_cdl: Dict[str, str] = field(default_factory=dict)
     clipboard_eis: Dict[str, str] = field(default_factory=dict)
 
+    def build_mode_snapshot_for_copy(self, mode: str) -> Dict[str, str]:
+        mode_key = (mode or "").upper()
+        config = _MODE_CONFIG.get(mode_key)
+        if not config:
+            raise ValueError(f"Unsupported mode: {mode}")
+
+        prefixes = cast(Tuple[str, ...], config["prefixes"])
+        flags = cast(Tuple[str, ...], config["flags"])
+        extras = cast(Tuple[str, ...], config["extra"])
+
+        def _is_mode_field(fid: str) -> bool:
+            return fid in flags or fid in extras or any(fid.startswith(p) for p in prefixes)
+
+        snapshot = {fid: val for fid, val in self.fields.items() if _is_mode_field(fid)}
+
+        # Ensure the mode-specific run flags are active when the snapshot is pasted.
+        for flag in flags:
+            snapshot[flag] = "1"
+
+        return snapshot
+
     def set_field(self, field_id: str, value: str) -> None:
         self.fields[field_id] = value
 
@@ -100,7 +121,12 @@ class ExperimentVM:
         # Mark selected as configured would be handled by PlateVM externally.
         pass
 
-    def cmd_copy_mode(self, mode: str, well_id: WellId) -> None:
+    def cmd_copy_mode(
+        self,
+        mode: str,
+        well_id: WellId,
+        source_snapshot: Optional[Dict[str, str]] = None,
+    ) -> None:
         mode_key = (mode or "").upper()
         config = _MODE_CONFIG.get(mode_key)
         if not config:
@@ -108,6 +134,12 @@ class ExperimentVM:
         clipboard_attr = cast(str, config["clipboard_attr"])
         clipboard: Dict[str, str] = getattr(self, clipboard_attr)
         clipboard.clear()
+
+        if source_snapshot is not None:
+            # Copy now relies on the live form fields instead of persisted params.
+            clipboard.update(source_snapshot)
+            return
+
         snap = self.get_params_for(well_id) or {}
         if not snap:
             return

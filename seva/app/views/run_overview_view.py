@@ -6,7 +6,7 @@ UI-only Tkinter view that displays progress/status for the current Run Group.
 Features:
 - Per-box summary panels (A–D) with status label, progress bar and SubRunId.
 - Per-well table (Treeview) showing Phase, Progress %, Remaining, Last Error, SubRunId.
-- Toolbar with actions: Cancel Selection, Download Group.
+- Toolbar with action: Download Group.
 - Scrollable table; no backend or domain logic here.
 
 All comments are in English as per project guidance.
@@ -33,7 +33,6 @@ class RunOverviewView(ttk.Frame):
         *,
         boxes: Iterable[BoxId] = ("A", "B", "C", "D"),
         on_cancel_group: OnVoid = None,
-        on_cancel_selection: OnVoid = None,
         on_download_group_results: OnVoid = None,
         on_download_box_results: OnBox = None,
         on_open_plot: Optional[callable] = None,
@@ -42,7 +41,6 @@ class RunOverviewView(ttk.Frame):
 
         self._boxes = list(boxes)
         self._on_cancel_group = on_cancel_group
-        self._on_cancel_selection = on_cancel_selection
         self._on_download_group_results = on_download_group_results
         self._on_open_plot = on_open_plot
 
@@ -58,7 +56,6 @@ class RunOverviewView(ttk.Frame):
     def _build_toolbar(self) -> None:
         bar = ttk.Frame(self)
         bar.grid(row=0, column=0, sticky="ew", padx=6, pady=(6, 4))
-        ttk.Button(bar, text="Cancel Selection", command=lambda: self._safe(self._on_cancel_selection)).pack(side="left", padx=6)
         ttk.Button(bar, text="Download Group", command=lambda: self._safe(self._on_download_group_results)).pack(side="left", padx=18)
 
     # ------------------------------------------------------------------

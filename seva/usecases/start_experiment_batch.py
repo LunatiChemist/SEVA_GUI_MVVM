@@ -154,7 +154,7 @@ class StartExperimentBatch:
         Plan (input) must contain:
           - selection: List[WellId] (configured wells)
           - well_params_map: Dict[WellId, Dict[str,str]] (per-well snapshots incl. run_* flags)
-          - optional: tia_gain, sampling_interval, make_plot, group_id
+          - optional: tia_gain, sampling_interval, make_plot, group_id, all_or_nothing
         """
         try:
             selection: Iterable[str] = plan.get("selection") or []
@@ -172,6 +172,7 @@ class StartExperimentBatch:
             tia_gain = plan.get("tia_gain", None)
             sampling_interval = plan.get("sampling_interval", None)
             make_plot = bool(plan.get("make_plot", True))
+            all_or_nothing = bool(plan.get("all_or_nothing", False))
             storage_raw = plan.get("storage") or {}
 
             def _clean_text(value: Any) -> str:
@@ -246,6 +247,7 @@ class StartExperimentBatch:
                 jobs.append(
                     {
                         "box": box,
+                        "well_id": wid,
                         "wells": [wid],
                         "mode": mode,
                         "params": params,
@@ -258,6 +260,14 @@ class StartExperimentBatch:
                     }
                 )
                 started_wells.append(wid)
+
+            if all_or_nothing and any(not entry.ok for entry in validations):
+                return StartBatchResult(
+                    run_group_id=None,
+                    per_box_runs={},
+                    started_wells=[],
+                    validations=validations,
+                )
 
             if not jobs:
                 return StartBatchResult(
