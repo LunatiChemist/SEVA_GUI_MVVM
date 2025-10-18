@@ -1,7 +1,7 @@
 ﻿# SEVA GUI MVVM — Electrochemistry Client & Pi Box API
 
 **SEVA GUI MVVM** is a desktop app (Tkinter) for running electrochemical experiments on one or more Raspberry‑Pi powered “boxes” that control potentiostats.  
-It follows a clean **MVVM + Hexagonal** architecture: Views are UI‑only; ViewModels hold state and commands; UseCases orchestrate workflows; Adapters talk to the REST API and local storage. The Pi side exposes a **FastAPI** service that drives `pyBEEP` to run measurements and produce data artifacts. :contentReference[oaicite:0]{index=0} :contentReference[oaicite:1]{index=1} :contentReference[oaicite:2]{index=2}
+It follows a clean **MVVM + Hexagonal** architecture: Views are UI‑only; ViewModels hold state and commands; UseCases orchestrate workflows; Adapters talk to the REST API and local storage. The Pi side exposes a **FastAPI** service that drives `pyBEEP` to run measurements and produce data artifacts.
 
 > Current version: **1.3.2** (GUI). License: **MIT**.
 
@@ -11,31 +11,31 @@ It follows a clean **MVVM + Hexagonal** architecture: Views are UI‑only; ViewM
 
 ### Core flow
 - **Start → Poll → Download** for single‑box workflows:
-  - Start creates **one job per well**, validates parameters **up‑front** (“all‑or‑nothing”), and posts jobs to the box. :contentReference[oaicite:3]{index=3} :contentReference[oaicite:4]{index=4}
-  - Poll aggregates **run/box progress** and **remaining time** and updates the Run Overview table. :contentReference[oaicite:5]{index=5}
-  - Download retrieves results per **group** and mirrors the Pi folder structure locally (ZIPs are unpacked). :contentReference[oaicite:6]{index=6}
+  - Start creates **one job per well**, validates parameters **up‑front** (“all‑or‑nothing”), and posts jobs to the box.
+  - Poll aggregates **run/box progress** and **remaining time** and updates the Run Overview table. 
+  - Download retrieves results per **group** and mirrors the Pi folder structure locally (ZIPs are unpacked).
 - **Cancel Group** and **End Selection**:
-  - Cancel a whole group or only the **currently selected runs** (by `run_id`). :contentReference[oaicite:7]{index=7} :contentReference[oaicite:8]{index=8}
+  - Cancel a whole group or only the **currently selected runs** (by `run_id`). :contentReference[oaicite:7]{index=7}
 
 ### Panels & buttons (what they do)
 - **Well Grid**: select one or many wells; configured wells are highlighted; clipboard‑style **Copy/Paste** per mode applies the current form values (incl. flags) from the Experiment panel to multiple wells at once.
 - **Experiment Panel**:
   - **Update Parameters / Copy / Paste** for CV/DC/AC/… modes (values and flags).  
-  - **End Task** (group) and **End Selection** (only selected wells’ `run_id`s). :contentReference[oaicite:9]{index=9}
+  - **End Task** (group) and **End Selection** (only selected wells’ `run_id`s). 
 - **Run Overview**:
   - Per‑well: **phase**, **progress %**, **remaining (s)**, **last error**, **run_id** (subrun).  
-  - Per box: header shows **average progress** (optionally, box‑level remaining). :contentReference[oaicite:10]{index=10}
+  - Per box: header shows **average progress** (optionally, box‑level remaining). 
 - **Channel Activity**: shows a compact status stream; the header displays **“Updated at HH:MM:SS”** (local) after each poll.
 - **Settings window**:
   - API base URL/IP per box, timeouts/intervals (flat keys only), **results directory**, optional **Enable debug logging**.  
-  - **User settings** persist to JSON; **Layouts** (well configurations + flags) save/load as JSON. :contentReference[oaicite:11]{index=11} :contentReference[oaicite:12]{index=12} :contentReference[oaicite:13]{index=13}
-- **Test Connection**: checks `/health` and `/devices` for the selected box and shows device count and metadata. :contentReference[oaicite:14]{index=14}
+  - **User settings** persist to JSON; **Layouts** (well configurations + flags) save/load as JSON.
+- **Test Connection**: checks `/health` and `/devices` for the selected box and shows device count and metadata.
 
 ### Behind the scenes (short, not too technical)
 1. **Start**  
-   The GUI collects selected wells + per‑well params, runs **device‑side validation** (`/modes/{mode}/validate`) for each well, and **only if all are OK**, posts **one job per well** to `/jobs`. The Pi server estimates planned duration and starts worker threads, one per slot/device, writing CSV/PNG data into a date‑stamped folder structure. :contentReference[oaicite:15]{index=15} :contentReference[oaicite:16]{index=16}
+   The GUI collects selected wells + per‑well params, runs **device‑side validation** (`/modes/{mode}/validate`) for each well, and **only if all are OK**, posts **one job per well** to `/jobs`. The Pi server estimates planned duration and starts worker threads, one per slot/device, writing CSV/PNG data into a date‑stamped folder structure.
 2. **Poll**  
-   The GUI calls group status, merges per‑run snapshots and computes **progress/remaining** using start time and planned duration; box headers show average progress. :contentReference[oaicite:17]{index=17} :contentReference[oaicite:18]{index=18}
+   The GUI calls group status, merges per‑run snapshots and computes **progress/remaining** using start time and planned duration; box headers show average progress.
 3. **Download**  
    The GUI downloads **ZIPs** per group, **extracts** them, and mirrors the server’s structure into your **Results** directory. (Optionally, slot folders can be mapped to WellIDs). :contentReference[oaicite:19]{index=19}
 
@@ -46,11 +46,11 @@ It follows a clean **MVVM + Hexagonal** architecture: Views are UI‑only; ViewM
 - **MVVM + Hexagon**  
   - **Views** (Tkinter) = UI‑only.  
   - **ViewModels** keep UI state & commands.  
-  - **UseCases** provide orchestration as composable units: start, poll, cancel, save/load layouts, download results, test connection, etc. :contentReference[oaicite:20]{index=20} :contentReference[oaicite:21]{index=21} :contentReference[oaicite:22]{index=22} :contentReference[oaicite:23]{index=23} :contentReference[oaicite:24]{index=24}  
-  - **Adapters** implement ports: `JobPort` (REST to `/jobs`, status, cancel, download), `DevicePort` (`/health`, `/devices`, `/modes`, validate), `StoragePort` (JSON layouts & settings). :contentReference[oaicite:25]{index=25} :contentReference[oaicite:26]{index=26}
+  - **UseCases** provide orchestration as composable units: start, poll, cancel, save/load layouts, download results, test connection, etc.
+  - **Adapters** implement ports: `JobPort` (REST to `/jobs`, status, cancel, download), `DevicePort` (`/health`, `/devices`, `/modes`, validate), `StoragePort` (JSON layouts & settings).
 - **Pi Box API** (FastAPI + pyBEEP)  
   - Endpoints: `/health`, `/devices`, `/modes`, `/modes/{mode}/params`, `/modes/{mode}/validate`, `/jobs`, `/jobs/status`, `/jobs/{run_id}`, `/jobs/{run_id}/cancel`, `/runs/{run_id}/files|file|zip`, `/admin/rescan`.  
-  - The server normalizes job metadata, computes **planned duration** and **progress**, and writes a robust **run directory structure**. :contentReference[oaicite:27]{index=27} :contentReference[oaicite:28]{index=28} :contentReference[oaicite:29]{index=29}
+  - The server normalizes job metadata, computes **planned duration** and **progress**, and writes a robust **run directory structure**. 
 
 ---
 
@@ -98,7 +98,7 @@ The GUI creates a group id from (Experiment[__Subdir]__ClientDatetime__rnd4) and
 ## Roadmap: What’s next (prioritized)
 
 1) **Multi‑Box discovery (High)**  
-   Network scan + `/health` + `/devices` per IP, then map **BoxID → A/B/C/D** in the GUI and persist the mapping. :contentReference[oaicite:38]{index=38}
+   Network scan + `/health` + `/devices` per IP, then map **BoxID → A/B/C/D** in the GUI and persist the mapping.
 
 2) **Orchestrator & Run Queue (High)**  
    A thin client‑side queue to coordinate starts per box/slot, avoid over‑subscription, and provide a predictable order of runs.
@@ -110,19 +110,19 @@ The GUI creates a group id from (Experiment[__Subdir]__ClientDatetime__rnd4) and
    Pi writes directly to an SMB/NFS target; optionally a “mirror”/FTP fallback for non‑NAS setups.
 
 5) **Server‑side progress & metrics (Very Low)**  
-   Expand progress model and optionally expose `/metrics` for Prometheus‑style scraping. :contentReference[oaicite:39]{index=39}
+   Expand progress model and optionally expose `/metrics` for Prometheus‑style scraping. 
 
 6) **Mode extensions (Postponed, but structure‑ready)**  
-   Add robust validation & normalization for **AC/DC/EIS/CDL** beyond placeholders. :contentReference[oaicite:40]{index=40}
+   Add robust validation & normalization for **AC/DC/EIS/CDL** beyond placeholders. 
 
 7) **Live monitoring (Very Low)**  
-   SSE/WebSocket streaming (a Stream Port exists as a placeholder in the domain). :contentReference[oaicite:41]{index=41}
+   SSE/WebSocket streaming (a Stream Port exists as a placeholder in the domain).
 
 8) **Codebase quality & maintainability (Very High)**  
    We will:  
    - **Improve clarity**: shorter classes, focused responsibilities, docstrings at the **top** of methods.  
    - **Streamline flows**: push repeated logic into **UseCases** or utilities; avoid duplication.  
-   - **Remove over‑engineering**: eliminate redundant safety nets/fallbacks now that contracts are stable.  
+   - **Remove over‑engineering**: eliminate redundant safety nets/fallbacks.  
    - **Reduce over‑parameterization**: prefer cohesive domain helpers; trust validated inputs.  
    - **Harmonize structure**: clearer data flow across VM → UseCase → Adapter; remove legacy branches.  
    - **Keep extensibility**: patterns that make adding features (High→Medium priority items) **easy**.
