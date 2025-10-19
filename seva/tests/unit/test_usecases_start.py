@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from typing import Any, Dict, Iterable, List, Optional
 
 from seva.domain.ports import UseCaseError
@@ -40,13 +41,10 @@ class _JobMock:
 
 class _DeviceMock:
     def __init__(self, response_queue: Optional[Iterable[Dict[str, Any]]] = None) -> None:
-        self.response_queue: List[Dict[str, Any]] = list(response_queue or [])
         self.calls: List[Dict[str, Any]] = []
 
     def validate_mode(self, box_id: str, mode: str, params: Dict[str, Any]) -> Dict[str, Any]:
         self.calls.append({"box": box_id, "mode": mode, "params": params})
-        if self.response_queue:
-            return self.response_queue.pop(0)
         return {"ok": True, "errors": [], "warnings": []}
 def test_start_experiment_batch_happy_path():
     job_port = _JobMock()
@@ -61,10 +59,12 @@ def test_start_experiment_batch_happy_path():
 
     result = uc(plan)
 
+    assert job_port.calls == 1
     assert result.run_group_id == "group-1"
     assert result.started_wells == ["A1"]
     assert result.per_box_runs == {"A": ["A-run"]}
-    assert all(entry.ok for entry in result.validations)
+    assert result.validations == []
+    assert device_port.calls == []
     assert job_port.last_plan is not None
     job = job_port.last_plan["jobs"][0]
     assert job["box"] == "A"
@@ -76,11 +76,9 @@ def test_start_experiment_batch_happy_path():
     assert "folder_name" not in job
 
 
-def test_start_skips_invalid_wells_and_starts_remaining():
-    invalid_response = {"ok": False, "errors": [{"field": "start", "code": "missing_field"}], "warnings": []}
-    valid_response = {"ok": True, "errors": [], "warnings": []}
+def test_start_builds_jobs_for_all_wells_without_device_validation():
     job_port = _JobMock()
-    device_port = _DeviceMock(response_queue=[invalid_response, valid_response])
+    device_port = _DeviceMock()
     uc = StartExperimentBatch(job_port=job_port, device_port=device_port)
     plan = {
         "selection": ["A1", "B2"],
@@ -91,43 +89,10 @@ def test_start_skips_invalid_wells_and_starts_remaining():
     result = uc(plan)
 
     assert job_port.calls == 1
-    assert result.run_group_id == "group-1"
-    assert result.started_wells == ["B2"]
-    assert result.per_box_runs == {"B": ["B-run"]}
-    assert len(result.validations) == 2
-    assert not result.validations[0].ok
-    assert result.validations[1].ok
-    assert job_port.last_plan is not None
-    jobs = job_port.last_plan["jobs"]
-    assert len(jobs) == 1
-    assert jobs[0]["wells"] == ["B2"]
-    assert jobs[0]["experiment_name"] == _STORAGE["experiment_name"]
-    assert jobs[0]["subdir"] is None
-    assert jobs[0]["client_datetime"] == _STORAGE["client_datetime"]
-
-
-def test_start_returns_empty_result_when_all_wells_invalid():
-    queue = [
-        {"ok": False, "errors": [{"field": "start", "code": "missing_field"}], "warnings": []},
-        {"ok": False, "errors": [{"field": "scan_rate", "code": "must_be_positive"}], "warnings": []},
-    ]
-    job_port = _JobMock()
-    device_port = _DeviceMock(response_queue=queue)
-    uc = StartExperimentBatch(job_port=job_port, device_port=device_port)
-    plan = {
-        "selection": ["A1", "A2"],
-        "well_params_map": {"A1": _cv_snapshot(), "A2": _cv_snapshot()},
-        "storage": dict(_STORAGE),
-    }
-
-    result = uc(plan)
-
-    assert job_port.calls == 0
-    assert result.run_group_id is None
-    assert result.per_box_runs == {}
-    assert result.started_wells == []
-    assert len(result.validations) == 2
-    assert all(not entry.ok for entry in result.validations)
+    assert result.started_wells == ["A1", "B2"]
+    assert set(result.per_box_runs.keys()) == {"A", "B"}
+    assert result.validations == []
+    assert device_port.calls == []
 
 
 def test_start_yields_one_job_per_well_without_metadata():
@@ -162,11 +127,6 @@ def test_start_without_metadata_raises_error():
         "well_params_map": {"A1": _cv_snapshot()},
     }
 
-    try:
+    with pytest.raises(UseCaseError) as exc:
         uc(plan)
-    except UseCaseError as exc:
-        assert exc.code == "METADATA_MISSING"
-    else:
-        raise AssertionError("Expected UseCaseError for missing metadata")
-        assert "run_name" not in job
-        assert "folder_name" not in job
+    assert exc.value.code == "METADATA_MISSING"

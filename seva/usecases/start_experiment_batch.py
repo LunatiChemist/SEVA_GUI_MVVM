@@ -150,11 +150,13 @@ class StartExperimentBatch:
     def __call__(self, plan: Dict) -> StartBatchResult:
         """
         Build one job per configured well and post them via JobPort.
-        Returns a StartBatchResult capturing per-well validation outcomes.
+        Coordinator must run ValidateStartPlan beforehand. This use case
+        does not perform validation and does not partial-start. It builds
+        one job per well and submits the full batch.
         Plan (input) must contain:
           - selection: List[WellId] (configured wells)
           - well_params_map: Dict[WellId, Dict[str,str]] (per-well snapshots incl. run_* flags)
-          - optional: tia_gain, sampling_interval, make_plot, group_id, all_or_nothing
+          - optional: tia_gain, sampling_interval, make_plot, group_id
         """
         try:
             selection: Iterable[str] = plan.get("selection") or []
@@ -172,7 +174,6 @@ class StartExperimentBatch:
             tia_gain = plan.get("tia_gain", None)
             sampling_interval = plan.get("sampling_interval", None)
             make_plot = bool(plan.get("make_plot", True))
-            all_or_nothing = bool(plan.get("all_or_nothing", False))
             storage_raw = plan.get("storage") or {}
 
             def _clean_text(value: Any) -> str:
@@ -199,14 +200,7 @@ class StartExperimentBatch:
                 "client_datetime": client_datetime,
             }
 
-            def _issue_list(raw: Any) -> List[Dict[str, Any]]:
-                if not isinstance(raw, list):
-                    return []
-                return [entry for entry in raw if isinstance(entry, dict)]
-
-            validations: List[WellValidationResult] = []
             jobs: List[Dict[str, Any]] = []
-            started_wells: List[WellId] = []
             for wid in selection:
                 if not wid or len(wid) < 2:
                     raise ValueError(f"Invalid well id '{wid}'")
@@ -217,32 +211,6 @@ class StartExperimentBatch:
 
                 mode = _derive_mode(snap)
                 params = _normalize_params(mode, snap)
-
-                try:
-                    validation_payload = self.device_port.validate_mode(
-                        box, mode, params
-                    )
-                except Exception as exc:
-                    raise UseCaseError("VALIDATION_FAILED", f"{wid}: {exc}")
-
-                ok_flag = bool(validation_payload.get("ok"))
-                errors = _issue_list(validation_payload.get("errors"))
-                warnings = _issue_list(validation_payload.get("warnings"))
-                if validation_payload.get("ok") is None and not errors:
-                    ok_flag = True
-
-                well_validation = WellValidationResult(
-                    well_id=wid,
-                    box_id=box,
-                    mode=mode,
-                    ok=ok_flag and not errors,
-                    errors=errors,
-                    warnings=warnings,
-                )
-                validations.append(well_validation)
-
-                if not well_validation.ok:
-                    continue
 
                 jobs.append(
                     {
@@ -259,23 +227,9 @@ class StartExperimentBatch:
                         "client_datetime": storage_payload["client_datetime"],
                     }
                 )
-                started_wells.append(wid)
-
-            if all_or_nothing and any(not entry.ok for entry in validations):
-                return StartBatchResult(
-                    run_group_id=None,
-                    per_box_runs={},
-                    started_wells=[],
-                    validations=validations,
-                )
 
             if not jobs:
-                return StartBatchResult(
-                    run_group_id=None,
-                    per_box_runs={},
-                    started_wells=[],
-                    validations=validations,
-                )
+                raise UseCaseError("START_FAILED", "No jobs could be constructed from the plan.")
 
             # Call adapter with one job per well
             adapter_plan = {
@@ -288,8 +242,8 @@ class StartExperimentBatch:
             return StartBatchResult(
                 run_group_id=run_group_id,
                 per_box_runs=per_box_runs,
-                started_wells=started_wells,
-                validations=validations,
+                started_wells=list(selection),
+                validations=[],
             )
         except UseCaseError:
             raise

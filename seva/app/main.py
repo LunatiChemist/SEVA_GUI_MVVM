@@ -9,6 +9,7 @@ import string
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 from collections import defaultdict
 import time
 from datetime import datetime, timezone
@@ -42,6 +43,12 @@ from ..usecases.poll_group_status import PollGroupStatus
 from ..usecases.download_group_results import DownloadGroupResults
 from ..usecases.cancel_group import CancelGroup
 from ..usecases.test_connection import TestConnection
+from ..usecases.run_flow_coordinator import (
+    FlowHooks,
+    FlowTick,
+    GroupContext,
+    RunFlowCoordinator,
+)
 from ..adapters.job_rest import JobRestAdapter
 from ..adapters.device_rest import DeviceRestAdapter
 from ..adapters.storage_local import StorageLocal
@@ -174,9 +181,18 @@ class App:
         self.uc_test_relay = TestRelay(self._relay)
         self.uc_set_electrode_mode = SetElectrodeMode(self._relay)
 
-        # ---- Polling state ----
+        # ---- Run flow coordinator wiring ----
         self._current_group_id: Optional[str] = None
-        self._polling_active: bool = False
+        self._flow_ctx: Optional[GroupContext] = None
+        self._coordinator: Optional[RunFlowCoordinator] = None
+        self._flow_hooks = FlowHooks(
+            on_started=self._on_flow_started,
+            on_snapshot=self._on_flow_snapshot,
+            on_completed=self._on_flow_completed,
+            on_error=self._on_flow_error,
+            on_validation_errors=self._handle_start_validations,
+        )
+        self._poll_after_id: Optional[str] = None
 
         # ---- Initial UI state (demo-ish) ----
         self._seed_demo_state()
@@ -248,6 +264,35 @@ class App:
             )
             self.uc_validate_start_plan = ValidateStartPlan(self._device_adapter)
             self.uc_test_connection = TestConnection(self._device_adapter)
+        if self._job_adapter and self._device_adapter:
+            self._ensure_coordinator()
+        return True
+
+    def _ensure_coordinator(self) -> bool:
+        """Instantiate the RunFlowCoordinator when all dependencies are ready."""
+        if self._coordinator:
+            return True
+        if not (
+            self._job_adapter
+            and self._device_adapter
+            and self.uc_validate_start_plan
+            and self.uc_start
+            and self.uc_poll
+            and self.uc_download
+        ):
+            return False
+
+        self._coordinator = RunFlowCoordinator(
+            job_port=self._job_adapter,
+            device_port=self._device_adapter,
+            storage_port=self._storage,
+            uc_validate_start=self.uc_validate_start_plan,
+            uc_start=self.uc_start,
+            uc_poll=self.uc_poll,
+            uc_download=self.uc_download,
+            settings=self.settings_vm,
+            hooks=self._flow_hooks,
+        )
         return True
 
     # ==================================================================
@@ -266,16 +311,17 @@ class App:
     # Toolbar / Actions
     # ==================================================================
     def _on_submit(self) -> None:
+        """Handle toolbar submit triggered by the user."""
+        # Submit: validate plan and kick off coordinator flow.
         try:
-            if not self._ensure_adapter():
+            if not self._ensure_adapter() or not self._ensure_coordinator():
                 return
-            # collect selection & plan
+
             configured = self.plate_vm.configured()
             if not configured:
                 self.win.show_toast("No configured wells to start.")
                 return
 
-            # Falls du die Selektion noch für die UI-Toast brauchst:
             selection = self.plate_vm.get_selection()
             self.experiment_vm.set_selection(selection)
             plan = self._build_plan_from_vm(selection)
@@ -290,36 +336,38 @@ class App:
             self._log.info("Submitting start request: %s", summary)
             self._log.debug("Start selection=%s", sorted(configured))
 
-            if not self.uc_validate_start_plan:
-                raise RuntimeError("Start validation use case is not initialized.")
-            validations = self.uc_validate_start_plan(plan)  # type: ignore[misc]
+            validations = self._coordinator.validate(plan)  # type: ignore[arg-type]
             has_invalid = any(not entry.ok for entry in validations)
             has_warnings = any(entry.ok and entry.warnings for entry in validations)
-
             if has_invalid or has_warnings:
-                self._handle_start_validations(validations)
-
+                self._flow_hooks.on_validation_errors(validations)
             if has_invalid:
                 self.win.show_toast("No runs started. Fix validation errors.")
                 return
 
             plan["all_or_nothing"] = True
 
-            # Start via UseCase
-            result: StartBatchResult = self.uc_start(plan)  # type: ignore[misc]
+            ctx = self._coordinator.start(plan)  # type: ignore[arg-type]
+            start_result = self._coordinator.last_start_result()
+            if not isinstance(start_result, StartBatchResult):
+                raise RuntimeError("Coordinator returned an unexpected start result.")
 
-            if result.validations != validations:
-                self._handle_start_validations(result.validations)
+            if start_result.validations != validations:
+                self._flow_hooks.on_validation_errors(start_result.validations)
 
-            if not result.run_group_id:
-                if not result.started_wells:
+            if not start_result.run_group_id:
+                if not start_result.started_wells:
                     self.win.show_toast("No runs started. Fix validation errors.")
                 else:
-                    self.win.show_toast("Validation stopped some wells. Nothing started.")
+                    self.win.show_toast(
+                        "Validation stopped some wells. Nothing started."
+                    )
+                self._coordinator.stop_polling()
+                self._flow_ctx = None
                 return
 
-            group_id = result.run_group_id
-            subruns = result.per_box_runs
+            group_id = start_result.run_group_id
+            subruns = start_result.per_box_runs
             storage_payload = plan.get("storage") or {}
             normalized_storage = {
                 "experiment": str(storage_payload.get("experiment_name") or "").strip(),
@@ -334,40 +382,36 @@ class App:
             self._log.info(
                 "Start response: group=%s wells=%d boxes=%s",
                 group_id,
-                len(result.started_wells),
+                len(start_result.started_wells),
                 sorted(subruns.keys()),
             )
             self._log.debug("Start run map: %s", subruns)
 
             self._current_group_id = group_id
+            self._flow_ctx = ctx
             self.win.set_run_group_id(group_id)
 
             started_boxes = ", ".join(sorted(subruns.keys()))
-            skipped = sum(1 for entry in result.validations if not entry.ok)
-            started_count = len(result.started_wells)
+            skipped = sum(1 for entry in start_result.validations if not entry.ok)
+            started_count = len(start_result.started_wells)
             if skipped:
                 self.win.show_toast(
                     f"Started group {group_id} ({started_count} wells, skipped {skipped})."
                 )
             else:
                 if started_boxes:
-                    self.win.show_toast(
-                        f"Started group {group_id} on {started_boxes}"
-                    )
+                    self.win.show_toast(f"Started group {group_id} on {started_boxes}")
                 else:
                     self.win.show_toast(f"Started group {group_id}.")
 
-            # Mark configured in UI (keep the Demo flow)
-            self.wellgrid.add_configured_wells(result.started_wells)
+            self.wellgrid.add_configured_wells(start_result.started_wells)
 
-            # Start polling loop
-            self._start_polling()
+            self._cancel_poll_timer()
+            self._on_poll_tick()
         except Exception as e:
-            # Stop polling and clear group on any start failure
             self._stop_polling()
             self._current_group_id = None
             self._toast_error(e)
-
     def _on_cancel_group(self) -> None:
         if not self._current_group_id or not self._ensure_adapter():
             self.win.show_toast("No active group.")
@@ -705,9 +749,13 @@ class App:
             return
 
         # reset adapter to reflect new settings
+        self._stop_polling()
         self._job_adapter = None
         self._device_adapter = None
         self.uc_test_connection = None
+        self._coordinator = None
+        self._flow_ctx = None
+        self._poll_after_id = None
         self.win.show_toast("Settings saved.")
 
     def _on_open_plotter(self) -> None:
@@ -964,40 +1012,110 @@ class App:
     # ==================================================================
     # Polling helpers
     # ==================================================================
-    def _start_polling(self) -> None:
-        if self._polling_active:
-            return
-        self._polling_active = True
-        self._schedule_poll()
-
     def _stop_polling(self) -> None:
-        self._polling_active = False
+        """Cancel any scheduled poll and mark the coordinator inactive."""
+        self._cancel_poll_timer()
+        if self._coordinator:
+            self._coordinator.stop_polling()
+        self._flow_ctx = None
 
-    def _schedule_poll(self) -> None:
-        if not self._polling_active:
-            return
-        interval = max(200, int(self.settings_vm.poll_interval_ms or 750))
-        # use Tk's after to keep UI-thread safe
-        self.win.after(interval, self._poll_once)
+    def _cancel_poll_timer(self) -> None:
+        if self._poll_after_id is not None:
+            try:
+                self.win.after_cancel(self._poll_after_id)
+            except Exception:
+                pass
+            self._poll_after_id = None
 
-    def _poll_once(self) -> None:
-        if (
-            not self._polling_active
-            or not self._current_group_id
-            or not self._ensure_adapter()
-        ):
+    def _schedule_poll(self, delay_ms: int) -> None:
+        delay = max(1, int(delay_ms))
+        self._cancel_poll_timer()
+        self._poll_after_id = self.win.after(delay, self._on_poll_tick)
+
+    def _on_poll_tick(self) -> None:
+        """Cooperative poll tick executed on the Tkinter thread."""
+        # PollTick: request snapshot and schedule next tick when advised.
+        if not self._flow_ctx or not self._coordinator:
             return
-        try:
-            snapshot = self.uc_poll(self._current_group_id)  # type: ignore[misc]
+        if not self._ensure_adapter() or not self._ensure_coordinator():
+            return
+
+        tick: FlowTick = self._coordinator.poll_once(self._flow_ctx)
+        if tick.event == "tick":
+            delay = tick.next_delay_ms
+            if delay is None:
+                base = getattr(self.settings_vm, "poll_interval_ms", 1000) or 1000
+                try:
+                    delay = max(200, int(base))
+                except (TypeError, ValueError):
+                    delay = 1000
+            self._schedule_poll(int(delay))
+            return
+
+        # Completed/Error: no further scheduling; rely on hooks for UI feedback.
+        self._cancel_poll_timer()
+        if tick.event == "completed":
+            self._coordinator.stop_polling()
+            auto_download_enabled = getattr(
+                self.settings_vm, "auto_download_on_complete", True
+            )
+            download_path: Optional[Path] = None
+            if tick.snapshot and self._flow_ctx:
+                try:
+                    download_path = self._coordinator.on_completed(
+                        self._flow_ctx, tick.snapshot
+                    )
+                except Exception as exc:
+                    self._flow_ctx = None
+                    self._toast_error(exc, context="Download failed")
+                    return
+            if not auto_download_enabled:
+                self._on_flow_completed(None)
+            self._flow_ctx = None
+            return
+
+        if tick.event == "error":
+            self._coordinator.stop_polling()
+            self._flow_ctx = None
+
+    def _on_flow_started(self, ctx: GroupContext) -> None:
+        """Hook fired when the coordinator successfully starts a group."""
+        self._log.debug("Coordinator acknowledged start for group %s", ctx.group)
+
+    def _on_flow_snapshot(self, snapshot) -> None:
+        """Hook fired on every polling snapshot."""
+        if snapshot:
             self.progress_vm.apply_snapshot(snapshot)
-            if snapshot.all_done:
-                self._stop_polling()
-                self.win.show_toast("All runs completed.")
-                return
-        except Exception as e:
-            self._toast_error(e)
-        finally:
-            self._schedule_poll()
+
+    def _on_flow_completed(self, path: Optional[Path] = None) -> None:
+        """Hook fired when the flow reports completion."""
+        if path:
+            resolved_dir = os.path.abspath(str(path))
+            self._last_download_dir = resolved_dir
+            group_id = self._current_group_id
+            if group_id:
+                self.win.show_toast(
+                    self._build_download_toast(group_id, resolved_dir)
+                )
+            else:
+                short_path = self._shorten_download_path(resolved_dir)
+                if self._can_open_results_folder():
+                    self.win.show_toast(
+                        f"Results unpacked to {short_path} (Ctrl+Shift+O to open)"
+                    )
+                else:
+                    self.win.show_toast(f"Results unpacked to {short_path}")
+            return
+        self.win.show_toast("All runs completed.")
+
+    def _on_flow_error(self, message: str) -> None:
+        """Hook fired when the flow reports a polling error."""
+        text = message.strip() if isinstance(message, str) else ""
+        if text:
+            self._log.error("Polling error: %s", text)
+        else:
+            self._log.error("Polling error: <empty message>")
+        self.win.show_toast(text or "Polling failed.")
 
     # ==================================================================
     # Error handling helpers

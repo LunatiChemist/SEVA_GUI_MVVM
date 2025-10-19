@@ -33,6 +33,8 @@ class SettingsVM:
     request_timeout_s: int = 10
     download_timeout_s: int = 60
     poll_interval_ms: int = 750
+    poll_backoff_max_ms: int = 5000
+    auto_download_on_complete: bool = True
     results_dir: str = "."
     experiment_name: str = ""
     subdir: str = ""
@@ -91,6 +93,18 @@ class SettingsVM:
             if isinstance(value, (int, float)):
                 self.poll_interval_ms = int(value)
 
+        if "poll_backoff_max_ms" in payload:
+            value = payload.get("poll_backoff_max_ms")
+            if isinstance(value, (int, float)):
+                self.poll_backoff_max_ms = int(value)
+
+        if "auto_download_on_complete" in payload:
+            value = payload.get("auto_download_on_complete")
+            if isinstance(value, bool):
+                self.auto_download_on_complete = value
+            elif value is not None:
+                self.auto_download_on_complete = bool(value)
+
         if "results_dir" in payload:
             value = payload.get("results_dir")
             if isinstance(value, str):
@@ -134,6 +148,8 @@ class SettingsVM:
             "request_timeout_s": self.request_timeout_s,
             "download_timeout_s": self.download_timeout_s,
             "poll_interval_ms": self.poll_interval_ms,
+            "poll_backoff_max_ms": self.poll_backoff_max_ms,
+            "auto_download_on_complete": bool(self.auto_download_on_complete),
             "results_dir": self.results_dir,
             "experiment_name": self.experiment_name,
             "subdir": self.subdir,
