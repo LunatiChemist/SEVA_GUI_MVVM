@@ -45,6 +45,16 @@ class JobRestMock(JobPort):
 
         return group_id, grouped
 
+    def cancel_run(self, box_id: BoxId, run_id: str) -> None:
+        for (group_id, box, rid), data in self._runs.items():
+            if box == box_id and rid == run_id:
+                data["status"] = "cancelled"
+
+    def cancel_runs(self, box_to_run_ids: Dict[BoxId, List[str]]) -> None:
+        for box_id, run_ids in box_to_run_ids.items():
+            for run_id in run_ids or []:
+                self.cancel_run(box_id, run_id)
+
     def cancel_group(self, run_group_id: RunGroupId) -> None:
         for key, data in list(self._runs.items()):
             if key[0] != run_group_id:

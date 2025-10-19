@@ -127,7 +127,7 @@ class JobRestAdapter(JobPort):
       - GET  {base}/runs/{run_id}/zip  -> application/zip
 
     Notes:
-      - Cancel: not implemented server-side -> we only print a notice.
+      - Cancel: POST /jobs/{run_id}/cancel per run.
       - Box list is dynamic from base_urls keys (alphabetic order).
       - Well/slot mapping uses a prebuilt registry (no ad-hoc arithmetic in call sites).
     """
@@ -172,15 +172,25 @@ class JobRestAdapter(JobPort):
     # ---------- Registry ----------
 
     def _build_registry(self) -> None:
-        """Build well_id <-> (box,slot) mapping harmonized with WellGrid IDs.
-        Pattern: for each box in alphabetic order, slots 1..10 map to
-        A1..A10, B11..B20, C21..C30, ...
+        """Build well_id <-> (box, slot) mapping using fixed box-local offsets.
+
+        Offsets per box letter: A:+0, B:+10, C:+20, D:+30. The well number is
+        `offset + slot_index` (slot_index is 1-based). Examples:
+        - slot01 on box A -> well A1
+        - slot01 on box B -> well B11
+        - slot10 on box D -> well D40
         """
-        for idx, box in enumerate(self.box_order):
-            base = idx * 10
+        offsets = {"A": 0, "B": 10, "C": 20, "D": 30}
+        self.well_to_slot.clear()
+        self.slot_to_well.clear()
+        for box in self.box_order:
+            box_letter = str(box)[:1].upper()
+            if box_letter not in offsets:
+                raise ValueError(f"Unsupported box id '{box}': expected leading letter in {sorted(offsets)}")
+            offset = offsets[box_letter]
             for slot in range(1, 11):
-                global_num = base + slot
-                well_id = f"{box}{global_num}"
+                well_number = offset + slot
+                well_id = f"{box}{well_number}"
                 self.well_to_slot[well_id] = (box, slot)
                 self.slot_to_well[(box, slot)] = well_id
 
@@ -221,6 +231,7 @@ class JobRestAdapter(JobPort):
         - jobs: List[Dict] where each job contains:
             {
                 "box": "A",
+                "well_id": "A1",
                 "wells": ["A1"],
                 "mode": "CV|DC|AC|LSV|EIS|CDL",
                 "params": {...},
@@ -236,7 +247,11 @@ class JobRestAdapter(JobPort):
         if not jobs:
             raise ValueError("start_batch: missing 'jobs' in plan")
 
-        group_id: RunGroupId = plan.get("group_id") or str(uuid4())
+        group_id_raw = plan.get("group_id")
+        if isinstance(group_id_raw, str) and group_id_raw.strip():
+            group_id = group_id_raw
+        else:
+            group_id = str(uuid4())
         storage_meta: Dict[str, Any] = plan.get("storage") or {}
 
         # Prepare mapping: group_id -> box -> [run_id,...]
@@ -248,6 +263,9 @@ class JobRestAdapter(JobPort):
             wells: List[str] = list(job.get("wells") or [])
             if not box or not wells:
                 raise ValueError("start_batch: job requires 'box' and non-empty 'wells'")
+            well_id = job.get("well_id") or (wells[0] if wells else None)
+            if not well_id:
+                raise ValueError("start_batch: job missing 'well_id' entry")
 
             # Map wells -> slot labels for this box
             slots: List[int] = []
@@ -279,6 +297,7 @@ class JobRestAdapter(JobPort):
             payload = {
                 "devices": devices,
                 "mode": job.get("mode"),
+                "well_id": well_id,
                 "params": job.get("params") or {},
                 "tia_gain": job.get("tia_gain", None),
                 "sampling_interval": job.get("sampling_interval", None),
@@ -289,6 +308,15 @@ class JobRestAdapter(JobPort):
             }
 
             url = self._make_url(box, "/jobs")
+            if self._log.isEnabledFor(logging.DEBUG):
+                self._log.debug(
+                    "POST start[%s]: well=%s devices=%s mode=%s group=%s",
+                    box,
+                    well_id,
+                    devices,
+                    job.get("mode"),
+                    group_id,
+                )
             resp = self.sessions[box].post(
                 url, json_body=payload, timeout=self.cfg.request_timeout_s
             )
@@ -309,6 +337,37 @@ class JobRestAdapter(JobPort):
 
         return group_id, run_ids
 
+    def cancel_run(self, box_id: BoxId, run_id: str) -> None:
+        session = self.sessions.get(box_id)
+        if session is None:
+            raise ApiError(
+                f"No session configured for box '{box_id}'",
+                context=f"cancel[{box_id}:{run_id}]",
+            )
+        self._cancel_run_with_session(session, box_id, run_id, ignore_missing=False)
+
+    def cancel_runs(self, box_to_run_ids: Dict[BoxId, List[str]]) -> None:
+        if not box_to_run_ids:
+            return
+        for box, run_ids in box_to_run_ids.items():
+            if not run_ids:
+                continue
+            session = self.sessions.get(box)
+            if session is None:
+                raise ApiError(
+                    f"No session configured for box '{box}'",
+                    context=f"cancel[{box}:*]",
+                )
+            seen: Set[str] = set()
+            for run_id in run_ids:
+                run_id_str = str(run_id or "").strip()
+                if not run_id_str or run_id_str in seen:
+                    continue
+                seen.add(run_id_str)
+                self._cancel_run_with_session(
+                    session, box, run_id_str, ignore_missing=False
+                )
+
     def cancel_group(self, run_group_id: RunGroupId) -> None:
         self._log.info("Cancel group %s requested.", run_group_id)
         box_runs = self._groups.get(run_group_id, {})
@@ -324,20 +383,27 @@ class JobRestAdapter(JobPort):
                 )
                 continue
             for run_id in runs:
-                url = self._make_url(box, f"/jobs/{run_id}/cancel")
-                try:
-                    resp = session.post(url, timeout=self.cfg.request_timeout_s)
-                except Exception as exc:
-                    raise ApiError(str(exc), context=f"cancel[{box}:{run_id}]") from exc
-                if resp.status_code == 404:
-                    self._log.info(
-                        "Cancel group %s: run %s on box %s already gone.",
-                        run_group_id,
-                        run_id,
-                        box,
-                    )
-                    continue
-                self._ensure_ok(resp, f"cancel[{box}:{run_id}]")
+                self._cancel_run_with_session(session, box, run_id, ignore_missing=True)
+
+    def _cancel_run_with_session(
+        self,
+        session: _RetryingSession,
+        box: BoxId,
+        run_id: str,
+        *,
+        ignore_missing: bool,
+    ) -> None:
+        url = self._make_url(box, f"/jobs/{run_id}/cancel")
+        try:
+            resp = session.post(url, timeout=self.cfg.request_timeout_s)
+        except Exception as exc:
+            raise ApiError(str(exc), context=f"cancel[{box}:{run_id}]") from exc
+        if resp.status_code == 404 and ignore_missing:
+            self._log.info(
+                "Cancel run %s: already gone on box %s.", run_id, box
+            )
+            return
+        self._ensure_ok(resp, f"cancel[{box}:{run_id}]")
 
     def poll_group(self, run_group_id: RunGroupId) -> Dict:
         """Bulk poll run snapshots using POST /jobs/status and cached terminals."""

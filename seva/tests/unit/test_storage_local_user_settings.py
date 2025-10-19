@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from seva.adapters.storage_local import StorageLocal
 from seva.viewmodels.settings_vm import SettingsVM
 
@@ -41,7 +43,7 @@ def test_user_settings_missing_file_and_save(tmp_path):
     assert persisted == vm.to_dict()
 
 
-def test_settings_vm_apply_legacy_timeouts():
+def test_settings_vm_rejects_legacy_timeouts():
     vm = SettingsVM()
     payload = {
         "box_urls": {"A": "http://localhost"},
@@ -54,23 +56,10 @@ def test_settings_vm_apply_legacy_timeouts():
         "debug_logging": False,
     }
 
-    vm.apply_dict(payload)
-
-    assert vm.request_timeout_s == 7
-    assert vm.download_timeout_s == 21
-    assert vm.poll_interval_ms == 600
-    assert vm.results_dir == "/tmp/out"
-    assert vm.use_streaming is True
-    assert vm.relay_ip == "1.2.3.4"
-    assert vm.relay_port == 2222
-    assert vm.debug_logging is False
-
-    persisted = vm.to_dict()
-    assert persisted["request_timeout_s"] == 7
-    assert persisted["download_timeout_s"] == 21
-    assert persisted["relay"]["ip"] == "1.2.3.4"
-    assert persisted["relay"]["port"] == 2222
-    assert persisted["debug_logging"] is False
+    with pytest.raises(
+        ValueError, match="Unsupported settings format \\(legacy\\)"
+    ):
+        vm.apply_dict(payload)
 
 
 def test_settings_vm_set_results_dir_strips_and_defaults():

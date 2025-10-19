@@ -50,8 +50,23 @@ class SettingsVM:
         return True
 
     def apply_dict(self, payload: Dict) -> None:
+        """
+        Apply persisted settings to the view-model.
+
+        Expects a flat payload with keys such as `box_urls`, `api_keys`,
+        `request_timeout_s`, `download_timeout_s`, `poll_interval_ms`,
+        `results_dir`, `experiment_name`, `subdir`, `use_streaming`,
+        `debug_logging`, and `relay`.
+
+        Legacy nested formats (e.g. a `timeouts` dict) are no longer supported.
+        """
         if not isinstance(payload, dict):
             return
+
+        if "timeouts" in payload and payload.get("timeouts") is not None:
+            raise ValueError(
+                "Unsupported settings format (legacy). Please re-save settings."
+            )
 
         box_urls = payload.get("box_urls")
         if isinstance(box_urls, dict):
@@ -111,16 +126,6 @@ class SettingsVM:
             port = relay.get("port")
             if isinstance(port, (int, float)):
                 self.relay_port = int(port)
-
-        # Legacy nested timeout dict support
-        timeouts = payload.get("timeouts")
-        if isinstance(timeouts, dict):
-            req = timeouts.get("request_s")
-            if isinstance(req, (int, float)):
-                self.request_timeout_s = int(req)
-            dl = timeouts.get("download_s")
-            if isinstance(dl, (int, float)):
-                self.download_timeout_s = int(dl)
 
     def to_dict(self) -> dict:
         return {
