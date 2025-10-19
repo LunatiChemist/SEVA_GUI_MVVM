@@ -38,7 +38,6 @@ class MainWindowView(tk.Tk):
         *,
         on_submit: OnVoid = None,
         on_cancel_group: OnVoid = None,
-        on_cancel_selection: OnVoid = None,
         on_save_layout: OnVoid = None,
         on_load_layout: OnVoid = None,
         on_open_settings: OnVoid = None,
@@ -54,7 +53,6 @@ class MainWindowView(tk.Tk):
         # Keep references to callbacks (can be None; we guard before calling)
         self._on_submit = on_submit
         self._on_cancel_group = on_cancel_group
-        self._on_cancel_selection = on_cancel_selection
         self._on_save_layout = on_save_layout
         self._on_load_layout = on_load_layout
         self._on_open_settings = on_open_settings
@@ -70,7 +68,6 @@ class MainWindowView(tk.Tk):
 
         # Keyboard shortcuts (lightweight, can be extended)
         self.bind("<Control-Return>", lambda e: self._safe_call(self._on_submit))
-        self.bind("<Escape>", lambda e: self._safe_call(self._on_cancel_selection))
         self.bind("<Control-s>", lambda e: self._safe_call(self._on_save_layout))
         self.bind("<Control-o>", lambda e: self._safe_call(self._on_load_layout))
 
@@ -89,24 +86,21 @@ class MainWindowView(tk.Tk):
         ttk.Button(toolbar, text="Cancel Group", command=lambda: self._safe_call(self._on_cancel_group)).grid(
             row=0, column=1, padx=6
         )
-        ttk.Button(toolbar, text="Cancel Selection", command=lambda: self._safe_call(self._on_cancel_selection)).grid(
-            row=0, column=2, padx=6
-        )
 
         # Layout presets
         ttk.Button(toolbar, text="Save Layout", command=lambda: self._safe_call(self._on_save_layout)).grid(
-            row=0, column=3, padx=(24, 6)
+            row=0, column=2, padx=(24, 6)
         )
         ttk.Button(toolbar, text="Load Layout", command=lambda: self._safe_call(self._on_load_layout)).grid(
-            row=0, column=4, padx=6
+            row=0, column=3, padx=6
         )
 
         # Tools / Settings
         ttk.Button(toolbar, text="Settings", command=lambda: self._safe_call(self._on_open_settings)).grid(
-            row=0, column=5, padx=(24, 6)
+            row=0, column=4, padx=(24, 6)
         )
         ttk.Button(toolbar, text="Data Plotter", command=lambda: self._safe_call(self._on_open_data_plotter)).grid(
-            row=0, column=6, padx=6
+            row=0, column=5, padx=6
         )
 
     # ------------------------------------------------------------------

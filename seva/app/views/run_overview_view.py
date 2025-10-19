@@ -5,8 +5,8 @@ UI-only Tkinter view that displays progress/status for the current Run Group.
 
 Features:
 - Per-box summary panels (A–D) with status label, progress bar and SubRunId.
-- Per-well table (Treeview) showing Phase, Progress %, Last Error, SubRunId.
-- Toolbar with actions: Cancel Group, Cancel Selection, Download Group, Download per Box.
+- Per-well table (Treeview) showing Phase, Progress %, Remaining, Last Error, SubRunId.
+- Toolbar with action: Download Group.
 - Scrollable table; no backend or domain logic here.
 
 All comments are in English as per project guidance.
@@ -33,7 +33,6 @@ class RunOverviewView(ttk.Frame):
         *,
         boxes: Iterable[BoxId] = ("A", "B", "C", "D"),
         on_cancel_group: OnVoid = None,
-        on_cancel_selection: OnVoid = None,
         on_download_group_results: OnVoid = None,
         on_download_box_results: OnBox = None,
         on_open_plot: Optional[callable] = None,
@@ -42,9 +41,7 @@ class RunOverviewView(ttk.Frame):
 
         self._boxes = list(boxes)
         self._on_cancel_group = on_cancel_group
-        self._on_cancel_selection = on_cancel_selection
         self._on_download_group_results = on_download_group_results
-        self._on_download_box_results = on_download_box_results
         self._on_open_plot = on_open_plot
 
         # Layout rows: toolbar, box summary, well table
@@ -59,18 +56,7 @@ class RunOverviewView(ttk.Frame):
     def _build_toolbar(self) -> None:
         bar = ttk.Frame(self)
         bar.grid(row=0, column=0, sticky="ew", padx=6, pady=(6, 4))
-        ttk.Button(bar, text="Cancel Group", command=lambda: self._safe(self._on_cancel_group)).pack(side="left")
-        ttk.Button(bar, text="Cancel Selection", command=lambda: self._safe(self._on_cancel_selection)).pack(side="left", padx=6)
         ttk.Button(bar, text="Download Group", command=lambda: self._safe(self._on_download_group_results)).pack(side="left", padx=18)
-
-        # Spacer
-        ttk.Label(bar, text="").pack(side="left", padx=6)
-
-        # Per-box download buttons on the right
-        right = ttk.Frame(bar)
-        right.pack(side="right")
-        for b in self._boxes:
-            ttk.Button(right, text=f"Download Box {b}", command=lambda bid=b: self._safe_box(bid)).pack(side="left", padx=4)
 
     # ------------------------------------------------------------------
     def _build_box_summary(self) -> None:
@@ -106,17 +92,19 @@ class RunOverviewView(ttk.Frame):
         frame.rowconfigure(0, weight=1)
         frame.columnconfigure(0, weight=1)
 
-        columns = ("well", "phase", "progress", "error", "subrun")
+        columns = ("well", "phase", "progress", "remaining", "error", "subrun")
         self.table = ttk.Treeview(frame, columns=columns, show="headings", height=12)
         self.table.heading("well", text="Well")
         self.table.heading("phase", text="Phase")
         self.table.heading("progress", text="Progress %")
+        self.table.heading("remaining", text="Remaining")
         self.table.heading("error", text="Last Error")
         self.table.heading("subrun", text="SubRunId")
 
         self.table.column("well", width=60, anchor="center")
         self.table.column("phase", width=120, anchor="w")
         self.table.column("progress", width=90, anchor="e")
+        self.table.column("remaining", width=100, anchor="e")
         self.table.column("error", width=300, anchor="w")
         self.table.column("subrun", width=140, anchor="w")
 
@@ -146,18 +134,32 @@ class RunOverviewView(ttk.Frame):
         self._box_prog[box_id].configure(value=pct)
         self._box_subrun[box_id].configure(text=sub_run_id or "–")
 
-    def set_well_rows(self, rows: List[Tuple[WellId, str, float, str, Optional[str]]]) -> None:
+    def set_well_rows(self, rows: List[Tuple]) -> None:
         """Replace the well table content.
 
-        rows: list of tuples (well_id, phase, progress_pct, last_error, sub_run_id)
+        rows: list of tuples (well_id, phase, progress_pct, [remaining], last_error, sub_run_id)
         """
         self.table.delete(*self.table.get_children())
-        for (well, phase, progress, err, subrun) in rows:
+        for row in rows:
+            if len(row) >= 6:
+                well, phase, progress, remaining, err, subrun = row[:6]
+            elif len(row) == 5:
+                well, phase, progress, err, subrun = row
+                remaining = None
+            else:
+                filled = list(row) + [""] * (6 - len(row))
+                well, phase, progress, remaining, err, subrun = filled[:6]
+
             try:
                 progress_str = f"{float(progress):.0f}"
             except Exception:
                 progress_str = ""
-            self.table.insert("", "end", values=(well, phase, progress_str, err or "", subrun or ""))
+            remaining_str = self._format_remaining(remaining)
+            self.table.insert(
+                "",
+                "end",
+                values=(well, phase, progress_str, remaining_str, err or "", subrun or ""),
+            )
 
     def set_boxes(self, boxes: Iterable[BoxId]) -> None:
         """Rebuild summary header for a new set of boxes."""
@@ -177,12 +179,9 @@ class RunOverviewView(ttk.Frame):
             except Exception as e:
                 print(f"RunOverviewView callback failed: {e}")
 
-    def _safe_box(self, box_id: BoxId):
-        if self._on_download_box_results:
-            try:
-                self._on_download_box_results(box_id)
-            except Exception as e:
-                print(f"RunOverviewView download box failed: {e}")
+    def _format_remaining(self, remaining: Optional[object]) -> str:
+        text = "" if remaining is None else str(remaining).strip()
+        return text or "—"
 
     def _on_row_double_click(self, event=None):
         sel = self.table.selection()
@@ -190,7 +189,7 @@ class RunOverviewView(ttk.Frame):
             return
         item = self.table.item(sel[0])
         vals = item.get("values") or []
-        full_err = vals[3] if len(vals) > 3 else ""
+        full_err = vals[4] if len(vals) > 4 else ""
         if not full_err:
             return
 
@@ -216,6 +215,10 @@ if __name__ == "__main__":
     view.pack(fill="both", expand=True)
     view.set_box_status("A", phase="Running", progress_pct=42, sub_run_id="runA-123")
     view.set_box_status("B", phase="Queued", progress_pct=0, sub_run_id=None)
-    rows = [("A1","Running",40,"","runA-123"),("A2","Error",10,"Overvoltage","runA-123"),("B1","Queued",0,"","")]
+    rows = [
+        ("A1","Running",40,3,"","runA-123"),
+        ("A2","Error",10,0,"Overvoltage","runA-123"),
+        ("B1","Queued",0,None,"",""),
+    ]
     view.set_well_rows(rows)
     root.mainloop()

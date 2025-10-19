@@ -1,0 +1,24 @@
+
+---
+
+## `pyproject.toml`
+
+```toml
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "seva-gui-mvvm"
+version = "1.3.2"
+description = "SEVA GUI MVVM — Electrochemistry client and Raspberry Pi Box API"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "SEVA Team" }]
+requires-python = ">=3.10,<3.13"
+keywords = ["electrochemistry", "mvvm", "fastapi", "tkinter", "pyBEEP"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["seva*", "rest_api*"]
