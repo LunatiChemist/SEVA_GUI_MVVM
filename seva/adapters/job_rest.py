@@ -5,13 +5,15 @@ import logging
 import os
 import json
 from dataclasses import dataclass
-from typing import Dict, Iterable, Tuple, Optional, Any, List, Set
+from datetime import timezone
+from typing import Dict, Iterable, Tuple, Optional, Any, List, Set, Mapping
 from uuid import uuid4
 
 import requests
 from requests import exceptions as req_exc
 
 # Domain Port
+from seva.domain.entities import ExperimentPlan
 from seva.domain.ports import JobPort, RunGroupId, BoxId
 
 from .api_errors import (
@@ -196,6 +198,80 @@ class JobRestAdapter(JobPort):
 
     # ---------- JobPort implementation ----------
 
+    def to_start_payload(self, plan: ExperimentPlan) -> Dict[str, Any]:
+        if not isinstance(plan, ExperimentPlan):
+            raise TypeError(
+                f"to_start_payload expects ExperimentPlan, got {type(plan).__name__}"
+            )
+
+        meta = plan.meta
+        client_dt = (
+            meta.client_dt.value.astimezone(timezone.utc)
+            .replace(microsecond=0)
+        )
+        client_dt_text = client_dt.isoformat()
+        if client_dt_text.endswith("+00:00"):
+            client_dt_text = client_dt_text[:-6] + "Z"
+
+        group_id = str(meta.group_id)
+        storage_payload = {
+            "experiment_name": meta.experiment,
+            "subdir": meta.subdir or None,
+            "client_datetime": client_dt_text,
+            "group_id": group_id,
+        }
+
+        jobs: List[Dict[str, Any]] = []
+        for well_plan in plan.wells:
+            well_id = str(well_plan.well)
+            if not well_id:
+                raise ValueError("Experiment plan contains an empty well identifier.")
+
+            slot_info = self.well_to_slot.get(well_id)
+            if not slot_info:
+                raise ValueError(f"Unknown well '{well_id}' for any configured box.")
+            box, slot = slot_info
+
+            params_obj = getattr(well_plan, "params", None)
+            if params_obj is None:
+                raise ValueError(f"Well '{well_id}' has no mode parameters.")
+            try:
+                params_payload = params_obj.to_payload()
+            except NotImplementedError as exc:  # pragma: no cover - defensive
+                raise ValueError(
+                    f"Well '{well_id}' parameters do not support payload serialization."
+                ) from exc
+            except AttributeError as exc:  # pragma: no cover - defensive
+                raise ValueError(
+                    f"Well '{well_id}' parameters are missing a to_payload() method."
+                ) from exc
+
+            devices = [self._slot_label(slot)]
+
+            jobs.append(
+                {
+                    "box": box,
+                    "wells": [well_id],
+                    "well_id": well_id,
+                    "mode": str(well_plan.mode),
+                    "params": params_payload,
+                    "tia_gain": plan.tia_gain,
+                    "sampling_interval": plan.sampling_interval,
+                    "make_plot": bool(plan.make_plot),
+                    "experiment_name": storage_payload["experiment_name"],
+                    "subdir": storage_payload["subdir"],
+                    "client_datetime": storage_payload["client_datetime"],
+                    "group_id": group_id,
+                    "devices": devices,
+                }
+            )
+
+        return {
+            "group_id": group_id,
+            "storage": storage_payload,
+            "jobs": jobs,
+        }
+
     def health(self, box_id: BoxId) -> Dict:
         session = self.sessions.get(box_id)
         if session is None:
@@ -224,10 +300,14 @@ class JobRestAdapter(JobPort):
                 cleaned.append(item)
         return cleaned
 
-    def start_batch(self, plan: Dict) -> Tuple[RunGroupId, Dict[BoxId, List[str]]]:
+    def start_batch(
+        self, plan: ExperimentPlan | Mapping[str, Any]
+    ) -> Tuple[RunGroupId, Dict[BoxId, List[str]]]:
         """
-        Post pre-grouped jobs (built by the UseCase) to each box.
-        Expected plan keys:
+        Post pre-grouped jobs to each box.
+
+        The plan may be an ExperimentPlan (preferred) or a legacy mapping.
+        Expected plan keys (legacy mapping):
         - jobs: List[Dict] where each job contains:
             {
                 "box": "A",
@@ -243,16 +323,25 @@ class JobRestAdapter(JobPort):
         Returns:
         (group_id, { box: [run_id, ...] })
         """
-        jobs: List[Dict[str, Any]] = plan.get("jobs") or []
+        if isinstance(plan, ExperimentPlan):
+            prepared = self.to_start_payload(plan)
+        elif isinstance(plan, Mapping):
+            prepared = dict(plan)
+        else:
+            raise TypeError(
+                f"start_batch expects ExperimentPlan or mapping, got {type(plan).__name__}"
+            )
+
+        jobs: List[Dict[str, Any]] = list(prepared.get("jobs") or [])
         if not jobs:
             raise ValueError("start_batch: missing 'jobs' in plan")
 
-        group_id_raw = plan.get("group_id")
+        group_id_raw = prepared.get("group_id")
         if isinstance(group_id_raw, str) and group_id_raw.strip():
             group_id = group_id_raw
         else:
             group_id = str(uuid4())
-        storage_meta: Dict[str, Any] = plan.get("storage") or {}
+        storage_meta: Dict[str, Any] = dict(prepared.get("storage") or {})
 
         # Prepare mapping: group_id -> box -> [run_id,...]
         run_ids: Dict[BoxId, List[str]] = {}
@@ -260,21 +349,30 @@ class JobRestAdapter(JobPort):
 
         for job in jobs:
             box: BoxId = job.get("box")
+            if not box:
+                raise ValueError("start_batch: job requires 'box' entry")
+
             wells: List[str] = list(job.get("wells") or [])
-            if not box or not wells:
-                raise ValueError("start_batch: job requires 'box' and non-empty 'wells'")
             well_id = job.get("well_id") or (wells[0] if wells else None)
             if not well_id:
                 raise ValueError("start_batch: job missing 'well_id' entry")
 
-            # Map wells -> slot labels for this box
-            slots: List[int] = []
-            for wid in wells:
-                tpl = self.well_to_slot.get(wid)
-                if not tpl or tpl[0] != box:
-                    raise ValueError(f"Unknown or mismatched well '{wid}' for box '{box}'")
-                slots.append(tpl[1])
-            devices = [self._slot_label(s) for s in sorted(set(slots))]
+            devices_raw: List[str] = list(job.get("devices") or [])
+            if devices_raw:
+                devices = [str(device).strip() for device in devices_raw if str(device).strip()]
+            else:
+                wells_for_mapping = wells or [well_id]
+                if not wells_for_mapping:
+                    raise ValueError("start_batch: job missing wells for slot mapping")
+                slots: List[int] = []
+                for wid in wells_for_mapping:
+                    tpl = self.well_to_slot.get(wid)
+                    if not tpl or tpl[0] != box:
+                        raise ValueError(f"Unknown or mismatched well '{wid}' for box '{box}'")
+                    slots.append(tpl[1])
+                devices = [self._slot_label(s) for s in sorted(set(slots))]
+            if not devices:
+                raise ValueError(f"start_batch: derived empty device list for well '{well_id}'")
 
             experiment_name = job.get("experiment_name") or storage_meta.get(
                 "experiment_name"
@@ -317,14 +415,22 @@ class JobRestAdapter(JobPort):
                     job.get("mode"),
                     group_id,
                 )
-            resp = self.sessions[box].post(
-                url, json_body=payload, timeout=self.cfg.request_timeout_s
-            )
+            session = self.sessions.get(box)
+            if session is None:
+                raise ApiError(
+                    f"No HTTP session configured for box '{box}'",
+                    context=f"start[{box}]",
+                )
+            resp = session.post(url, json_body=payload, timeout=self.cfg.request_timeout_s)
             self._ensure_ok(resp, f"start[{box}]")
             data = self._json(resp)
             run_id_raw = data.get("run_id")
             if not run_id_raw:
-                raise RuntimeError("start_batch: response missing run_id")
+                raise ApiError(
+                    "Response payload missing run_id",
+                    context=f"start[{box}]",
+                    payload=data,
+                )
             run_id = str(run_id_raw)
 
             self._groups[group_id].setdefault(box, []).append(run_id)

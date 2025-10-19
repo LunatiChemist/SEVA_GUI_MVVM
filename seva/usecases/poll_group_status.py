@@ -1,8 +1,8 @@
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Mapping
+from dataclasses import dataclass, replace
+from typing import Any, Dict, Mapping
 
-from seva.domain.entities import GroupSnapshot
+from seva.domain.entities import GroupId, GroupSnapshot
 
 from seva.domain.ports import JobPort, RunGroupId, UseCaseError
 from seva.domain.snapshot_normalizer import normalize_status
@@ -19,12 +19,26 @@ class PollGroupStatus:
         except Exception as exc:  # pragma: no cover - defensive guard
             raise UseCaseError("POLL_FAILED", str(exc)) from exc
 
-        payload: Mapping[str, object]
-        if isinstance(raw_snapshot, Mapping):
-            payload = dict(raw_snapshot)
+        desired_group = str(run_group_id).strip()
+
+        if isinstance(raw_snapshot, GroupSnapshot):
+            snapshot = raw_snapshot
         else:
-            payload = {}
+            payload: Dict[str, Any]
+            if isinstance(raw_snapshot, Mapping):
+                payload = dict(raw_snapshot)
+            else:
+                payload = {}
 
         # Ensure the group identifier travels with the snapshot before normalization.
-        payload.setdefault("group", run_group_id)
-        return normalize_status(payload)
+            if desired_group:
+                payload.setdefault("group", desired_group)
+            else:
+                payload.setdefault("group", run_group_id)
+
+            snapshot = normalize_status(payload)
+
+        if desired_group and str(snapshot.group) != desired_group:
+            snapshot = replace(snapshot, group=GroupId(desired_group))
+
+        return snapshot

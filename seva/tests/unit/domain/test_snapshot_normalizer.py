@@ -1,6 +1,6 @@
 import pytest
 
-from seva.domain.entities import BoxId, ProgressPct, Seconds, WellId
+from seva.domain.entities import BoxId, GroupId, GroupSnapshot, ProgressPct, Seconds, WellId
 from seva.domain.snapshot_normalizer import normalize_status
 
 
@@ -102,3 +102,16 @@ def test_normalize_status_handles_missing_fields_and_strings():
 
     # Wells without a valid run id are skipped.
     assert WellId("A2") not in snapshot.runs
+
+
+def test_normalize_status_passthrough_group_snapshot():
+    snapshot = GroupSnapshot(
+        group=GroupId("grp-1"),
+        runs={},
+        boxes={},
+        all_done=False,
+    )
+
+    result = normalize_status(snapshot)
+
+    assert result is snapshot

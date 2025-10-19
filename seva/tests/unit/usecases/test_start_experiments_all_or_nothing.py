@@ -1,6 +1,18 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List
+
+from seva.domain.entities import (
+    ClientDateTime,
+    ExperimentPlan,
+    GroupId,
+    ModeName,
+    PlanMeta,
+    WellId,
+    WellPlan,
+)
+from seva.domain.params import CVParams
 from seva.usecases.start_experiment_batch import StartExperimentBatch
 
 
@@ -19,20 +31,18 @@ class _JobSpy:
         return ("grp-123", per_box)
 
 
-class _DeviceStub:
-    def __init__(self) -> None:
-        self.called = False
-
-    def validate_mode(self, box_id: str, mode: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        self.called = True
-        raise AssertionError("StartExperimentBatch must not call device validation")
-
-
-def _plan(selection: Iterable[str]) -> Dict[str, Any]:
-    return {
-        "selection": list(selection),
-        "well_params_map": {
-            wid: {
+def _plan(selection: Iterable[str]) -> ExperimentPlan:
+    dt = datetime(2024, 5, 6, 7, 8, 9, tzinfo=timezone.utc)
+    meta = PlanMeta(
+        experiment="All Or Nothing",
+        subdir="Batch",
+        client_dt=ClientDateTime(dt),
+        group_id=GroupId("grp-123"),
+    )
+    wells: List[WellPlan] = []
+    for wid in selection:
+        params = CVParams.from_form(
+            {
                 "run_cv": "1",
                 "cv.start_v": "0",
                 "cv.vertex1_v": "0.1",
@@ -41,39 +51,34 @@ def _plan(selection: Iterable[str]) -> Dict[str, Any]:
                 "cv.scan_rate_v_s": "0.1",
                 "cv.cycles": "1",
             }
-            for wid in selection
-        },
-        "storage": {
-            "experiment_name": "All Or Nothing",
-            "subdir": "Batch",
-            "client_datetime": "2024-05-06T07:08:09Z",
-        },
-    }
+        )
+        wells.append(
+            WellPlan(
+                well=WellId(wid),
+                mode=ModeName("CV"),
+                params=params,
+            )
+        )
+    return ExperimentPlan(meta=meta, wells=wells)
 
 
-def test_start_does_not_attempt_device_validation():
-    device = _DeviceStub()
+def test_start_calls_job_port_once():
     job = _JobSpy()
-    uc = StartExperimentBatch(job_port=job, device_port=device)
+    uc = StartExperimentBatch(job_port=job)
 
     result = uc(_plan(["A1"]))
 
     assert job.calls == 1
-    assert not device.called
     assert result.started_wells == ["A1"]
-    assert result.validations == []
 
 
-def test_successful_start_returns_group_id_and_calls_job_port_once():
-    device = _DeviceStub()
+def test_successful_start_returns_group_id_and_jobs():
     job = _JobSpy()
-    uc = StartExperimentBatch(job_port=job, device_port=device)
+    uc = StartExperimentBatch(job_port=job)
 
     result = uc(_plan(["A1", "B2"]))
 
     assert job.calls == 1
-    assert not device.called
     assert result.run_group_id == "grp-123"
     assert result.started_wells == ["A1", "B2"]
     assert result.per_box_runs == {"A": ["A-run"], "B": ["B-run"]}
-    assert result.validations == []

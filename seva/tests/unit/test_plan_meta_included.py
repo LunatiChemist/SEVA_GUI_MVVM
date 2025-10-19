@@ -1,8 +1,18 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from seva.domain.ports import UseCaseError
+from seva.domain.entities import (
+    ClientDateTime,
+    ExperimentPlan,
+    GroupId,
+    ModeName,
+    PlanMeta,
+    WellId,
+    WellPlan,
+)
+from seva.domain.params import CVParams
 from seva.usecases.start_experiment_batch import StartExperimentBatch
 
 
@@ -31,23 +41,36 @@ class _JobSpy:
         return ("group-id", per_box)
 
 
-class _DeviceStub:
-    def validate_mode(self, box_id: str, mode: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        return {"ok": True, "errors": [], "warnings": []}
+def _build_plan(
+    experiment: str,
+    subdir: Optional[str],
+    client_dt: datetime,
+) -> ExperimentPlan:
+    meta = PlanMeta(
+        experiment=experiment,
+        subdir=subdir,
+        client_dt=ClientDateTime(client_dt),
+        group_id=GroupId("group-id"),
+    )
+    params = CVParams.from_form(_cv_snapshot())
+    wells = [
+        WellPlan(
+            well=WellId("A1"),
+            mode=ModeName("CV"),
+            params=params,
+        )
+    ]
+    return ExperimentPlan(meta=meta, wells=wells)
 
 
 def test_plan_jobs_include_storage_metadata():
     job_spy = _JobSpy()
-    uc = StartExperimentBatch(job_port=job_spy, device_port=_DeviceStub())
-    plan: Dict[str, Any] = {
-        "selection": ["A1"],
-        "well_params_map": {"A1": _cv_snapshot()},
-        "storage": {
-            "experiment_name": "Experiment Alpha",
-            "subdir": "Batch 001",
-            "client_datetime": "2024-03-05_10-15-30",
-        },
-    }
+    uc = StartExperimentBatch(job_port=job_spy)
+    plan = _build_plan(
+        experiment="Experiment Alpha",
+        subdir="Batch 001",
+        client_dt=datetime(2024, 3, 5, 10, 15, 30, tzinfo=timezone.utc),
+    )
 
     result = uc(plan)
 
@@ -56,20 +79,20 @@ def test_plan_jobs_include_storage_metadata():
     job_payload = job_spy.plan["jobs"][0]
     assert job_payload["experiment_name"] == "Experiment Alpha"
     assert job_payload["subdir"] == "Batch 001"
-    assert job_payload["client_datetime"] == "2024-03-05_10-15-30"
+    assert job_payload["client_datetime"] == "2024-03-05T10:15:30Z"
 
 
-def test_plan_without_metadata_still_starts():
+def test_plan_with_optional_subdir_none_serializes_to_none():
     job_spy = _JobSpy()
-    uc = StartExperimentBatch(job_port=job_spy, device_port=_DeviceStub())
-    plan: Dict[str, Any] = {
-        "selection": ["A1"],
-        "well_params_map": {"A1": _cv_snapshot()},
-    }
+    uc = StartExperimentBatch(job_port=job_spy)
+    plan = _build_plan(
+        experiment="Experiment Alpha",
+        subdir=None,
+        client_dt=datetime(2024, 3, 5, 10, 15, 30, tzinfo=timezone.utc),
+    )
 
-    try:
-        uc(plan)
-    except Exception as exc:
-        assert isinstance(exc, UseCaseError)
-    else:
-        raise AssertionError("Expected UseCaseError for missing metadata")
+    uc(plan)
+
+    assert job_spy.plan is not None
+    job_payload = job_spy.plan["jobs"][0]
+    assert job_payload["subdir"] is None

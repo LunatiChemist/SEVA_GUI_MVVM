@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, Iterable, List, Mapping, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 
 @dataclass(frozen=True)
@@ -164,13 +164,24 @@ class Seconds:
 class ModeParams:
     """Base container for electrochemistry mode configuration."""
 
-    flags: Dict[str, bool] = field(default_factory=dict)
-    """Boolean flags derived from the mode definition, defaulting to an empty mapping."""
+    flags: Mapping[str, Any] = field(default_factory=dict)
+    """Mode toggle flags derived from the mode definition."""
 
     def get_enabled(self) -> Iterable[str]:
         """Return an iterable of flag names that are enabled."""
 
         return (name for name, enabled in self.flags.items() if enabled)
+
+    @classmethod
+    def from_form(cls, form: Mapping[str, Any]) -> "ModeParams":
+        """Construct a params object from a flat form snapshot."""
+
+        raise NotImplementedError("ModeParams subclasses must implement from_form().")
+
+    def to_payload(self) -> Dict[str, Any]:
+        """Serialize the parameters into the REST API payload schema."""
+
+        raise NotImplementedError("ModeParams subclasses must implement to_payload().")
 
 
 @dataclass(frozen=True)
@@ -217,12 +228,20 @@ class ExperimentPlan:
     """Shared metadata applied to all well plans in the batch."""
     wells: List[WellPlan]
     """Collection of well-level plans that comprise the experiment."""
+    make_plot: bool = True
+    """Whether the backend should generate plots for each run."""
+    tia_gain: Optional[int] = None
+    """Optional transimpedance amplifier gain override."""
+    sampling_interval: Optional[float] = None
+    """Optional sampling interval override supplied by the client."""
 
     def __post_init__(self) -> None:
         if not self.wells:
             raise ValueError("ExperimentPlan.wells must contain at least one WellPlan.")
         if not all(isinstance(plan, WellPlan) for plan in self.wells):
             raise TypeError("ExperimentPlan.wells must only contain WellPlan instances.")
+
+        object.__setattr__(self, "make_plot", bool(self.make_plot))
 
 
 @dataclass(frozen=True)

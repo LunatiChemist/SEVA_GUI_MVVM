@@ -4,6 +4,7 @@ import threading
 import time
 import types
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List
 
@@ -30,6 +31,46 @@ class StepResult:
     name: str
     status: str
     detail: str
+
+
+def _parse_client_dt(value: str) -> datetime:
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    dt = datetime.fromisoformat(normalized)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _build_experiment_plan(
+    snapshots: Dict[str, Dict[str, str]],
+    *,
+    experiment: str,
+    subdir: str,
+    client_datetime: str,
+    group_id: str,
+    make_plot: bool = True,
+) -> ExperimentPlan:
+    meta = PlanMeta(
+        experiment=experiment,
+        subdir=subdir or None,
+        client_dt=ClientDateTime(_parse_client_dt(client_datetime)),
+        group_id=GroupId(group_id),
+    )
+    wells = [
+        WellPlan(
+            well=WellId(wid),
+            mode=ModeName("CV"),
+            params=CVParams.from_form(snapshot),
+        )
+        for wid, snapshot in snapshots.items()
+    ]
+    return ExperimentPlan(
+        meta=meta,
+        wells=wells,
+        make_plot=make_plot,
+    )
 
 
 def install_pybeep_stub():
@@ -135,14 +176,24 @@ def main():
         from seva.viewmodels.settings_vm import SettingsVM
         from seva.usecases.save_plate_layout import SavePlateLayout
         from seva.usecases.load_plate_layout import LoadPlateLayout
-        from seva.usecases.start_experiment_batch import StartExperimentBatch
+from seva.usecases.start_experiment_batch import StartExperimentBatch
         from seva.usecases.poll_group_status import PollGroupStatus
         from seva.usecases.cancel_group import CancelGroup
         from seva.usecases.download_group_results import DownloadGroupResults
-        from seva.adapters.job_rest import JobRestAdapter
-        from seva.adapters.device_rest import DeviceRestAdapter
-        from seva.domain.ports import UseCaseError
-        from seva.adapters.api_errors import ApiClientError
+from seva.adapters.job_rest import JobRestAdapter
+from seva.adapters.device_rest import DeviceRestAdapter
+from seva.domain.ports import UseCaseError
+from seva.adapters.api_errors import ApiClientError
+from seva.domain.entities import (
+    ClientDateTime,
+    ExperimentPlan,
+    GroupId,
+    ModeName,
+    PlanMeta,
+    WellId,
+    WellPlan,
+)
+from seva.domain.params import CVParams
 
         storage = StorageLocal(root_dir=str(ROOT))
 
@@ -191,18 +242,15 @@ def main():
         # Step 3: Start wells via UseCase
         job_adapter = JobRestAdapter(base_urls={"A": BASE_URL}, api_keys={"A": API_KEY})
         device_adapter = DeviceRestAdapter(base_urls={"A": BASE_URL}, api_keys={"A": API_KEY})
-        start_uc = StartExperimentBatch(job_adapter, device_adapter)
+        start_uc = StartExperimentBatch(job_adapter)
 
-        plan = {
-            "selection": ["A1", "A2"],
-            "well_params_map": layout_payload,
-            "make_plot": True,
-            "storage": {
-                "experiment_name": "TestExp",
-                "subdir": "",
-                "client_datetime": "2025-10-15T19:00:00",
-            },
-        }
+        plan = _build_experiment_plan(
+            layout_payload,
+            experiment="TestExp",
+            subdir="",
+            client_datetime="2025-10-15T19:00:00Z",
+            group_id="grp-smoke",
+        )
 
         try:
             start_result = start_uc(plan)
@@ -242,14 +290,8 @@ def main():
             results.append(StepResult("Files/Download", "SKIP", "skipped (start failed)"))
 
         # Step 7: Validation error scenario
-        invalid_plan = {
-            "storage": {
-                "experiment_name": "TestExp",
-                "subdir": "",
-                "client_datetime": "2025-10-15T19:05:00",
-            },
-            "selection": ["A1"],
-            "well_params_map": {
+        invalid_plan = _build_experiment_plan(
+            {
                 "A1": {
                     "run_cv": "1",
                     "cv.start_v": "0",
@@ -260,17 +302,16 @@ def main():
                     "cv.cycles": "1",
                 }
             },
-        }
+            experiment="TestExp",
+            subdir="",
+            client_datetime="2025-10-15T19:05:00Z",
+            group_id="grp-smoke-invalid",
+        )
         try:
             validation_result = start_uc(invalid_plan)
-            entries = [
-                (v.well_id, v.ok, v.errors, v.warnings)
-                for v in validation_result.validations
-            ]
             started_none = not validation_result.started_wells
-            blocked = all(not v.ok for v in validation_result.validations)
-            status = "PASS" if blocked and started_none else "FAIL"
-            detail = f"validations={entries} started={validation_result.started_wells}"
+            status = "PASS" if started_none else "FAIL"
+            detail = f"started={validation_result.started_wells}"
         except UseCaseError as exc:
             status = "FAIL"
             detail = f"error: {exc}"

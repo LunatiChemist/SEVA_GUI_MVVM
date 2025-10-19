@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 import requests
 from requests import exceptions as req_exc
 
-from seva.domain.ports import BoxId, DevicePort
+from seva.domain.ports import BoxId, DevicePort, ModeValidationResult
 
 from .api_errors import (
     ApiClientError,
@@ -126,6 +126,8 @@ class DeviceRestAdapter(DevicePort):
             box: _RetryingSession(self.api_keys.get(box), self.cfg)
             for box in self.base_urls
         }
+        self._mode_list_cache: Dict[BoxId, List[str]] = {}
+        self._mode_schema_cache: Dict[BoxId, Dict[str, Dict[str, Any]]] = {}
 
     def health(self, box_id: BoxId) -> Dict[str, Any]:
         url = self._make_url(box_id, "/health")
@@ -145,49 +147,54 @@ class DeviceRestAdapter(DevicePort):
             raise RuntimeError(f"devices[{box_id}]: expected list response")
         return [entry for entry in data if isinstance(entry, dict)]
 
-    def list_modes(self, box_id: BoxId) -> List[Dict[str, Any]]:
+    def get_modes(self, box_id: BoxId) -> List[str]:
+        cached = self._mode_list_cache.get(box_id)
+        if cached is not None:
+            return list(cached)
+
         url = self._make_url(box_id, "/modes")
         resp = self._session(box_id).get(url)
         self._ensure_ok(resp, f"modes[{box_id}]")
         data = self._json_any(resp)
-        if not isinstance(data, list):
-            raise RuntimeError(f"modes[{box_id}]: expected list response")
+        modes = self._normalize_modes(data, ctx=f"modes[{box_id}]")
+        self._mode_list_cache[box_id] = modes
+        return list(modes)
 
-        cleaned: List[Dict[str, Any]] = []
-        for entry in data:
-            if isinstance(entry, dict):
-                cleaned.append(entry)
-            elif isinstance(entry, str):
-                cleaned.append({"mode": entry})
-        return cleaned
+    def get_mode_schema(self, box_id: BoxId, mode: str) -> Dict[str, Any]:
+        mode_key = self._normalize_mode_key(mode)
+        cache = self._mode_schema_cache.setdefault(box_id, {})
+        if mode_key in cache:
+            return dict(cache[mode_key])
 
-    def get_mode_params(self, box_id: BoxId, mode: str) -> Dict[str, Any]:
-        if not mode:
-            raise ValueError("get_mode_params requires 'mode'")
-        url = self._make_url(box_id, f"/modes/{mode}/params")
+        url = self._make_url(box_id, f"/modes/{mode_key}/params")
         resp = self._session(box_id).get(url)
-        self._ensure_ok(resp, f"mode_params[{box_id}:{mode}]")
+        self._ensure_ok(resp, f"mode_schema[{box_id}:{mode_key}]")
         data = self._json_any(resp)
         if not isinstance(data, dict):
             raise RuntimeError(
-                f"mode_params[{box_id}:{mode}]: expected object response"
+                f"mode_schema[{box_id}:{mode_key}]: expected object response"
             )
-        return data
+        schema = dict(data)
+        cache[mode_key] = schema
+        return dict(schema)
 
     def validate_mode(
         self, box_id: BoxId, mode: str, params: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        if not mode:
-            raise ValueError("validate_mode requires 'mode'")
-        url = self._make_url(box_id, f"/modes/{mode}/validate")
+    ) -> ModeValidationResult:
+        mode_key = self._normalize_mode_key(mode)
+        # Warm schema cache on first validation to avoid duplicate network calls later.
+        if mode_key not in self._mode_schema_cache.get(box_id, {}):
+            try:
+                self.get_mode_schema(box_id, mode_key)
+            except Exception:
+                # Ignore cache warming errors; validation call will surface issues.
+                pass
+
+        url = self._make_url(box_id, f"/modes/{mode_key}/validate")
         resp = self._session(box_id).post(url, json_body=dict(params or {}))
-        self._ensure_ok(resp, f"mode_validate[{box_id}:{mode}]")
-        data = self._json_any(resp)
-        if not isinstance(data, dict):
-            raise RuntimeError(
-                f"mode_validate[{box_id}:{mode}]: expected object response"
-            )
-        return data
+        self._ensure_ok(resp, f"mode_validate[{box_id}:{mode_key}]")
+        payload = self._json_any(resp)
+        return self._normalize_validation(payload, ctx=f"mode_validate[{box_id}:{mode_key}]")
 
     # ------------------------------------------------------------------
     # Helpers
@@ -205,6 +212,40 @@ class DeviceRestAdapter(DevicePort):
         if base.endswith("/"):
             base = base[:-1]
         return f"{base}{path}"
+
+    @staticmethod
+    def _normalize_mode_key(mode: str) -> str:
+        cleaned = str(mode or "").strip()
+        if not cleaned:
+            raise ValueError("Mode must be a non-empty string.")
+        return cleaned.upper()
+
+    @staticmethod
+    def _normalize_modes(data: Any, *, ctx: str) -> List[str]:
+        if not isinstance(data, list):
+            raise RuntimeError(f"{ctx}: expected list response")
+
+        modes: List[str] = []
+        for entry in data:
+            if isinstance(entry, str):
+                text = entry.strip()
+                if text:
+                    modes.append(text.upper())
+                continue
+            if isinstance(entry, dict):
+                raw = entry.get("mode") or entry.get("name") or entry.get("id")
+                if isinstance(raw, str) and raw.strip():
+                    modes.append(raw.strip().upper())
+        if not modes:
+            raise RuntimeError(f"{ctx}: no valid modes in response")
+        # Deduplicate while preserving order
+        seen = set()
+        unique: List[str] = []
+        for mode in modes:
+            if mode not in seen:
+                seen.add(mode)
+                unique.append(mode)
+        return unique
 
     @staticmethod
     def _ensure_ok(resp: requests.Response, ctx: str) -> None:
@@ -240,3 +281,24 @@ class DeviceRestAdapter(DevicePort):
         except Exception:
             snippet = getattr(resp, "text", "")[:400]
             raise RuntimeError(f"Invalid JSON response: {snippet}")
+
+    @staticmethod
+    def _normalize_validation(payload: Any, *, ctx: str) -> ModeValidationResult:
+        if not isinstance(payload, dict):
+            raise RuntimeError(f"{ctx}: expected object response")
+        errors = DeviceRestAdapter._issue_list(payload.get("errors"))
+        warnings = DeviceRestAdapter._issue_list(payload.get("warnings"))
+        raw_ok = payload.get("ok")
+        ok = bool(raw_ok) if raw_ok is not None else not errors
+        result: ModeValidationResult = {
+            "ok": ok,
+            "errors": errors,
+            "warnings": warnings,
+        }
+        return result
+
+    @staticmethod
+    def _issue_list(raw: Any) -> List[Dict[str, Any]]:
+        if not isinstance(raw, list):
+            return []
+        return [entry for entry in raw if isinstance(entry, dict)]

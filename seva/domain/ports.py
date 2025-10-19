@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Protocol, Tuple
+from typing import Any, Dict, List, Literal, Optional, Protocol, Tuple, TypedDict
 
 WellId = str
 BoxId = str
@@ -38,16 +38,22 @@ class JobPort(Protocol):
     ) -> str: ...  # returns path
 
 
+class ModeValidationResult(TypedDict):
+    ok: bool
+    errors: List[Dict[str, Any]]
+    warnings: List[Dict[str, Any]]
+
+
 class DevicePort(Protocol):
     """Device metadata and capability endpoints provided by the boxes."""
 
     def health(self, box_id: BoxId) -> Dict[str, Any]: ...
     def list_devices(self, box_id: BoxId) -> List[Dict[str, Any]]: ...
-    def list_modes(self, box_id: BoxId) -> List[Dict[str, Any]]: ...
-    def get_mode_params(self, box_id: BoxId, mode: str) -> Dict[str, Any]: ...
+    def get_modes(self, box_id: BoxId) -> List[str]: ...
+    def get_mode_schema(self, box_id: BoxId, mode: str) -> Dict[str, Any]: ...
     def validate_mode(
         self, box_id: BoxId, mode: str, params: Dict[str, Any]
-    ) -> Dict[str, Any]: ...
+    ) -> ModeValidationResult: ...
 
 
 class RelayPort(Protocol):

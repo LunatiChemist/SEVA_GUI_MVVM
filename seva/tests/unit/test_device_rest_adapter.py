@@ -13,6 +13,7 @@ if "requests" not in sys.modules:
 
     sys.modules["requests"] = types.SimpleNamespace(Session=_RequestsSessionStub)
 
+from seva.adapters.api_errors import ApiClientError, ApiServerError
 from seva.adapters.device_rest import DeviceRestAdapter
 from seva.usecases.test_connection import TestConnection
 from seva.domain.ports import BoxId, DevicePort
@@ -34,6 +35,13 @@ class _SessionStub:
         self.calls: List[Dict[str, Any]] = []
         self._idx = 0
 
+    def _next(self) -> _ResponseStub:
+        if self._idx >= len(self._responses):
+            raise RuntimeError("No stub response configured")
+        resp = self._responses[self._idx]
+        self._idx += 1
+        return resp
+
     def get(
         self,
         url: str,
@@ -45,12 +53,22 @@ class _SessionStub:
         hdrs = dict(headers or {})
         if accept and "Accept" not in hdrs:
             hdrs["Accept"] = accept
-        self.calls.append({"url": url, "headers": hdrs, "timeout": timeout})
-        if self._idx >= len(self._responses):
-            raise RuntimeError("No stub response configured")
-        resp = self._responses[self._idx]
-        self._idx += 1
-        return resp
+        self.calls.append({"method": "GET", "url": url, "headers": hdrs, "timeout": timeout})
+        return self._next()
+
+    def post(
+        self,
+        url: str,
+        *,
+        data: Optional[str] = None,
+        headers: Optional[Dict[str, str]] = None,
+        timeout: Optional[int] = None,
+    ) -> _ResponseStub:
+        hdrs = dict(headers or {})
+        self.calls.append(
+            {"method": "POST", "url": url, "headers": hdrs, "timeout": timeout, "data": data}
+        )
+        return self._next()
 
 
 def test_device_adapter_health_uses_health_endpoint() -> None:
@@ -84,41 +102,85 @@ def test_device_adapter_list_devices_filters_non_dict_entries() -> None:
     ]
 
 
-def test_device_adapter_list_modes_normalizes_strings() -> None:
+def test_device_adapter_get_modes_normalizes_strings() -> None:
     payload = ["CV", {"mode": "CA", "label": "Chrono"}]
     adapter = DeviceRestAdapter({"boxC": "http://box"})
     stub = _SessionStub([_ResponseStub(payload)])
     adapter.sessions["boxC"] = stub  # type: ignore[assignment]
 
-    modes = adapter.list_modes("boxC")
+    modes = adapter.get_modes("boxC")
 
-    assert modes == [{"mode": "CV"}, {"mode": "CA", "label": "Chrono"}]
+    assert modes == ["CV", "CA"]
+    assert stub.calls[0]["url"] == "http://box/modes"
 
 
-def test_device_adapter_mode_params_raises_on_unauthorized() -> None:
+def test_device_adapter_get_mode_schema_uses_cache() -> None:
+    adapter = DeviceRestAdapter({"boxF": "http://box"})
+    stub = _SessionStub([_ResponseStub({"param": "value"})])
+    adapter.sessions["boxF"] = stub  # type: ignore[assignment]
+
+    first = adapter.get_mode_schema("boxF", "cv")
+    second = adapter.get_mode_schema("boxF", "CV")
+
+    assert first == {"param": "value"}
+    assert second == {"param": "value"}
+    assert len(stub.calls) == 1
+
+
+def test_device_adapter_validate_mode_normalizes_payload() -> None:
+    adapter = DeviceRestAdapter({"boxG": "http://box"})
+    responses = [
+        _ResponseStub({"param": "value"}),  # schema warm-up
+        _ResponseStub(
+            {
+                "ok": None,
+                "errors": [{"field": "start", "code": "missing", "message": "missing"}],
+                "warnings": [
+                    "ignore-me",
+                    {"field": "scan_rate", "code": "high", "message": "High value"},
+                ],
+            }
+        ),
+    ]
+    stub = _SessionStub(responses)
+    adapter.sessions["boxG"] = stub  # type: ignore[assignment]
+
+    result = adapter.validate_mode("boxG", "cv", {"start": ""})
+
+    assert result["ok"] is False
+    assert result["errors"] == [
+        {"field": "start", "code": "missing", "message": "missing"}
+    ]
+    assert result["warnings"] == [
+        {"field": "scan_rate", "code": "high", "message": "High value"}
+    ]
+    assert [call["method"] for call in stub.calls] == ["GET", "POST"]
+
+
+def test_device_adapter_get_mode_schema_raises_on_unauthorized() -> None:
     adapter = DeviceRestAdapter({"boxD": "http://box"})
     stub = _SessionStub([_ResponseStub("forbidden", status_code=401)])
     adapter.sessions["boxD"] = stub  # type: ignore[assignment]
 
     try:
-        adapter.get_mode_params("boxD", "CV")
-    except RuntimeError as exc:
+        adapter.get_mode_schema("boxD", "CV")
+    except ApiClientError as exc:
         assert "HTTP 401" in str(exc)
     else:
-        raise AssertionError("Expected RuntimeError for unauthorized response")
+        raise AssertionError("Expected ApiClientError for unauthorized response")
 
 
-def test_device_adapter_mode_params_raises_on_server_error() -> None:
+def test_device_adapter_get_mode_schema_raises_on_server_error() -> None:
     adapter = DeviceRestAdapter({"boxE": "http://box"})
     stub = _SessionStub([_ResponseStub("boom", status_code=503)])
     adapter.sessions["boxE"] = stub  # type: ignore[assignment]
 
     try:
-        adapter.get_mode_params("boxE", "CV")
-    except RuntimeError as exc:
+        adapter.get_mode_schema("boxE", "CV")
+    except ApiServerError as exc:
         assert "HTTP 503" in str(exc)
     else:
-        raise AssertionError("Expected RuntimeError for server error response")
+        raise AssertionError("Expected ApiServerError for server error response")
 
 
 class _DevicePortStub(DevicePort):
@@ -135,13 +197,19 @@ class _DevicePortStub(DevicePort):
         self.calls.append({"method": "list_devices", "box": box_id})
         return [dict(item) for item in self._devices]
 
-    def list_modes(self, box_id: BoxId) -> List[Dict[str, Any]]:
-        self.calls.append({"method": "list_modes", "box": box_id})
+    def get_modes(self, box_id: BoxId) -> List[str]:
+        self.calls.append({"method": "get_modes", "box": box_id})
         return []
 
-    def get_mode_params(self, box_id: BoxId, mode: str) -> Dict[str, Any]:
-        self.calls.append({"method": "get_mode_params", "box": box_id, "mode": mode})
+    def get_mode_schema(self, box_id: BoxId, mode: str) -> Dict[str, Any]:
+        self.calls.append({"method": "get_mode_schema", "box": box_id, "mode": mode})
         return {}
+
+    def validate_mode(self, box_id: BoxId, mode: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        self.calls.append(
+            {"method": "validate_mode", "box": box_id, "mode": mode, "params": dict(params)}
+        )
+        return {"ok": True, "errors": [], "warnings": []}
 
 
 def test_test_connection_usecase_uses_device_port() -> None:

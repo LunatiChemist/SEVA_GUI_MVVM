@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 from typing import Iterable, List, Sequence
 
 from seva.app.main import App
-from seva.domain.entities import ClientDateTime, GroupId, PlanMeta
+from seva.domain.entities import ClientDateTime, GroupId, PlanMeta, WellId
+from seva.domain.ports import BoxId
 from seva.usecases.run_flow_coordinator import FlowHooks, FlowTick, GroupContext
 from seva.usecases.start_experiment_batch import (
     StartBatchResult,
@@ -58,6 +59,7 @@ class SettingsStub:
         self.use_streaming = False
         self.poll_interval_ms = 750
         self.results_dir = "results"
+        self.auto_download_on_complete = False
 
 
 class ProgressStub:
@@ -146,8 +148,8 @@ class CoordinatorStub:
 
 def _make_validation(ok: bool = True) -> WellValidationResult:
     return WellValidationResult(
-        well_id="A1",
-        box_id="A",
+        well_id=WellId("A1"),
+        box_id=BoxId("A"),
         mode="CV",
         ok=ok,
         errors=[] if ok else [{"msg": "invalid"}],
@@ -217,7 +219,6 @@ def test_submit_with_validation_errors_aborts_without_timer() -> None:
         run_group_id=None,
         per_box_runs={},
         started_wells=[],
-        validations=validations,
     )
     poll_result = FlowTick(event="tick", next_delay_ms=250)
     app, coordinator, win = _make_app(
@@ -238,7 +239,6 @@ def test_submit_success_schedules_next_poll_on_tick_event() -> None:
         run_group_id="grp-123",
         per_box_runs={"A": ["run-1"]},
         started_wells=["A1"],
-        validations=list(validations),
     )
     poll_result = FlowTick(event="tick", next_delay_ms=300)
     app, coordinator, win = _make_app(
@@ -261,7 +261,6 @@ def test_poll_completed_stops_without_reschedule() -> None:
         run_group_id="grp-456",
         per_box_runs={"A": ["run-1"]},
         started_wells=["A1"],
-        validations=list(validations),
     )
     poll_result = FlowTick(event="completed")
     app, coordinator, win = _make_app(
@@ -284,7 +283,6 @@ def test_poll_error_stops_and_clears_context() -> None:
         run_group_id="grp-789",
         per_box_runs={"A": ["run-1"]},
         started_wells=["A1"],
-        validations=list(validations),
     )
     poll_result = FlowTick(event="error", error_msg="Polling failed.")
     app, coordinator, win = _make_app(

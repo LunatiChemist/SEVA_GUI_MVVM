@@ -259,9 +259,7 @@ class App:
             )
 
         if self._job_adapter and self._device_adapter:
-            self.uc_start = StartExperimentBatch(
-                self._job_adapter, self._device_adapter
-            )
+            self.uc_start = StartExperimentBatch(self._job_adapter)
             self.uc_validate_start_plan = ValidateStartPlan(self._device_adapter)
             self.uc_test_connection = TestConnection(self._device_adapter)
         if self._job_adapter and self._device_adapter:
@@ -352,9 +350,6 @@ class App:
             if not isinstance(start_result, StartBatchResult):
                 raise RuntimeError("Coordinator returned an unexpected start result.")
 
-            if start_result.validations != validations:
-                self._flow_hooks.on_validation_errors(start_result.validations)
-
             if not start_result.run_group_id:
                 if not start_result.started_wells:
                     self.win.show_toast("No runs started. Fix validation errors.")
@@ -392,7 +387,7 @@ class App:
             self.win.set_run_group_id(group_id)
 
             started_boxes = ", ".join(sorted(subruns.keys()))
-            skipped = sum(1 for entry in start_result.validations if not entry.ok)
+            skipped = sum(1 for entry in validations if not entry.ok)
             started_count = len(start_result.started_wells)
             if skipped:
                 self.win.show_toast(

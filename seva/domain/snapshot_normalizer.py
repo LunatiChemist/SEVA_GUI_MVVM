@@ -108,12 +108,15 @@ def _mean(values: Sequence[float]) -> Optional[float]:
     return math.fsum(values) / len(values)
 
 
-def normalize_status(raw: Mapping[str, Any] | None) -> GroupSnapshot:
+def normalize_status(raw: Mapping[str, Any] | GroupSnapshot | None) -> GroupSnapshot:
     """
     Convert heterogeneous adapter payloads into a strongly typed GroupSnapshot.
 
     Missing or malformed fields are interpreted defensively to keep polling resilient.
     """
+
+    if isinstance(raw, GroupSnapshot):
+        return raw
 
     if isinstance(raw, Mapping):
         payload: Mapping[str, Any] = raw

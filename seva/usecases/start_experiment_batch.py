@@ -1,82 +1,44 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Dict, List, Any, Iterable, Callable, Optional
+from typing import Any, Dict, List, Mapping, Optional, Type
 from uuid import uuid4
 
+from seva.domain.entities import (
+    ClientDateTime,
+    ExperimentPlan,
+    GroupId,
+    ModeName,
+    PlanMeta,
+    WellId,
+    WellPlan,
+)
+from seva.domain.params import CVParams, ModeParams as DomainModeParams
 from seva.domain.ports import (
     BoxId,
-    DevicePort,
     JobPort,
     RunGroupId,
     UseCaseError,
     WellId,
 )
 
-# ---- Mode parameter mapping ----
+# ---- Mode parameter mapping (legacy compat) ----
 
-
-def _map_params_cv(snapshot: Dict[str, Any]) -> Dict[str, Any]:
-    """Project CV snapshot fields to the REST API payload."""
-
-    def _coerce_float(value: Any) -> Any:
-        if value is None:
-            return value
-        if isinstance(value, str):
-            stripped = value.strip()
-            if not stripped:
-                return value
-            value = stripped
-        try:
-            return float(value)
-        except Exception:
-            # TODO(validation): enforce numeric input once validation layer exists.
-            return value
-
-    def _coerce_int(value: Any) -> Any:
-        if value is None:
-            return value
-        if isinstance(value, str):
-            stripped = value.strip()
-            if not stripped:
-                return value
-            value = stripped
-        try:
-            return int(float(value))
-        except Exception:
-            # TODO(validation): enforce numeric input once validation layer exists.
-            return value
-
-    start_raw = snapshot.get("cv.start_v")
-    if start_raw is None or (isinstance(start_raw, str) and not start_raw.strip()):
-        start_value: Any = 0.0
-    else:
-        start_value = _coerce_float(start_raw)
-
-    return {
-        "start": start_value,
-        "vertex1": _coerce_float(snapshot.get("cv.vertex1_v")),
-        "vertex2": _coerce_float(snapshot.get("cv.vertex2_v")),
-        "end": _coerce_float(snapshot.get("cv.final_v")),
-        "scan_rate": _coerce_float(snapshot.get("cv.scan_rate_v_s")),
-        "cycles": _coerce_int(snapshot.get("cv.cycles")),
-    }
-
-
-_MAPPER_REGISTRY: Dict[str, Callable[[Dict[str, Any]], Dict[str, Any]]] = {
-    "CV": _map_params_cv,
-    # TODO(mode:EIS): add mapper when EIS mapping is defined.
-    # TODO(mode:CDL): add mapper when CDL mapping is defined.
-    # TODO(mode:DC): add mapper when DC mapping is defined.
-    # TODO(mode:AC): add mapper when AC mapping is defined.
+_MODE_PARAM_BUILDERS: Dict[str, Type[DomainModeParams]] = {
+    "CV": CVParams,
+    # TODO(mode:EIS): register once mode parameter objects exist.
+    # TODO(mode:CDL): register once mode parameter objects exist.
+    # TODO(mode:DC): register once mode parameter objects exist.
+    # TODO(mode:AC): register once mode parameter objects exist.
 }
 
 
-def map_params(mode: str, snapshot: Dict[str, Any]) -> Dict[str, Any]:
-    """Apply mode-specific parameter mapping, keeping legacy fields as fallback."""
-    mapper = _MAPPER_REGISTRY.get((mode or "").upper())
-    if not mapper:
-        # TODO: replace with strict mapping once mode is implemented.
+def map_params(mode: str, snapshot: Mapping[str, Any]) -> Dict[str, Any]:
+    """Apply mode-specific parameter mapping using domain value objects."""
+
+    params_cls = _MODE_PARAM_BUILDERS.get((mode or "").upper())
+    if not params_cls:
+        # TODO: replace with strict mapping once the mode payload is defined.
         return {
             k: v
             for k, v in snapshot.items()
@@ -90,35 +52,114 @@ def map_params(mode: str, snapshot: Dict[str, Any]) -> Dict[str, Any]:
                 "eval_cdl",
             )
         }
-    return mapper(snapshot)
 
-# ---- Local helpers (UseCase-level) ----
+    params = params_cls.from_form(snapshot)
+    return params.to_payload()
 
-def _derive_mode(snap: Dict[str, str]) -> str:
-    """Pick exactly one run_* flag as mode. Raises if none/multiple."""
+def _parse_client_datetime(raw: Any) -> datetime:
+    """Parse a client datetime value into a timezone-aware datetime."""
+    if isinstance(raw, datetime):
+        dt = raw
+    else:
+        text = str(raw or "").strip()
+        if not text:
+            dt = datetime.now(timezone.utc)
+        else:
+            normalized = text
+            suffix_z = False
+            if normalized.endswith("Z"):
+                suffix_z = True
+                normalized = normalized[:-1]
+            try:
+                candidate = normalized + ("+00:00" if suffix_z else "")
+                dt = datetime.fromisoformat(candidate)
+            except ValueError:
+                try:
+                    dt = datetime.strptime(normalized, "%Y-%m-%dT%H-%M-%S")
+                    dt = dt.replace(tzinfo=timezone.utc)
+                except ValueError:
+                    dt = datetime.now(timezone.utc)
+            else:
+                if suffix_z and dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.replace(microsecond=0)
+
+def _derive_mode(snapshot: Mapping[str, Any]) -> str:
+    """Determine the selected mode from run_* flags in the snapshot."""
     flags = {
-        "CV": snap.get("run_cv"),
-        "DC": snap.get("run_dc"),
-        "AC": snap.get("run_ac"),
-        "LSV": snap.get("run_lsv"),
-        "EIS": snap.get("run_eis"),
-        "CDL": snap.get("run_cdl") or snap.get("eval_cdl"),
+        "CV": snapshot.get("run_cv"),
+        "DC": snapshot.get("run_dc"),
+        "AC": snapshot.get("run_ac"),
+        "LSV": snapshot.get("run_lsv"),
+        "EIS": snapshot.get("run_eis"),
+        "CDL": snapshot.get("run_cdl") or snapshot.get("eval_cdl"),
     }
     picked = [
-        m
-        for m, v in flags.items()
-        if str(v).strip().lower() in ("1", "true", "yes", "on")
+        mode
+        for mode, value in flags.items()
+        if str(value).strip().lower() in ("1", "true", "yes", "on")
     ]
     if len(picked) != 1:
-        raise ValueError(
-            f"Exactly one run_* flag must be set (got {picked or 'none'})."
-        )
+        raise ValueError(f"Exactly one run_* flag must be set (got {picked or 'none'}).")
     return picked[0]
 
+def build_experiment_plan(plan_dict: Mapping[str, Any]) -> ExperimentPlan:
+    """Convert a legacy plan mapping into a typed ExperimentPlan."""
+    selection_raw = plan_dict.get("selection") or []
+    selection = [str(item) for item in selection_raw if item is not None]
+    if not selection:
+        raise ValueError("Start plan has no wells (selection is empty).")
 
-def _normalize_params(mode: str, snap: Dict[str, str]) -> Dict[str, Any]:
-    """Keep a mode-focused params dict via map_params for backward compatibility."""
-    return map_params(mode, snap)
+    raw_params = plan_dict.get("well_params_map") or {}
+    if not isinstance(raw_params, Mapping) or not raw_params:
+        raise ValueError("Start plan has no per-well parameters (well_params_map missing).")
+
+    storage = plan_dict.get("storage") or {}
+    if not isinstance(storage, Mapping):
+        storage = {}
+    experiment_name = str(storage.get("experiment_name") or "").strip()
+    if not experiment_name:
+        raise UseCaseError("METADATA_MISSING", "Experiment name must be configured.")
+    subdir = str(storage.get("subdir") or "").strip() or None
+    client_dt = _parse_client_datetime(storage.get("client_datetime"))
+
+    group_id_raw = plan_dict.get("group_id") or storage.get("group_id")
+    group_id_value = str(group_id_raw).strip() if group_id_raw else str(uuid4())
+
+    wells: List[WellPlan] = []
+    for wid in selection:
+        snapshot = raw_params.get(wid) or raw_params.get(WellId(wid))
+        if not isinstance(snapshot, Mapping):
+            raise ValueError(f"No saved parameters for well '{wid}'")
+        mode_label = _derive_mode(snapshot)
+        params_cls = _MODE_PARAM_BUILDERS.get(mode_label.upper())
+        if not params_cls:
+            raise ValueError(f"Unsupported mode '{mode_label}' for well '{wid}'.")
+        params_obj = params_cls.from_form(snapshot)
+        wells.append(
+            WellPlan(
+                well=WellId(wid),
+                mode=ModeName(mode_label),
+                params=params_obj,
+            )
+        )
+
+    meta = PlanMeta(
+        experiment=experiment_name,
+        subdir=subdir,
+        client_dt=ClientDateTime(client_dt),
+        group_id=GroupId(group_id_value),
+    )
+
+    return ExperimentPlan(
+        meta=meta,
+        wells=wells,
+        make_plot=bool(plan_dict.get("make_plot", True)),
+        tia_gain=plan_dict.get("tia_gain"),
+        sampling_interval=plan_dict.get("sampling_interval"),
+    )
 
 @dataclass
 class WellValidationResult:
@@ -138,100 +179,81 @@ class StartBatchResult:
 
     run_group_id: Optional[RunGroupId]
     per_box_runs: Dict[BoxId, List[str]]
-    started_wells: List[WellId]
-    validations: List[WellValidationResult]
+    started_wells: List[str]
 
 
 @dataclass
 class StartExperimentBatch:
     job_port: JobPort
-    device_port: DevicePort
 
-    def __call__(self, plan: Dict) -> StartBatchResult:
-        """
-        Build one job per configured well and post them via JobPort.
-        Coordinator must run ValidateStartPlan beforehand. This use case
-        does not perform validation and does not partial-start. It builds
-        one job per well and submits the full batch.
-        Plan (input) must contain:
-          - selection: List[WellId] (configured wells)
-          - well_params_map: Dict[WellId, Dict[str,str]] (per-well snapshots incl. run_* flags)
-          - optional: tia_gain, sampling_interval, make_plot, group_id
-        """
+    def __call__(self, plan: ExperimentPlan | Mapping[str, Any]) -> StartBatchResult:
+        """Build one job per well from a validated experiment plan and submit the batch."""
         try:
-            selection: Iterable[str] = plan.get("selection") or []
-            selection = list(selection)
-            if not selection:
-                raise ValueError("Start plan has no wells (selection is empty).")
+            if isinstance(plan, Mapping):
+                plan = build_experiment_plan(plan)
+            elif not isinstance(plan, ExperimentPlan):
+                raise TypeError("StartExperimentBatch requires an ExperimentPlan instance.")
 
-            wmap: Dict[str, Dict[str, str]] = plan.get("well_params_map") or {}
-            if not wmap:
-                raise ValueError(
-                    "Start plan has no per-well parameters (well_params_map missing)."
-                )
-
-            group_id: RunGroupId = plan.get("group_id") or str(uuid4())
-            tia_gain = plan.get("tia_gain", None)
-            sampling_interval = plan.get("sampling_interval", None)
-            make_plot = bool(plan.get("make_plot", True))
-            storage_raw = plan.get("storage") or {}
-
-            def _clean_text(value: Any) -> str:
-                return str(value).strip() if isinstance(value, str) else ""
-
-            experiment_name = _clean_text(storage_raw.get("experiment_name"))
-            if not experiment_name:
-                raise UseCaseError(
-                    "METADATA_MISSING", "Experiment name must be configured."
-                )
-            subdir_value = _clean_text(storage_raw.get("subdir"))
-            client_datetime = _clean_text(storage_raw.get("client_datetime"))
-            if not client_datetime:
-                client_datetime = (
-                    datetime.now(timezone.utc)
-                    .replace(microsecond=0)
-                    .isoformat()
-                    .replace("+00:00", "Z")
-                )
-
+            meta = plan.meta
+            client_dt_value = meta.client_dt.value.astimezone(timezone.utc)
+            client_dt_clean = client_dt_value.replace(microsecond=0).isoformat()
+            if client_dt_clean.endswith("+00:00"):
+                client_dt_clean = client_dt_clean.replace("+00:00", "Z")
             storage_payload = {
-                "experiment_name": experiment_name,
-                "subdir": subdir_value or None,
-                "client_datetime": client_datetime,
+                "experiment_name": meta.experiment,
+                "subdir": meta.subdir or None,
+                "client_datetime": client_dt_clean,
             }
 
+            group_id: RunGroupId = str(meta.group_id)
             jobs: List[Dict[str, Any]] = []
-            for wid in selection:
-                if not wid or len(wid) < 2:
-                    raise ValueError(f"Invalid well id '{wid}'")
-                box = wid[0].upper()  # route by prefix only
-                snap = wmap.get(wid)
-                if not snap:
-                    raise ValueError(f"No saved parameters for well '{wid}'")
+            started_wells: List[str] = []
 
-                mode = _derive_mode(snap)
-                params = _normalize_params(mode, snap)
+            for well_plan in plan.wells:
+                well_id = str(well_plan.well)
+                if not well_id or len(well_id) < 2:
+                    raise ValueError(f"Invalid well id '{well_id}'")
+
+                params_obj = getattr(well_plan, "params", None)
+                if params_obj is None:
+                    raise ValueError(f"Well '{well_id}' has no mode parameters.")
+
+                try:
+                    params_payload = params_obj.to_payload()
+                except NotImplementedError as exc:
+                    raise ValueError(
+                        f"Well '{well_id}' parameters do not support payload serialization."
+                    ) from exc
+                except AttributeError as exc:
+                    raise ValueError(
+                        f"Well '{well_id}' parameters are missing a to_payload() method."
+                    ) from exc
+
+                mode_label = str(well_plan.mode)
+                box = well_id[0].upper()
 
                 jobs.append(
                     {
                         "box": box,
-                        "well_id": wid,
-                        "wells": [wid],
-                        "mode": mode,
-                        "params": params,
-                        "tia_gain": tia_gain,
-                        "sampling_interval": sampling_interval,
-                        "make_plot": make_plot,
+                        "well_id": well_id,
+                        "wells": [well_id],
+                        "mode": mode_label,
+                        "params": params_payload,
+                        "tia_gain": plan.tia_gain,
+                        "sampling_interval": plan.sampling_interval,
+                        "make_plot": plan.make_plot,
                         "experiment_name": storage_payload["experiment_name"],
                         "subdir": storage_payload["subdir"],
                         "client_datetime": storage_payload["client_datetime"],
                     }
                 )
+                started_wells.append(str(well_plan.well))
 
             if not jobs:
-                raise UseCaseError("START_FAILED", "No jobs could be constructed from the plan.")
+                raise UseCaseError(
+                    "START_FAILED", "No jobs could be constructed from the plan."
+                )
 
-            # Call adapter with one job per well
             adapter_plan = {
                 "jobs": jobs,
                 "group_id": group_id,
@@ -242,8 +264,7 @@ class StartExperimentBatch:
             return StartBatchResult(
                 run_group_id=run_group_id,
                 per_box_runs=per_box_runs,
-                started_wells=list(selection),
-                validations=[],
+                started_wells=started_wells,
             )
         except UseCaseError:
             raise
