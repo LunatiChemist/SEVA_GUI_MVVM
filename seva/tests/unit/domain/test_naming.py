@@ -26,8 +26,10 @@ def test_make_group_id_includes_subdir_and_datetime(mock_choices) -> None:
     group_id = make_group_id(meta)
     token = str(group_id)
 
+    timestamp_token = meta.client_dt.value.astimezone().strftime("%Y%m%d_%H%M%S")
+
     assert token.startswith("Battery_Screening_plate_01__")
-    assert "__20251018T150000Z__" in token
+    assert f"__{timestamp_token}__" in token
     assert token.endswith("__ABCD")
     mock_choices.assert_called_once()
 
@@ -41,7 +43,8 @@ def test_make_group_id_sanitizes_components(_mock_choices) -> None:
     )
     group_id = make_group_id(meta)
 
-    assert group_id.value.startswith("Str_nge_Name_Sub_Dir__20250102T030400Z__1234")
+    timestamp_token = meta.client_dt.value.astimezone().strftime("%Y%m%d_%H%M%S")
+    assert group_id.value.startswith(f"Str_nge_Name_Sub_Dir__{timestamp_token}__1234")
 
 
 @patch("seva.domain.naming.random.choices", return_value=list("ZXCV"))
@@ -53,4 +56,5 @@ def test_make_group_id_handles_missing_subdir(_mock_choices) -> None:
     )
     group_id = make_group_id(meta)
 
-    assert group_id.value.startswith("Quick_Check__20250601T083000Z__ZXCV")
+    timestamp_token = meta.client_dt.value.astimezone().strftime("%Y%m%d_%H%M%S")
+    assert group_id.value.startswith(f"Quick_Check__{timestamp_token}__ZXCV")

@@ -20,6 +20,7 @@ from .entities import (
     WellPlan,
 )
 from .naming import make_group_id
+from .plan_builder import build_meta, from_well_params
 from .snapshot_normalizer import normalize_status
 
 __all__ = [
@@ -39,6 +40,8 @@ __all__ = [
     "ServerDateTime",
     "WellId",
     "WellPlan",
+    "build_meta",
+    "from_well_params",
     "make_group_id",
     "normalize_status",
 ]

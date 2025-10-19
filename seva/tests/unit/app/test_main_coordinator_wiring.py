@@ -4,7 +4,16 @@ from datetime import datetime, timezone
 from typing import Iterable, List, Sequence
 
 from seva.app.main import App
-from seva.domain.entities import ClientDateTime, GroupId, PlanMeta, WellId
+from seva.domain.entities import (
+    ClientDateTime,
+    ExperimentPlan,
+    GroupId,
+    ModeName,
+    PlanMeta,
+    WellId,
+    WellPlan,
+)
+from seva.domain.params import CVParams
 from seva.domain.ports import BoxId
 from seva.usecases.run_flow_coordinator import FlowHooks, FlowTick, GroupContext
 from seva.usecases.start_experiment_batch import (
@@ -157,16 +166,32 @@ def _make_validation(ok: bool = True) -> WellValidationResult:
     )
 
 
-def _make_plan(group_id: str) -> dict:
-    return {
-        "group_id": group_id,
-        "storage": {
-            "experiment_name": "Experiment",
-            "subdir": "batch",
-            "client_datetime": "2024-01-01T00-00-00",
-            "results_dir": "results",
-        },
-    }
+def _make_plan(group_id: str) -> ExperimentPlan:
+    meta = PlanMeta(
+        experiment="Experiment",
+        subdir="batch",
+        client_dt=ClientDateTime(datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc)),
+        group_id=GroupId(group_id),
+    )
+    params = CVParams.from_form(
+        {
+            "run_cv": "1",
+            "cv.start_v": "0",
+            "cv.vertex1_v": "0.5",
+            "cv.vertex2_v": "-0.5",
+            "cv.final_v": "0",
+            "cv.scan_rate_v_s": "0.1",
+            "cv.cycles": "1",
+        }
+    )
+    wells = [
+        WellPlan(
+            well=WellId("A1"),
+            mode=ModeName("CV"),
+            params=params,
+        )
+    ]
+    return ExperimentPlan(meta=meta, wells=wells, make_plot=False)
 
 
 def _make_app(
@@ -190,8 +215,9 @@ def _make_app(
     app._poll_after_id = None
     app._storage_root = "."
     app._storage = None
+    app._last_plan_inputs = {}
     group_id = start_result.run_group_id or "grp-test"
-    app._build_plan_from_vm = lambda selection: _make_plan(group_id)
+    app._build_domain_plan = lambda: _make_plan(group_id)
     app._ensure_adapter = lambda: True
     app._ensure_coordinator = lambda: True
     app._flow_hooks = FlowHooks(

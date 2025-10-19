@@ -61,12 +61,20 @@ class _SessionStub:
         url: str,
         *,
         data: Optional[str] = None,
+        json_body: Optional[Dict[str, Any]] = None,
         headers: Optional[Dict[str, str]] = None,
         timeout: Optional[int] = None,
     ) -> _ResponseStub:
         hdrs = dict(headers or {})
         self.calls.append(
-            {"method": "POST", "url": url, "headers": hdrs, "timeout": timeout, "data": data}
+            {
+                "method": "POST",
+                "url": url,
+                "headers": hdrs,
+                "timeout": timeout,
+                "data": data,
+                "json": json_body,
+            }
         )
         return self._next()
 

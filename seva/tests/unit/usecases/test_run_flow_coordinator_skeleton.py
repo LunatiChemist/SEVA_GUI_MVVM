@@ -34,7 +34,7 @@ def _build_plan() -> ExperimentPlan:
         WellPlan(
             well=WellId("A1"),
             mode=ModeName("CV"),
-            params=ModeParams(),
+            params=ModeParams(flags={}),
         )
     ]
     return ExperimentPlan(meta=meta, wells=wells)
@@ -55,7 +55,7 @@ def _make_coordinator(
         uc_start=uc_start,
         uc_poll=uc_poll,
         uc_download=MagicMock(),
-        settings=object(),
+        settings=SimpleNamespace(poll_interval_ms=750, poll_backoff_max_ms=5000, auto_download_on_complete=False, results_dir="results"),
         hooks=hooks,
     )
 

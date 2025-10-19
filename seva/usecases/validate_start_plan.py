@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from typing import List, Mapping
+from typing import List
 
 from ..domain.entities import ExperimentPlan
 from ..domain.ports import BoxId, DevicePort, ModeValidationResult, UseCaseError, WellId
-from .start_experiment_batch import WellValidationResult, build_experiment_plan
+from .start_experiment_batch import WellValidationResult
 
 
 class ValidateStartPlan:
@@ -13,17 +13,10 @@ class ValidateStartPlan:
     def __init__(self, device_port: DevicePort) -> None:
         self.device_port = device_port
 
-    def __call__(self, plan: ExperimentPlan | Mapping[str, Any]) -> List[WellValidationResult]:
+    def __call__(self, plan: ExperimentPlan) -> List[WellValidationResult]:
         try:
-            if isinstance(plan, Mapping):
-                domain_plan = build_experiment_plan(plan)
-            elif isinstance(plan, ExperimentPlan):
-                domain_plan = plan
-            else:
-                raise TypeError("ValidateStartPlan requires an ExperimentPlan or mapping input.")
-
             validations: List[WellValidationResult] = []
-            for well_plan in domain_plan.wells:
+            for well_plan in plan.wells:
                 well_id_str = str(well_plan.well)
                 if not well_id_str or len(well_id_str) < 2:
                     raise ValueError(f"Invalid well id '{well_id_str}'")

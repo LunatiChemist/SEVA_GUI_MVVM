@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Protocol, Tuple, TypedDict
 
+from .entities import ExperimentPlan
+
 WellId = str
 BoxId = str
 RunGroupId = str
@@ -25,7 +27,7 @@ class JobPort(Protocol):
     """
 
     def start_batch(
-        self, plan: Dict
+        self, plan: ExperimentPlan
     ) -> Tuple[
         RunGroupId, Dict[BoxId, List[str]]
     ]: ...  # returns run_group_id, subrun per box

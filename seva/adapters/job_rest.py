@@ -6,7 +6,7 @@ import os
 import json
 from dataclasses import dataclass
 from datetime import timezone
-from typing import Dict, Iterable, Tuple, Optional, Any, List, Set, Mapping
+from typing import Dict, Iterable, Tuple, Optional, Any, List, Set
 from uuid import uuid4
 
 import requests
@@ -301,36 +301,13 @@ class JobRestAdapter(JobPort):
         return cleaned
 
     def start_batch(
-        self, plan: ExperimentPlan | Mapping[str, Any]
+        self, plan: ExperimentPlan
     ) -> Tuple[RunGroupId, Dict[BoxId, List[str]]]:
         """
-        Post pre-grouped jobs to each box.
-
-        The plan may be an ExperimentPlan (preferred) or a legacy mapping.
-        Expected plan keys (legacy mapping):
-        - jobs: List[Dict] where each job contains:
-            {
-                "box": "A",
-                "well_id": "A1",
-                "wells": ["A1"],
-                "mode": "CV|DC|AC|LSV|EIS|CDL",
-                "params": {...},
-                "tia_gain": int|None,
-                "sampling_interval": float|None,
-                "make_plot": bool,
-            }
-        - (optional) group_id
-        Returns:
-        (group_id, { box: [run_id, ...] })
+        Post pre-grouped jobs to each box using a domain experiment plan.
+        Returns ``(group_id, { box: [run_id, ...] })``.
         """
-        if isinstance(plan, ExperimentPlan):
-            prepared = self.to_start_payload(plan)
-        elif isinstance(plan, Mapping):
-            prepared = dict(plan)
-        else:
-            raise TypeError(
-                f"start_batch expects ExperimentPlan or mapping, got {type(plan).__name__}"
-            )
+        prepared = self.to_start_payload(plan)
 
         jobs: List[Dict[str, Any]] = list(prepared.get("jobs") or [])
         if not jobs:
@@ -403,6 +380,7 @@ class JobRestAdapter(JobPort):
                 "experiment_name": experiment_name,
                 "subdir": subdir,
                 "client_datetime": client_datetime,
+                "group_id": group_id,
             }
 
             url = self._make_url(box, "/jobs")

@@ -1,24 +1,55 @@
-import json
-from seva.usecases.start_experiment_batch import _derive_mode, map_params
+import pytest
+from datetime import datetime
+
+from seva.domain.plan_builder import build_meta, from_well_params
 
 
-def test_derive_mode_single_flag():
-    snap = {"run_cv": "1", "run_dc": "0"}
-    assert _derive_mode(snap) == "CV"
+def _meta():
+    return build_meta("Experiment", None, datetime(2025, 1, 1, 12, 0, 0))
 
 
-def test_derive_mode_raises_on_multiple():
-    import pytest
-
-    with pytest.raises(Exception):
-        _derive_mode({"run_cv": "1", "run_dc": "1"})
-
-
-def test_map_params_strips_flags():
-    snap = {"run_dc": "1", "ea.duration_s": "10", "foo": "bar"}
-    params = map_params("DC", snap)
-    assert (
-        "run_dc" not in params
-        and params["ea.duration_s"] == "10"
-        and params["foo"] == "bar"
+def test_from_well_params_sets_cv_mode():
+    plan = from_well_params(
+        meta=_meta(),
+        well_params_map={
+            "A1": {
+                "run_cv": "1",
+                "cv.vertex1_v": "0.5",
+                "cv.vertex2_v": "-0.5",
+                "cv.final_v": "0",
+                "cv.scan_rate_v_s": "0.1",
+                "cv.cycles": "1",
+            }
+        },
+        make_plot=True,
+        tia_gain=None,
+        sampling_interval=None,
     )
+
+    assert plan.wells[0].mode.value == "CV"
+
+
+
+def test_from_well_params_raises_when_multiple_modes_enabled():
+    with pytest.raises(ValueError):
+        from_well_params(
+            meta=_meta(),
+            well_params_map={
+                "A1": {"run_cv": "1", "run_dc": "1", "cv.vertex1_v": "0.5"}
+            },
+            make_plot=True,
+            tia_gain=None,
+            sampling_interval=None,
+        )
+
+
+
+def test_from_well_params_raises_for_unsupported_mode():
+    with pytest.raises(NotImplementedError):
+        from_well_params(
+            meta=_meta(),
+            well_params_map={"A1": {"run_dc": "1"}},
+            make_plot=True,
+            tia_gain=None,
+            sampling_interval=None,
+        )

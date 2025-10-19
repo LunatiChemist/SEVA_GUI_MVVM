@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
+from seva.domain.entities import ExperimentPlan
 from seva.domain.ports import BoxId, JobPort, RunGroupId
 
 
@@ -19,21 +20,25 @@ class JobRestMock(JobPort):
     # ---------- JobPort ----------
 
     def start_batch(
-        self, plan: Dict[str, Any]
+        self, plan: ExperimentPlan
     ) -> Tuple[RunGroupId, Dict[BoxId, List[str]]]:
-        jobs = list(plan.get("jobs") or [])
-        if not jobs:
-            raise ValueError("start_batch: missing 'jobs' in plan")
+        if not isinstance(plan, ExperimentPlan):
+            raise TypeError("start_batch requires an ExperimentPlan.")
 
-        group_id: RunGroupId = plan.get("group_id") or str(uuid4())
+        group_id: RunGroupId = str(plan.meta.group_id)
         grouped: Dict[BoxId, List[str]] = {}
         self._groups[group_id] = {}
 
-        for job in jobs:
-            box: Optional[BoxId] = job.get("box")
-            if not box:
-                raise ValueError("start_batch: job requires 'box'")
-            run_id = str(job.get("run_name") or f"{box}-run-{uuid4().hex[:8]}")
+        for well_plan in plan.wells:
+            well_id = str(well_plan.well).strip()
+            if not well_id:
+                raise ValueError("Experiment plan contains an empty well identifier.")
+
+            box: BoxId = well_id[0].upper()
+            run_id = f"{box}-run-{uuid4().hex[:8]}"
+
+            # Mirror adapter expectations by ensuring params serialize without errors.
+            well_plan.params.to_payload()
 
             grouped.setdefault(box, []).append(run_id)
             self._groups[group_id].setdefault(box, []).append(run_id)

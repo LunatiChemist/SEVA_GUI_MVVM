@@ -5,7 +5,6 @@ from __future__ import annotations
 import random
 import re
 import string
-from datetime import timezone
 
 from .entities import ClientDateTime, GroupId, PlanMeta
 
@@ -23,14 +22,14 @@ def _sanitize_component(raw: str) -> str:
 
 
 def _format_client_dt(client_dt: ClientDateTime) -> str:
-    """Format the client-side timestamp as a UTC token suitable for IDs."""
+    """Format the client-side timestamp for identifiers using local time."""
 
-    dt_utc = client_dt.value.astimezone(timezone.utc)
-    return dt_utc.strftime("%Y%m%dT%H%M%SZ")
+    localized = client_dt.value.astimezone()
+    return localized.strftime("%Y%m%d_%H%M%S")
 
 
 def make_group_id(meta: PlanMeta) -> GroupId:
-    """Compose a stable group identifier `{Experiment[_Subdir]}__{ClientDT}__{rnd4}`."""
+    """Compose an identifier `{Experiment[_Subdir]}__{YYYYMMDD_HHMMSS}__{rnd4}`."""
 
     experiment_token = _sanitize_component(meta.experiment)
     if meta.subdir:

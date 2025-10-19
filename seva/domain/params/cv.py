@@ -28,7 +28,7 @@ class CVParams(ModeParams):
     end: Any
     scan_rate: Any
     cycles: Any
-    flags: Mapping[str, Any] = field(default_factory=dict)
+
 
     @classmethod
     def from_form(cls, form: Mapping[str, Any]) -> "CVParams":

@@ -1,18 +1,26 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from datetime import datetime, timezone
+
 from seva.domain.entities import (
+    ClientDateTime,
+    ExperimentPlan,
     GroupId,
     GroupSnapshot,
+    ModeName,
+    PlanMeta,
     ProgressPct,
     RunId,
     RunStatus,
     WellId,
+    WellPlan,
 )
+from seva.domain.params import CVParams
 from seva.usecases.run_flow_coordinator import FlowHooks, RunFlowCoordinator
 
 
@@ -27,16 +35,25 @@ def _make_settings(**overrides) -> SimpleNamespace:
     return SimpleNamespace(**defaults)
 
 
-def _make_plan(results_dir: str = "results") -> dict:
-    return {
-        "group_id": "grp-test",
-        "storage": {
-            "experiment_name": "TestExp",
-            "subdir": "batch",
-            "client_datetime": "2024-01-01T00-00-00",
-            "results_dir": results_dir,
-        },
-    }
+def _make_plan() -> ExperimentPlan:
+    meta = PlanMeta(
+        experiment="TestExp",
+        subdir="batch",
+        client_dt=ClientDateTime(datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc)),
+        group_id=GroupId("grp-test"),
+    )
+    params = CVParams.from_form(
+        {
+            "run_cv": "1",
+            "cv.vertex1_v": "0.2",
+            "cv.vertex2_v": "-0.2",
+            "cv.final_v": "0",
+            "cv.scan_rate_v_s": "0.1",
+            "cv.cycles": "1",
+        }
+    )
+    wells = [WellPlan(well=WellId("A1"), mode=ModeName("CV"), params=params)]
+    return ExperimentPlan(meta=meta, wells=wells)
 
 
 def _make_snapshot(progress: float, *, phase: str = "running", all_done: bool = False) -> GroupSnapshot:
@@ -125,7 +142,7 @@ def test_completed_triggers_auto_download_once(tmp_path: Path) -> None:
         return str(extracted_root)
 
     hooks = FlowHooks(on_completed=lambda path: hook_paths.append(path))
-    plan = _make_plan(str(tmp_path / "results"))
+    plan = _make_plan()
     snapshots = [
         _make_snapshot(10.0),
         _make_snapshot(100.0, phase="done", all_done=True),
@@ -181,3 +198,4 @@ def test_poll_error_returns_error_tick_without_delay() -> None:
     assert tick.next_delay_ms is None
     assert tick.error_msg == "boom"
     assert errors == ["boom"]
+

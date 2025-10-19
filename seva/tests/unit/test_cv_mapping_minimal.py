@@ -1,7 +1,7 @@
-from seva.usecases.start_experiment_batch import map_params
+from seva.domain.params import CVParams
 
 
-def test_cv_mapping_minimal_fields_and_casting():
+def test_cv_params_payload_casts_numeric_fields():
     snapshot = {
         "cv.vertex1_v": "0.5",
         "cv.vertex2_v": "-0.4",
@@ -12,25 +12,20 @@ def test_cv_mapping_minimal_fields_and_casting():
         "run_cv": "1",
     }
 
-    mapped = map_params("CV", snapshot)
+    params = CVParams.from_form(snapshot)
+    payload = params.to_payload()
 
-    assert set(mapped.keys()) == {
-        "start",
-        "vertex1",
-        "vertex2",
-        "end",
-        "scan_rate",
-        "cycles",
-    }
-    assert mapped["start"] == 0.0
-    assert mapped["vertex1"] == 0.5
-    assert mapped["vertex2"] == -0.4
-    assert mapped["end"] == 1.2
-    assert mapped["scan_rate"] == 0.25
-    assert mapped["cycles"] == 3
+    assert set(payload.keys()) == {"start", "vertex1", "vertex2", "end", "scan_rate", "cycles"}
+    assert payload["start"] == 0.0
+    assert payload["vertex1"] == 0.5
+    assert payload["vertex2"] == -0.4
+    assert payload["end"] == 1.2
+    assert payload["scan_rate"] == 0.25
+    assert payload["cycles"] == 3
 
 
-def test_cv_mapping_best_effort_casting_preserves_invalid_values():
+
+def test_cv_params_preserves_invalid_values():
     snapshot = {
         "cv.vertex1_v": "bad-value",
         "cv.vertex2_v": "0.0",
@@ -40,11 +35,12 @@ def test_cv_mapping_best_effort_casting_preserves_invalid_values():
         "cv.start_v": " 1.5 ",
     }
 
-    mapped = map_params("CV", snapshot)
+    params = CVParams.from_form(snapshot)
+    payload = params.to_payload()
 
-    assert mapped["start"] == 1.5
-    assert mapped["vertex1"] == "bad-value"
-    assert mapped["vertex2"] == 0.0
-    assert mapped["end"] == ""
-    assert mapped["scan_rate"] == "abc"
-    assert mapped["cycles"] == "oops"
+    assert payload["start"] == 1.5
+    assert payload["vertex1"] == "bad-value"
+    assert payload["vertex2"] == 0.0
+    assert payload["end"] == ""
+    assert payload["scan_rate"] == "abc"
+    assert payload["cycles"] == "oops"

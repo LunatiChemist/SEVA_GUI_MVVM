@@ -2,17 +2,14 @@
 from __future__ import annotations
 import logging
 import os
-import random
-import re
 import shutil
-import string
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 from collections import defaultdict
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from tkinter import filedialog
 from typing import Any, Dict, Set, Optional, Iterable, List, TYPE_CHECKING
 
@@ -55,6 +52,8 @@ from ..adapters.storage_local import StorageLocal
 from ..adapters.relay_mock import RelayMock
 from ..usecases.save_plate_layout import SavePlateLayout
 from ..usecases.load_plate_layout import LoadPlateLayout
+from ..domain.entities import ExperimentPlan
+from ..domain.plan_builder import build_meta, from_well_params
 from ..domain.ports import UseCaseError
 from ..usecases.test_relay import TestRelay
 from ..usecases.set_electrode_mode import SetElectrodeMode
@@ -167,6 +166,7 @@ class App:
 
         # ---- Download metadata per group ----
         self._group_storage_meta: Dict[str, Dict[str, str]] = {}
+        self._last_plan_inputs: Optional[Dict[str, Any]] = None
 
         # ---- LocalStorage Adapter ----
         self._storage_root = os.environ.get("SEVA_STORAGE_ROOT") or "."
@@ -322,7 +322,7 @@ class App:
 
             selection = self.plate_vm.get_selection()
             self.experiment_vm.set_selection(selection)
-            plan = self._build_plan_from_vm(selection)
+            plan = self._build_domain_plan()
             boxes = sorted(
                 {str(wid)[0] for wid in configured if isinstance(wid, str) and wid}
             )
@@ -334,7 +334,7 @@ class App:
             self._log.info("Submitting start request: %s", summary)
             self._log.debug("Start selection=%s", sorted(configured))
 
-            validations = self._coordinator.validate(plan)  # type: ignore[arg-type]
+            validations = self._coordinator.validate(plan)
             has_invalid = any(not entry.ok for entry in validations)
             has_warnings = any(entry.ok and entry.warnings for entry in validations)
             if has_invalid or has_warnings:
@@ -343,9 +343,7 @@ class App:
                 self.win.show_toast("No runs started. Fix validation errors.")
                 return
 
-            plan["all_or_nothing"] = True
-
-            ctx = self._coordinator.start(plan)  # type: ignore[arg-type]
+            ctx = self._coordinator.start(plan)
             start_result = self._coordinator.last_start_result()
             if not isinstance(start_result, StartBatchResult):
                 raise RuntimeError("Coordinator returned an unexpected start result.")
@@ -361,15 +359,16 @@ class App:
                 self._flow_ctx = None
                 return
 
-            group_id = start_result.run_group_id
+            group_id = str(start_result.run_group_id)
             subruns = start_result.per_box_runs
-            storage_payload = plan.get("storage") or {}
+            meta = plan.meta
+            storage_inputs = self._last_plan_inputs or {}
             normalized_storage = {
-                "experiment": str(storage_payload.get("experiment_name") or "").strip(),
-                "subdir": str(storage_payload.get("subdir") or "").strip(),
-                "client_datetime": str(storage_payload.get("client_datetime") or "").strip(),
+                "experiment": meta.experiment,
+                "subdir": meta.subdir or "",
+                "client_datetime": self._format_client_datetime_for_storage(meta.client_dt.value),
                 "results_dir": str(
-                    storage_payload.get("results_dir") or self.settings_vm.results_dir or ""
+                    storage_inputs.get("results_dir") or self.settings_vm.results_dir or ""
                 ).strip()
                 or self.settings_vm.results_dir,
             }
@@ -1247,112 +1246,98 @@ class App:
     # Plan building
     # ==================================================================
 
-    @staticmethod
-    def _local_dt_slug() -> str:
-        """Return a slug-safe timestamp based on the local timezone."""
-        return datetime.now().astimezone().strftime("%Y-%m-%dT%H-%M-%S")
-
-    @staticmethod
-    def _slug(value: str) -> str:
-        """Normalize text to a lowercase slug with underscores."""
-        text = str(value or "").lower()
-        cleaned = re.sub(r"[^a-z0-9_]+", "_", text)
-        cleaned = re.sub(r"_+", "_", cleaned).strip("_")
-        return cleaned
-
-    def _current_client_datetime(self) -> str:
-        """Return a UTC timestamp suitable for the client_datetime payload."""
-        timestamp = datetime.now().replace(microsecond=0)
-        return timestamp.isoformat().replace(":", "-").replace("+00:00", "Z")
-
-    def _build_storage_metadata(self) -> Dict[str, str]:
-        """Collect experiment storage metadata from settings and transient overrides."""
-        experiment_name = (self.settings_vm.experiment_name or "").strip()
-        if not experiment_name:
-            raise RuntimeError("Experiment name must be set in Settings.")
-        subdir = (self.settings_vm.subdir or "").strip()
-        override_dt = (
-            self.experiment_vm.fields.get("storage.client_datetime")
-            if hasattr(self.experiment_vm, "fields")
-            else None
-        )
-        client_datetime = str(override_dt).strip() if override_dt else ""
-        if not client_datetime:
-            client_datetime = self._current_client_datetime()
-        storage = {
-            "experiment_name": experiment_name,
-            "subdir": subdir,
-            "client_datetime": client_datetime,
-            "results_dir": self.settings_vm.results_dir,
-        }
-        return storage
-
-    def _build_plan_from_vm(self, selection: Iterable[str]) -> Dict:
-        """
-        Build a JobRequest-ready plan for StartExperimentBatch.
-        Collects all configured wells and their stored parameters.
-
-        The UseCase will:
-        - Route each configured well to its box prefix,
-        - Generate one JobRequest per well.
-
-        Fields tia_gain / sampling_interval are set to None for now
-        until they are exposed in the Settings UI.
-        """
-        # 1) Always start from all configured wells (not just the active selection)
+    def _build_domain_plan(self) -> ExperimentPlan:
+        """Build a domain ExperimentPlan from the current view-model state."""
         configured = self.plate_vm.configured()
         if not configured:
             raise RuntimeError("No configured wells to start.")
 
-        # 2) Gather persisted parameters for those wells
         well_params_map = self.experiment_vm.build_well_params_map(configured)
         if not well_params_map:
             raise RuntimeError("No saved parameters found for configured wells.")
 
-        # 3) Optional global settings / defaults
-        make_plot = False  # default: let backend create plots
-        tia_gain = None  # will be added later via Settings
-        sampling_interval = None  # will be added later via Settings
+        inputs = self._collect_plan_inputs()
+        meta = build_meta(
+            experiment=inputs["experiment"],
+            subdir=inputs["subdir"],
+            client_dt_local=inputs["client_dt"],
+        )
+        # Persist plan inputs so downstream UI storage metadata can reuse them.
+        self._last_plan_inputs = inputs
 
-        # 4) Compose plan dict for the UseCase
-        storage_meta = self._build_storage_metadata()
-        plan = {
-            "selection": sorted(configured),
-            "well_params_map": well_params_map,
-            "make_plot": make_plot,
-            "tia_gain": tia_gain,
-            "sampling_interval": sampling_interval,
-            "storage": storage_meta,
-            # group_id is injected below
+        return from_well_params(
+            meta=meta,
+            well_params_map=well_params_map,
+            make_plot=False,
+            tia_gain=None,
+            sampling_interval=None,
+        )
+
+    def _collect_plan_inputs(self) -> Dict[str, Any]:
+        """Gather experiment metadata and filesystem settings for plan construction."""
+        experiment_name = (self.settings_vm.experiment_name or "").strip()
+        if not experiment_name:
+            raise RuntimeError("Experiment name must be set in Settings.")
+
+        subdir_raw = (self.settings_vm.subdir or "").strip()
+        subdir = subdir_raw or None
+
+        override_dt = ""
+        if hasattr(self.experiment_vm, "fields"):
+            override_dt = str(self.experiment_vm.fields.get("storage.client_datetime") or "")
+        client_dt = self._parse_client_datetime_override(override_dt)
+
+        results_dir = str(self.settings_vm.results_dir or "").strip() or "."
+
+        return {
+            "experiment": experiment_name,
+            "subdir": subdir,
+            "client_dt": client_dt,
+            "results_dir": results_dir,
         }
 
-        # 5) Debug convenience (optional)
-        boxes = sorted(
-            {str(wid)[0] for wid in configured if isinstance(wid, str) and wid}
-        )
-        self._log.debug(
-            "Built plan for %d wells across boxes %s",
-            len(configured),
-            ", ".join(boxes) if boxes else "-",
-        )
+    def _parse_client_datetime_override(self, value: str) -> datetime:
+        """Interpret stored client datetime overrides, falling back to the current time."""
+        text = str(value or "").strip()
+        if not text:
+            return datetime.now().astimezone().replace(microsecond=0)
 
-        experiment_slug = self._slug(storage_meta.get("experiment_name") or "exp")
-        if not experiment_slug:
-            experiment_slug = "exp"
-        subdir_slug = self._slug(storage_meta.get("subdir") or "")
-        datetime_slug = self._slug(self._local_dt_slug())
-        rand_suffix = "".join(
-            random.choices(string.ascii_lowercase + string.digits, k=4)
-        )
-        parts = [
-            experiment_slug,
-            subdir_slug or None,
-            datetime_slug,
-            rand_suffix,
-        ]
-        plan["group_id"] = "grp_" + "__".join(filter(None, parts))
+        normalized = text.replace(" ", "T")
+        if normalized.endswith("Z"):
+            normalized = normalized[:-1] + "+00:00"
+        if "T" in normalized:
+            date_part, time_part = normalized.split("T", 1)
+            if ":" not in time_part:
+                time_part = time_part.replace("-", ":")
+            normalized = f"{date_part}T{time_part}"
 
-        return plan
+        parsed = None
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            pass
+
+        if parsed is None:
+            for fmt in ("%Y-%m-%d_%H-%M-%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H-%M-%S"):
+                try:
+                    parsed = datetime.strptime(text, fmt)
+                    break
+                except ValueError:
+                    continue
+
+        if parsed is None:
+            return datetime.now().astimezone().replace(microsecond=0)
+
+        if parsed.tzinfo is None or parsed.tzinfo.utcoffset(parsed) is None:
+            local_zone = datetime.now().astimezone().tzinfo
+            parsed = parsed.replace(tzinfo=local_zone)
+
+        return parsed.astimezone().replace(microsecond=0)
+
+    @staticmethod
+    def _format_client_datetime_for_storage(dt: datetime) -> str:
+        """Return a filesystem-safe representation of the client datetime."""
+        return dt.astimezone().strftime("%Y-%m-%d_%H-%M-%S")
 
 
 def main() -> None:

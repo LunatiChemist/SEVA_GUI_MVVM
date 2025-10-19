@@ -164,8 +164,12 @@ class Seconds:
 class ModeParams:
     """Base container for electrochemistry mode configuration."""
 
-    flags: Mapping[str, Any] = field(default_factory=dict)
+    flags: Mapping[str, Any]
     """Mode toggle flags derived from the mode definition."""
+
+    def __post_init__(self) -> None:
+        mapping = dict(self.flags or {})
+        object.__setattr__(self, "flags", mapping)
 
     def get_enabled(self) -> Iterable[str]:
         """Return an iterable of flag names that are enabled."""

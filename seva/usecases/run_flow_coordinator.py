@@ -3,9 +3,9 @@ from __future__ import annotations
 """Coordinator orchestrating the run flow without UI concerns."""
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, Mapping, Optional, Sequence, TYPE_CHECKING
+from typing import Callable, Dict, Optional, Sequence, TYPE_CHECKING
 
 from seva.domain.entities import (
     ClientDateTime,
@@ -114,8 +114,8 @@ class RunFlowCoordinator:
         self._completed_download_targets: Dict[str, Path] = {}
 
     def prepare_plan(
-        self, vm_state: ExperimentPlan | Mapping[str, Any]
-    ) -> ExperimentPlan | Mapping[str, Any]:
+        self, vm_state: ExperimentPlan
+    ) -> ExperimentPlan:
         """
         Transform the view-model state into a domain plan.
 
@@ -124,7 +124,7 @@ class RunFlowCoordinator:
         return vm_state
 
     def validate(
-        self, plan: ExperimentPlan | Mapping[str, Any]
+        self, plan: ExperimentPlan
     ) -> ValidationSummary:
         """
         Run plan validation by delegating to the existing use-case.
@@ -134,7 +134,7 @@ class RunFlowCoordinator:
         return self.uc_validate_start(plan)
 
     def start(
-        self, plan: ExperimentPlan | Mapping[str, Any]
+        self, plan: ExperimentPlan
     ) -> GroupContext:
         """
         Start the experiment batch and allocate a fresh group context.
@@ -359,38 +359,18 @@ class RunFlowCoordinator:
 
     def _build_storage_meta(
         self,
-        plan: ExperimentPlan | Mapping[str, Any],
+        plan: ExperimentPlan,
         meta: PlanMeta,
     ) -> Dict[str, str]:
-        """Extract storage metadata from the plan or fall back to defaults."""
+        """Extract storage metadata from the domain plan."""
         storage_meta: Dict[str, str] = {
             "experiment": meta.experiment,
-            "client_datetime": str(meta.client_dt),
+            "client_datetime": self._format_client_dt(meta.client_dt),
         }
         if meta.subdir:
             storage_meta["subdir"] = meta.subdir
 
-        if isinstance(plan, Mapping):
-            storage_section = plan.get("storage")
-            if isinstance(storage_section, Mapping):
-                experiment = storage_section.get("experiment_name")
-                if isinstance(experiment, str) and experiment.strip():
-                    storage_meta["experiment"] = experiment.strip()
-
-                subdir = storage_section.get("subdir")
-                if isinstance(subdir, str) and subdir.strip():
-                    storage_meta["subdir"] = subdir.strip()
-
-                client_dt = storage_section.get("client_datetime")
-                if isinstance(client_dt, str) and client_dt.strip():
-                    storage_meta["client_datetime"] = client_dt.strip()
-
-                results_dir = storage_section.get("results_dir")
-                if isinstance(results_dir, str) and results_dir.strip():
-                    storage_meta["results_dir"] = results_dir.strip()
-
-        results_dir = storage_meta.get("results_dir") or self._resolve_results_dir()
-        storage_meta["results_dir"] = results_dir
+        storage_meta["results_dir"] = self._resolve_results_dir()
         return storage_meta
 
     def _resolve_results_dir(self) -> str:
@@ -401,6 +381,12 @@ class RunFlowCoordinator:
             return cleaned or "."
         return "."
 
+    @staticmethod
+    def _format_client_dt(client_dt: ClientDateTime) -> str:
+        """Format client datetime for filesystem-safe storage labels."""
+        localized = client_dt.value.astimezone()
+        return localized.strftime("%Y-%m-%d_%H-%M-%S")
+
     def _auto_download_enabled(self) -> bool:
         """Interpret the auto-download toggle with a sensible default."""
         value = getattr(self.settings, "auto_download_on_complete", True)
@@ -410,57 +396,11 @@ class RunFlowCoordinator:
             return True
         return bool(value)
 
-    def _resolve_meta(self, plan: ExperimentPlan | Mapping[str, Any]) -> PlanMeta:
-        """Extract plan metadata regardless of whether the plan is a domain object or legacy dict."""
-        if hasattr(plan, "meta"):
-            meta = getattr(plan, "meta")
-            if isinstance(meta, PlanMeta):
-                return meta
-
-        if isinstance(plan, Mapping):
-            storage = plan.get("storage") or {}
-            experiment = str(storage.get("experiment_name") or "").strip()
-            if not experiment:
-                experiment = "Experiment"
-
-            subdir_raw = storage.get("subdir") if isinstance(storage, Mapping) else None
-            subdir = str(subdir_raw).strip() or None
-
-            client_dt = self._coerce_client_dt(storage.get("client_datetime"))
-            group_identifier = str(plan.get("group_id") or "").strip() or "unknown-group"
-            return PlanMeta(
-                experiment=experiment,
-                subdir=subdir,
-                client_dt=client_dt,
-                group_id=GroupId(group_identifier),
-            )
-
-        raise TypeError("Unsupported plan type supplied to RunFlowCoordinator.start.")
-
-    def _coerce_client_dt(self, value: Any) -> ClientDateTime:
-        """Convert persisted client datetime payloads into the domain value object."""
-        if isinstance(value, datetime):
-            if value.tzinfo is None:
-                value = value.replace(tzinfo=timezone.utc)
-            return ClientDateTime(value)
-
-        if isinstance(value, str):
-            cleaned = value.replace(" ", "T").replace("_", "-")
-            # Restore colon separators if the slug-style payload removed them.
-            if "T" in cleaned and "-" in cleaned:
-                date_part, time_part = cleaned.split("T", 1)
-                time_part = time_part.replace("-", ":")
-                cleaned = f"{date_part}T{time_part}"
-            try:
-                parsed = datetime.fromisoformat(cleaned.replace("Z", "+00:00"))
-                if parsed.tzinfo is None:
-                    parsed = parsed.replace(tzinfo=timezone.utc)
-                return ClientDateTime(parsed)
-            except ValueError:
-                pass
-
-        return ClientDateTime(datetime.now(timezone.utc))
-
+    def _resolve_meta(self, plan: ExperimentPlan) -> PlanMeta:
+        """Extract plan metadata from the domain object."""
+        if isinstance(plan, ExperimentPlan):
+            return plan.meta
+        raise TypeError("RunFlowCoordinator requires an ExperimentPlan instance.")
 
 __all__ = [
     "FlowHooks",
