@@ -395,23 +395,22 @@ class App:
             self.win.show_toast("Cancel selected runs not available.")
             return
 
-        rows = (self.progress_vm.last_snapshot or {}).get("wells") or []
         selected = set(selection)
         box_to_runs: Dict[str, Set[str]] = defaultdict(set)
 
-        for row in rows:
-            if not isinstance(row, (list, tuple)) or len(row) < 5:
-                continue
-            well_id = str(row[0] or "").strip()
-            if well_id not in selected:
-                continue
-            run_id = str(row[-1] or "").strip()
-            if not run_id:
-                continue
-            box_id = well_id[:1].upper()
-            if not box_id or not box_id.isalpha():
-                continue
-            box_to_runs[box_id].add(run_id)
+        snapshot = self.progress_vm.last_snapshot
+        if snapshot:
+            for well_id, status in snapshot.runs.items():
+                well_token = str(well_id).strip()
+                if well_token not in selected:
+                    continue
+                run_id = str(status.run_id).strip()
+                if not run_id:
+                    continue
+                box_id = self._box_prefix_from_well(well_token)
+                if not box_id:
+                    continue
+                box_to_runs[box_id].add(run_id)
 
         payload = {box: sorted(runs) for box, runs in box_to_runs.items() if runs}
         if not payload:
@@ -422,10 +421,21 @@ class App:
             self._log.info(
                 "End selection requested for wells: %s", ", ".join(selection)
             )
-            cancel_runs(payload)
+            request = {"box_runs": payload, "span": "selected"}
+            cancel_runs(request)
             self.win.show_toast("Abort requested for selected runs.")
         except Exception as exc:
             self._toast_error(exc, context="Cancel runs")
+
+    @staticmethod
+    def _box_prefix_from_well(well_id: str) -> Optional[str]:
+        token = ""
+        for ch in well_id:
+            if ch.isalpha():
+                token += ch
+            else:
+                break
+        return token.upper() or None
 
     def _on_save_layout(self) -> None:
         try:
@@ -978,9 +988,9 @@ class App:
         ):
             return
         try:
-            snap = self.uc_poll(self._current_group_id)  # type: ignore[misc]
-            self.progress_vm.apply_snapshot(snap)
-            if snap.get("all_done"):
+            snapshot = self.uc_poll(self._current_group_id)  # type: ignore[misc]
+            self.progress_vm.apply_snapshot(snapshot)
+            if snapshot.all_done:
                 self._stop_polling()
                 self.win.show_toast("All runs completed.")
                 return
