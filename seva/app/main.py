@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 import time
 from datetime import datetime
+from urllib.parse import urlparse
 from tkinter import filedialog
 from typing import Any, Dict, Set, Optional, Iterable, List, TYPE_CHECKING
 
@@ -20,12 +21,13 @@ from .views.run_overview_view import RunOverviewView
 from .views.channel_activity_view import ChannelActivityView
 from .views.settings_dialog import SettingsDialog
 from .views.data_plotter import DataPlotter
+from .views.discovery_results_dialog import DiscoveryResultsDialog
 
 # ---- ViewModels ----
 from ..viewmodels.plate_vm import PlateVM
 from ..viewmodels.experiment_vm import ExperimentVM
 from ..viewmodels.progress_vm import ProgressVM
-from ..viewmodels.settings_vm import SettingsVM
+from ..viewmodels.settings_vm import SettingsVM, BOX_IDS
 from ..viewmodels.live_data_vm import LiveDataVM
 
 # ---- UseCases & Adapter ----
@@ -48,6 +50,7 @@ from ..usecases.run_flow_coordinator import (
 from ..adapters.job_rest import JobRestAdapter
 from ..adapters.device_rest import DeviceRestAdapter
 from ..adapters.storage_local import StorageLocal
+from ..adapters.discovery_http import HttpDiscoveryAdapter
 from ..adapters.relay_mock import RelayMock
 from ..usecases.save_plate_layout import SavePlateLayout
 from ..usecases.load_plate_layout import LoadPlateLayout
@@ -56,6 +59,7 @@ from ..domain.plan_builder import build_meta, from_well_params
 from ..domain.ports import UseCaseError
 from ..usecases.test_relay import TestRelay
 from ..usecases.set_electrode_mode import SetElectrodeMode
+from ..usecases.discover_devices import DiscoverDevices, MergeDiscoveredIntoRegistry
 from ..adapters.api_errors import (
     ApiClientError,
     ApiError,
@@ -102,6 +106,9 @@ class App:
             on_update_channel_activity=self._apply_channel_activity,
         )
         self.settings_vm = SettingsVM()
+        self._discovery_port = HttpDiscoveryAdapter(default_port=8000)
+        self.uc_discover_devices = DiscoverDevices(self._discovery_port)
+        self.uc_merge_discovered = MergeDiscoveredIntoRegistry()
         self.live_vm = LiveDataVM()
 
         # ---- Subviews (constructor callbacks; no .configure(...)) ----
@@ -536,9 +543,149 @@ class App:
         except Exception as e:
             self.win.show_toast(str(e))
 
-    def _on_discover_devices(self) -> None:
-        """Placeholder callback injected into Settings dialog."""
-        self.win.show_toast("Network scan not implemented yet.")
+    def _build_discovery_candidates(self) -> List[str]:
+        candidates: List[str] = []
+        base_urls = self.settings_vm.api_base_urls or {}
+        for url in base_urls.values():
+            value = (url or "").strip()
+            if value:
+                candidates.append(value)
+
+        cidr_hints: List[str] = []
+
+        for value in candidates:
+            parsed = urlparse(value)
+            host = parsed.hostname or ""
+            if not host:
+                continue
+            octets = host.split(".")
+            if len(octets) != 4:
+                continue
+            try:
+                if all(0 <= int(part) <= 255 for part in octets):
+                    cidr_hints.append(".".join(octets[:3]) + ".0/24")
+            except ValueError:
+                continue
+
+        ordered: List[str] = []
+        seen: Set[str] = set()
+        for entry in candidates + cidr_hints:
+            normalized = entry.strip()
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                ordered.append(normalized)
+
+        if not ordered:
+            ordered.append("192.168.0.0/24")
+        return ordered
+
+    def _on_discover_devices(self, dialog: Optional[SettingsDialog] = None) -> None:
+        discover_uc = getattr(self, "uc_discover_devices", None)
+        merge_uc = getattr(self, "uc_merge_discovered", None)
+        if discover_uc is None or merge_uc is None:
+            self.win.show_toast("Discovery not configured.")
+            return
+
+        candidates = self._build_discovery_candidates()
+        if not candidates:
+            self.win.show_toast("No discovery candidates available.")
+            return
+
+        try:
+            discovered_boxes = discover_uc(candidates=candidates, api_key=None, timeout_s=0.5)
+        except Exception as exc:
+            self._log.exception("Device discovery failed")
+            self.win.show_toast(f"Discovery failed: {exc}")
+            return
+
+        if not discovered_boxes:
+            self.win.show_toast("Discovery finished. No devices found.")
+            return
+
+        current_registry = {
+            key: value for key, value in (self.settings_vm.api_base_urls or {}).items() if value
+        }
+        merged_registry = merge_uc(discovered=discovered_boxes, registry=current_registry)
+
+        normalized_map = {box_id: (self.settings_vm.api_base_urls or {}).get(box_id, "") for box_id in BOX_IDS}
+        existing_urls = {url for url in normalized_map.values() if url}
+        available_slots = [box_id for box_id, url in normalized_map.items() if not url]
+
+        new_urls: List[str] = []
+        seen_urls: Set[str] = set()
+        for url in merged_registry.values():
+            trimmed = (url or "").strip()
+            if trimmed and trimmed not in seen_urls:
+                seen_urls.add(trimmed)
+                new_urls.append(trimmed)
+
+        newly_assigned: Dict[str, str] = {}
+        skipped_urls: List[str] = []
+        for url in new_urls:
+            if url in existing_urls:
+                continue
+            if not available_slots:
+                skipped_urls.append(url)
+                continue
+            box_id = available_slots.pop(0)
+            normalized_map[box_id] = url
+            newly_assigned[box_id] = url
+            existing_urls.add(url)
+
+        persistence_error: Optional[Exception] = None
+        normalized_payload = {box_id: normalized_map.get(box_id, "") for box_id in BOX_IDS}
+        if newly_assigned:
+            try:
+                self.settings_vm.api_base_urls = normalized_payload
+            except ValueError as exc:
+                self.win.show_toast(f"Could not apply discovered devices: {exc}")
+                return
+            try:
+                self._storage.save_user_settings(self.settings_vm.to_dict())
+            except Exception as exc:
+                persistence_error = exc
+                self._log.exception("Failed to persist discovered devices")
+            if dialog and dialog.winfo_exists():
+                dialog.set_api_base_urls(normalized_payload)
+                dialog.set_save_enabled(self.settings_vm.is_valid())
+
+        summary_seen: Set[tuple[str, Optional[str], Optional[str]]] = set()
+        summary_parts: List[str] = []
+        for box in discovered_boxes:
+            base_url = (getattr(box, "base_url", "") or "").strip()
+            if not base_url:
+                continue
+            key = (base_url, getattr(box, "box_id", None), getattr(box, "build", None))
+            if key in summary_seen:
+                continue
+            summary_seen.add(key)
+            label = getattr(box, "box_id", None) or getattr(box, "build", None) or "unknown"
+            summary_parts.append(f"{base_url} ({label})")
+
+        found_summary = ", ".join(summary_parts) if summary_parts else "none"
+
+        message_bits: List[str] = [f"Found: {found_summary}"]
+        if newly_assigned:
+            assigned_summary = ", ".join(f"{box_id}={url}" for box_id, url in newly_assigned.items())
+            message_bits.append(f"Assigned {assigned_summary}")
+        if skipped_urls:
+            skipped_summary = ", ".join(skipped_urls)
+            message_bits.append(f"No free slots for {skipped_summary}")
+        if persistence_error:
+            message_bits.append(f"Persistence failed ({persistence_error})")
+
+        self.win.show_toast("Discovery finished. " + "; ".join(message_bits))
+        # --- NEW: Pop-up table with discovered devices ---
+        rows = []
+        for box in discovered_boxes:
+            rows.append({
+                "base_url": (getattr(box, "base_url", "") or "").strip(),
+                "box_id": getattr(box, "box_id", None),
+                "devices": getattr(box, "devices", None),
+                "api_version": getattr(box, "api_version", None),
+                "build": getattr(box, "build", None),
+            })
+        DiscoveryResultsDialog(self.win, rows)
 
     def _on_open_settings(self) -> None:
         dlg: Optional[SettingsDialog] = None
@@ -666,7 +813,7 @@ class App:
             on_test_connection=handle_test_connection,
             on_test_relay=handle_test_relay,
             on_browse_results_dir=handle_browse_results_dir,
-            on_discover_devices=self._on_discover_devices,
+            on_discover_devices=lambda: self._on_discover_devices(dlg),
             on_save=self._on_settings_saved,
             on_close=lambda: None,
         )
