@@ -536,6 +536,10 @@ class App:
         except Exception as e:
             self.win.show_toast(str(e))
 
+    def _on_discover_devices(self) -> None:
+        """Placeholder callback injected into Settings dialog."""
+        self.win.show_toast("Network scan not implemented yet.")
+
     def _on_open_settings(self) -> None:
         dlg: Optional[SettingsDialog] = None
 
@@ -662,6 +666,7 @@ class App:
             on_test_connection=handle_test_connection,
             on_test_relay=handle_test_relay,
             on_browse_results_dir=handle_browse_results_dir,
+            on_discover_devices=self._on_discover_devices,
             on_save=self._on_settings_saved,
             on_close=lambda: None,
         )

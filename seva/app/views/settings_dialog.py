@@ -22,6 +22,7 @@ class SettingsDialog(tk.Toplevel):
         on_test_connection: OnBox = None,
         on_test_relay: OnVoid = None,
         on_browse_results_dir: OnVoid = None,
+        on_discover_devices: OnVoid = None,
         on_save: OnSave = None,
         on_close: OnVoid = None,
     ) -> None:
@@ -34,6 +35,7 @@ class SettingsDialog(tk.Toplevel):
         self._on_test_connection = on_test_connection
         self._on_test_relay = on_test_relay
         self._on_browse_results_dir = on_browse_results_dir
+        self._on_discover_devices = on_discover_devices
         self._on_save = on_save
         self._on_close = on_close
 
@@ -84,6 +86,12 @@ class SettingsDialog(tk.Toplevel):
                 width=6,
                 command=lambda bid=box: self._safe_box(self._on_test_connection, bid),
             ).grid(row=row, column=4, sticky="w")
+
+        ttk.Button(
+            connection,
+            text="Scan Network",
+            command=lambda: self._safe(self._on_discover_devices),
+        ).grid(row=len(self._boxes), column=0, columnspan=5, sticky="w", pady=(8, 0))
 
         # Relay group
         relay = ttk.Labelframe(self, text="Relay Box")
