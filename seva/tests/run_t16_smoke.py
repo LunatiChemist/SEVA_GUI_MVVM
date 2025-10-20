@@ -199,7 +199,7 @@ from seva.domain.params import CVParams
 
         # Step 1: Settings save
         settings_vm = SettingsVM()
-        settings_vm.box_urls["A"] = BASE_URL
+        settings_vm.api_base_urls = {"A": BASE_URL}
         settings_vm.api_keys["A"] = API_KEY
         settings_vm.set_results_dir(str(RESULTS_DIR))
         try:

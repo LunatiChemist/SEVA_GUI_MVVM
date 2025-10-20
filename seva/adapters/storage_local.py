@@ -4,9 +4,10 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 
 from seva.domain.ports import StoragePort
+from seva.viewmodels.settings_vm import default_settings_payload
 
 
 class StorageLocal(StoragePort):
@@ -54,12 +55,15 @@ class StorageLocal(StoragePort):
         return {"selection": selection, "well_params_map": well_params_map}
 
     # ---- User settings (JSON) ----
-    def load_user_settings(self) -> Optional[Dict]:
+    def load_user_settings(self) -> Dict:
         path = self.root / "user_settings.json"
         if not path.exists():
-            return None
+            return default_settings_payload()
         with path.open("r", encoding="utf-8") as fh:
-            return json.load(fh)
+            raw = json.load(fh)
+        if not isinstance(raw, dict):
+            raise ValueError("User settings payload must be a JSON object.")
+        return raw
 
     def save_user_settings(self, payload: Dict) -> None:
         path = self.root / "user_settings.json"

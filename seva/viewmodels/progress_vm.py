@@ -1,28 +1,26 @@
 from __future__ import annotations
+
+import time
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from ..domain.entities import BoxSnapshot, GroupSnapshot, RunStatus, WellId
+
+WellRow = Tuple[str, str, Optional[float], str, str, str]
+BoxRow = Tuple[str, Optional[float], str]
+ActivityMap = Dict[str, str]
 
 
 @dataclass
 class ProgressVM:
-    """Owns polling state and aggregates status for RunOverview & ChannelActivity.
+    """Owns polling state and aggregates status for RunOverview & ChannelActivity."""
 
-    - Timer/backoff handled by Infra later; here we expose hooks and state bags
-    - Receives consolidated status (e.g., from PollGroupStatus use case)
-    - Translates to View DTOs
-    """
-
-    on_update_run_overview: Optional[Callable[[Dict], None]] = (
-        None  # Dict with box & well rows
-    )
-    on_update_channel_activity: Optional[Callable[[Dict], None]] = (
-        None  # WellId -> status
-    )
+    on_update_run_overview: Optional[Callable[[Dict], None]] = None
+    on_update_channel_activity: Optional[Callable[[ActivityMap], None]] = None
 
     run_group_id: Optional[str] = None
     last_snapshot: Optional[GroupSnapshot] = None
+    updated_at_label: str = ""
 
     def set_run_group(self, run_id: Optional[str]) -> None:
         self.run_group_id = run_id
@@ -35,108 +33,182 @@ class ProgressVM:
         self.last_snapshot = snapshot
         self.run_group_id = str(snapshot.group)
 
-        well_rows, activity_map, runs_by_box = self._derive_well_rows(snapshot)
-        boxes_map = self._derive_box_rows(snapshot, runs_by_box)
+        well_rows, activity_map, runs_by_box = self._build_well_state(snapshot)
+        box_rows = self.derive_box_rows(snapshot, runs_by_box)
+        boxes_payload = self._compose_box_payload(snapshot, runs_by_box)
+
+        self.updated_at_label = self._current_time_label()
 
         dto = {
-            "boxes": boxes_map,
+            "boxes": boxes_payload,
+            "box_rows": box_rows,
             "wells": well_rows,
             "activity": activity_map,
+            "updated_at": self.updated_at_label,
         }
+
         if self.on_update_run_overview:
             self.on_update_run_overview(dto)
         if self.on_update_channel_activity:
             self.on_update_channel_activity(activity_map)
 
     # ------------------------------------------------------------------
-    # DTO builders
+    # Public DTO helpers
     # ------------------------------------------------------------------
-    def _derive_well_rows(
-        self, snapshot: GroupSnapshot
-    ) -> Tuple[List[Tuple[str, str, Optional[float], Optional[int], str, str]], Dict[str, str], Dict[str, List[Tuple[str, RunStatus]]]]:
-        """
-        Prepare table rows + channel activity from the domain snapshot.
-
-        Returns (rows, activity_map, runs_grouped_by_box).
-        """
-        rows: List[Tuple[str, str, Optional[float], Optional[int], str, str]] = []
-        activity: Dict[str, str] = {}
-        grouped: Dict[str, List[Tuple[str, RunStatus]]] = {}
-
-        ordered_runs: Sequence[Tuple[WellId, RunStatus]] = sorted(
-            snapshot.runs.items(), key=lambda item: item[0].value
-        )
+    def derive_well_rows(self, snapshot: GroupSnapshot) -> List[WellRow]:
+        """Return well table rows sorted by WellId (domain order)."""
+        ordered_runs = sorted(snapshot.runs.items(), key=lambda item: item[0].value)
+        rows: List[WellRow] = []
         for well_id, run in ordered_runs:
-            well_token = str(well_id)
-            phase_label = self._phase_label(run.phase)
-            progress_pct = float(run.progress.value) if run.progress else None
             remaining_s = int(run.remaining_s.value) if run.remaining_s else None
-            error_text = run.error or ""
-            run_id_token = str(run.run_id)
-
             rows.append(
-                (well_token, phase_label, progress_pct, remaining_s, error_text, run_id_token)
+                (
+                    str(well_id),
+                    self._phase_label(run.phase),
+                    float(run.progress.value) if run.progress is not None else None,
+                    self.fmt_remaining(remaining_s),
+                    (run.error or "").strip(),
+                    str(run.run_id),
+                )
             )
-            activity[well_token] = self._activity_label(run)
+        return rows
 
+    def derive_box_rows(
+        self,
+        snapshot: GroupSnapshot,
+        runs_by_box: Optional[Dict[str, List[Tuple[str, RunStatus]]]] = None,
+    ) -> List[BoxRow]:
+        """Return per-box summary rows (box_id, avg progress, max remaining label)."""
+        runs_map = runs_by_box or self._group_runs_by_box(snapshot)
+        boxes = self._collect_box_tokens(snapshot, runs_map)
+        snapshot_by_token = {
+            str(box_id): box_snapshot for box_id, box_snapshot in snapshot.boxes.items()
+        }
+        rows: List[BoxRow] = []
+        for box_token in boxes:
+            runs = runs_map.get(box_token, [])
+            box_snapshot = snapshot_by_token.get(box_token)
+            remaining_s = self._box_remaining(box_snapshot, runs)
+            rows.append(
+                (
+                    box_token,
+                    self._box_progress(box_snapshot, runs),
+                    self.fmt_remaining(remaining_s),
+                )
+            )
+        return rows
+
+    def map_selection_to_runs(
+        self, selection: Sequence[Union[WellId, str]]
+    ) -> Dict[str, List[str]]:
+        """Map selected wells to their run identifiers grouped by Box."""
+        if not selection or not self.last_snapshot:
+            return {}
+
+        selected_tokens = {str(item).strip() for item in selection if str(item).strip()}
+        if not selected_tokens:
+            return {}
+
+        grouped: Dict[str, List[str]] = {}
+        for well_id, status in self.last_snapshot.runs.items():
+            well_token = str(well_id)
+            if well_token not in selected_tokens:
+                continue
+            run_token = str(status.run_id).strip()
+            if not run_token:
+                continue
             box_token = self._extract_box_prefix(well_id)
-            if box_token:
-                grouped.setdefault(box_token, []).append((well_token, run))
+            if not box_token:
+                continue
+            bucket = grouped.setdefault(box_token, [])
+            if run_token not in bucket:
+                bucket.append(run_token)
 
-        return rows, activity, grouped
+        sorted_grouped: Dict[str, List[str]] = {}
+        for box_token in sorted(grouped):
+            sorted_grouped[box_token] = sorted(grouped[box_token])
+        return sorted_grouped
 
-    def _derive_box_rows(
+    @staticmethod
+    def fmt_remaining(seconds: Optional[int]) -> str:
+        """Format remaining seconds as m:ss or h:mm:ss."""
+        if seconds is None:
+            return ""
+        try:
+            total = int(seconds)
+        except (TypeError, ValueError):
+            return ""
+        if total < 0:
+            total = 0
+        hours, rem = divmod(total, 3600)
+        minutes, secs = divmod(rem, 60)
+        if hours:
+            return f"{hours}:{minutes:02d}:{secs:02d}"
+        return f"{minutes}:{secs:02d}"
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+    def _build_well_state(
+        self, snapshot: GroupSnapshot
+    ) -> Tuple[List[WellRow], ActivityMap, Dict[str, List[Tuple[str, RunStatus]]]]:
+        rows = self.derive_well_rows(snapshot)
+        activity = self._build_activity_map(snapshot)
+        runs_by_box = self._group_runs_by_box(snapshot)
+        return rows, activity, runs_by_box
+
+    def _compose_box_payload(
         self,
         snapshot: GroupSnapshot,
         runs_by_box: Dict[str, List[Tuple[str, RunStatus]]],
     ) -> Dict[str, Dict[str, object]]:
-        """
-        Compose per-box header data sourced from snapshot aggregates + run details.
-        """
-        boxes: Dict[str, Dict[str, object]] = {}
-
-        for box_id, box_snapshot in snapshot.boxes.items():
-            box_token = str(box_id)
-            runs = runs_by_box.get(box_token, [])
-            boxes[box_token] = self._box_payload(box_token, box_snapshot, runs)
-
-        for box_token, runs in runs_by_box.items():
-            if box_token not in boxes:
-                boxes[box_token] = self._box_payload(box_token, None, runs)
-
-        return dict(sorted(boxes.items()))
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-    def _box_payload(
-        self,
-        box_token: str,
-        box_snapshot: Optional[BoxSnapshot],
-        runs: List[Tuple[str, RunStatus]],
-    ) -> Dict[str, object]:
-        progress_value = self._box_progress(box_snapshot, runs)
-        remaining_value = self._box_remaining(box_snapshot, runs)
-        phase_label = self._aggregate_box_phase(runs)
-        subruns = self._collect_box_run_ids(runs)
-
-        payload: Dict[str, object] = {
-            "phase": phase_label,
-            "progress": progress_value,
-            "subrun": subruns,
+        payload: Dict[str, Dict[str, object]] = {}
+        boxes = self._collect_box_tokens(snapshot, runs_by_box)
+        snapshot_by_token = {
+            str(box_id): box_snapshot for box_id, box_snapshot in snapshot.boxes.items()
         }
-        if remaining_value is not None:
-            payload["remaining"] = remaining_value
+        for box_token in boxes:
+            runs = runs_by_box.get(box_token, [])
+            box_snapshot = snapshot_by_token.get(box_token)
+            remaining_s = self._box_remaining(box_snapshot, runs)
+            payload[box_token] = {
+                "phase": self._aggregate_box_phase(runs),
+                "progress": self._box_progress(box_snapshot, runs),
+                "remaining": remaining_s,
+                "remaining_label": self.fmt_remaining(remaining_s),
+                "subrun": self._collect_box_run_ids(runs),
+            }
         return payload
 
     @staticmethod
-    def _collect_box_run_ids(runs: List[Tuple[str, RunStatus]]) -> List[str]:
-        seen: List[str] = []
-        for well_token, run in sorted(runs, key=lambda item: item[0]):
-            run_id = str(run.run_id).strip()
-            if run_id and run_id not in seen:
-                seen.append(run_id)
-        return seen
+    def _collect_box_tokens(
+        snapshot: GroupSnapshot, runs_by_box: Dict[str, List[Tuple[str, RunStatus]]]
+    ) -> List[str]:
+        tokens = {str(box_id) for box_id in snapshot.boxes.keys()}
+        tokens.update(runs_by_box.keys())
+        return sorted(tokens)
+
+    def _group_runs_by_box(
+        self, snapshot: GroupSnapshot
+    ) -> Dict[str, List[Tuple[str, RunStatus]]]:
+        grouped: Dict[str, List[Tuple[str, RunStatus]]] = {}
+        for well_id, run in snapshot.runs.items():
+            box_token = self._extract_box_prefix(well_id)
+            if not box_token:
+                continue
+            grouped.setdefault(box_token, []).append((str(well_id), run))
+        for runs in grouped.values():
+            runs.sort(key=lambda item: item[0])
+        return grouped
+
+    def _build_activity_map(self, snapshot: GroupSnapshot) -> ActivityMap:
+        activity: ActivityMap = {}
+        for well_id, run in snapshot.runs.items():
+            activity[str(well_id)] = self._activity_label(run)
+        return activity
+
+    def _current_time_label(self) -> str:
+        return time.strftime("%H:%M:%S", time.localtime())
 
     def _aggregate_box_phase(self, runs: List[Tuple[str, RunStatus]]) -> str:
         if not runs:
@@ -157,6 +229,15 @@ class ProgressVM:
             return "Idle"
         phase_key = next(iter(phases))
         return self._phase_label(phase_key)
+
+    @staticmethod
+    def _collect_box_run_ids(runs: List[Tuple[str, RunStatus]]) -> List[str]:
+        seen: List[str] = []
+        for well_token, run in sorted(runs, key=lambda item: item[0]):
+            run_id = str(run.run_id).strip()
+            if run_id and run_id not in seen:
+                seen.append(run_id)
+        return seen
 
     @staticmethod
     def _box_progress(
@@ -218,11 +299,12 @@ class ProgressVM:
         return (phase or "").strip().lower()
 
     @staticmethod
-    def _extract_box_prefix(well_id: WellId) -> Optional[str]:
+    def _extract_box_prefix(well_id: Union[WellId, str]) -> Optional[str]:
         token = ""
         for ch in str(well_id):
             if ch.isalpha():
                 token += ch
             else:
                 break
+        token = token.strip().upper()
         return token or None

@@ -158,10 +158,8 @@ class ExperimentPanelView(ttk.Frame):
         # ---- Footer: editing well + actions ----
         footer = ttk.Frame(self)
         footer.grid(row=2, column=0, columnspan=2, sticky="ew", padx=6, pady=(4, 6))
-        footer.columnconfigure(0, weight=1)
-        footer.columnconfigure(1, weight=1)
-        footer.columnconfigure(2, weight=1)
-        footer.columnconfigure(3, weight=1)
+        for idx in range(4):
+            footer.columnconfigure(idx, weight=1)
 
         self.editing_well_var = tk.StringVar(value="–")
         ttk.Label(footer, textvariable=self.editing_well_var).grid(row=0, column=0, sticky="w")

@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Optional, Set, Iterable, Tuple, cast
+from typing import Any, Callable, Dict, Optional, Set, Iterable, Tuple, cast
 
 WellId = str
 
@@ -30,6 +30,16 @@ _MODE_CONFIG: Dict[str, Dict[str, object]] = {
         "clipboard_attr": "clipboard_eis",
     },
 }
+
+_RUN_FLAG_KEYS: Tuple[str, ...] = (
+    "run_cv",
+    "run_dc",
+    "run_ac",
+    "run_eis",
+    "run_lsv",
+    "run_cdl",
+    "eval_cdl",
+)
 
 
 @dataclass
@@ -107,14 +117,25 @@ class ExperimentVM:
             "params": dict(self.fields),
         }
     
-    def build_well_params_map(self, wells: Iterable[WellId]) -> Dict[WellId, Dict[str, str]]:
-        """Return a {well_id -> flat fields snapshot} map for the given wells."""
-        out: Dict[WellId, Dict[str, str]] = {}
-        for wid in wells:
-            snap = self.well_params.get(wid)
-            if snap:
-                out[wid] = dict(snap)
-        return out
+    def build_well_params_map(
+        self,
+        wells: Optional[Iterable[WellId]] = None,
+    ) -> Dict[WellId, Dict[str, Any]]:
+        """Return UI-only snapshots per well for handing over to PlanBuilder."""
+        well_ids = list(wells) if wells is not None else list(self.well_params.keys())
+        result: Dict[WellId, Dict[str, Any]] = {}
+        for wid in well_ids:
+            if not wid:
+                continue
+            snapshot = self.well_params.get(wid)
+            if not snapshot:
+                continue
+            flags = self._normalize_flags(snapshot)
+            if self._is_flag_enabled(flags, "run_cv"):
+                result[wid] = self._extract_cv_snapshot(snapshot, flags)
+                continue
+            # TODO: add DC/AC/EIS/CDL mappings when modes are available.
+        return result
 
     # Commands
     def cmd_apply_params(self) -> None:
@@ -135,15 +156,6 @@ class ExperimentVM:
         clipboard: Dict[str, str] = getattr(self, clipboard_attr)
         clipboard.clear()
 
-        if source_snapshot is not None:
-            # Copy now relies on the live form fields instead of persisted params.
-            clipboard.update(source_snapshot)
-            return
-
-        snap = self.get_params_for(well_id) or {}
-        if not snap:
-            return
-
         prefixes = cast(Tuple[str, ...], config["prefixes"])
         flags = cast(Tuple[str, ...], config["flags"])
         extras = cast(Tuple[str, ...], config["extra"])
@@ -151,11 +163,18 @@ class ExperimentVM:
         def _is_mode_field(fid: str) -> bool:
             return fid in flags or fid in extras or any(fid.startswith(p) for p in prefixes)
 
-        for fid, val in snap.items():
-            if _is_mode_field(fid):
-                clipboard[fid] = val
+        snapshot = (
+            self.build_mode_snapshot_for_copy(mode)
+            if source_snapshot is None
+            else {fid: val for fid, val in source_snapshot.items() if _is_mode_field(fid)}
+        )
+        if not snapshot:
+            return
 
-        # Always activate the mode in the clipboard to ensure pastes enable it.
+        # Copy now relies on the live form fields instead of persisted params.
+        for flag in flags:
+            snapshot[flag] = "1"
+        clipboard.update(snapshot)
         for flag in flags:
             clipboard[flag] = "1"
 
@@ -180,9 +199,13 @@ class ExperimentVM:
             if not wid:
                 continue
             current = dict(self.well_params.get(wid, {}))
+            for flag in _RUN_FLAG_KEYS:
+                current[flag] = "0"
             for fid in [k for k in list(current.keys()) if _is_mode_field(k)]:
                 current.pop(fid, None)
             current.update(clipboard)
+            for flag in flags:
+                current[flag] = clipboard.get(flag, "1")
             self.well_params[wid] = current
 
     def cmd_start(self) -> None:
@@ -209,3 +232,35 @@ class ExperimentVM:
     def clear_params_for(self, well_id: WellId) -> None:
         """Forget stored parameters (including mode flags) for the given well."""
         self.well_params.pop(well_id, None)
+
+    @staticmethod
+    def _normalize_flags(snapshot: Dict[str, Any]) -> Dict[str, str]:
+        normalized: Dict[str, str] = {}
+        for flag in _RUN_FLAG_KEYS:
+            normalized[flag] = "1" if ExperimentVM._is_truthy(snapshot.get(flag)) else "0"
+        return normalized
+
+    @staticmethod
+    def _is_truthy(value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return False
+        text = str(value).strip().lower()
+        return text in {"1", "true", "yes", "on"}
+
+    @staticmethod
+    def _is_flag_enabled(flags: Dict[str, str], flag: str) -> bool:
+        return ExperimentVM._is_truthy(flags.get(flag))
+
+    @staticmethod
+    def _extract_cv_snapshot(
+        snapshot: Dict[str, Any],
+        _flags: Dict[str, str],
+    ) -> Dict[str, Any]:
+        cv_snapshot: Dict[str, Any] = {
+            key: value for key, value in snapshot.items() if key.startswith("cv.")
+        }
+        for flag in _RUN_FLAG_KEYS:
+            cv_snapshot[flag] = "1" if flag == "run_cv" else "0"
+        return cv_snapshot

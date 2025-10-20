@@ -34,7 +34,7 @@ class ChannelActivityView(ttk.Frame):
         # Header with last update timestamp
         header = ttk.Frame(self)
         header.pack(fill="x", padx=6, pady=(6, 2))
-        self._updated_var = tk.StringVar(value="Updated: –")
+        self._updated_var = tk.StringVar(value="Updated at --:--:--")
         ttk.Label(header, textvariable=self._updated_var).pack(side="left")
 
         # Scrollable canvas for the matrix
@@ -101,7 +101,8 @@ class ChannelActivityView(ttk.Frame):
             cell.configure(bg=self._status_to_color(status))
 
     def set_updated_at(self, text: str) -> None:
-        self._updated_var.set(f"Updated: {text}")
+        label = (text or "").strip() or "--:--:--"
+        self._updated_var.set(f"Updated at {label}")
 
     # ------------------------------------------------------------------
     @staticmethod

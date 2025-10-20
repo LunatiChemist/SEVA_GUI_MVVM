@@ -7,7 +7,6 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from collections import defaultdict
 import time
 from datetime import datetime
 from tkinter import filedialog
@@ -199,16 +198,15 @@ class App:
         self.win.set_status_message("Ready.")
 
     def _load_user_settings(self) -> None:
-        payload: Optional[Dict] = None
         try:
             payload = self._storage.load_user_settings()
         except Exception as exc:
             self.win.show_toast(f"Could not load settings: {exc}")
-        if payload is not None:
-            try:
-                self.settings_vm.apply_dict(payload)
-            except ValueError as exc:
-                self.win.show_toast(str(exc))
+            return
+        try:
+            self.settings_vm.apply_dict(payload)
+        except ValueError as exc:
+            self.win.show_toast(str(exc))
         self._apply_logging_preferences()
 
     def _apply_logging_preferences(self) -> None:
@@ -229,7 +227,7 @@ class App:
         ):
             return True
 
-        base_urls = {k: v for k, v in (self.settings_vm.box_urls or {}).items() if v}
+        base_urls = {k: v for k, v in (self.settings_vm.api_base_urls or {}).items() if v}
         if not base_urls:
             self.win.show_toast("Configure box URLs in Settings first.")
             return False
@@ -433,24 +431,7 @@ class App:
             self.win.show_toast("Cancel selected runs not available.")
             return
 
-        selected = set(selection)
-        box_to_runs: Dict[str, Set[str]] = defaultdict(set)
-
-        snapshot = self.progress_vm.last_snapshot
-        if snapshot:
-            for well_id, status in snapshot.runs.items():
-                well_token = str(well_id).strip()
-                if well_token not in selected:
-                    continue
-                run_id = str(status.run_id).strip()
-                if not run_id:
-                    continue
-                box_id = self._box_prefix_from_well(well_token)
-                if not box_id:
-                    continue
-                box_to_runs[box_id].add(run_id)
-
-        payload = {box: sorted(runs) for box, runs in box_to_runs.items() if runs}
+        payload = self.progress_vm.map_selection_to_runs(selection)
         if not payload:
             self.win.show_toast("Selected wells have no active runs.")
             return
@@ -465,15 +446,16 @@ class App:
         except Exception as exc:
             self._toast_error(exc, context="Cancel runs")
 
-    @staticmethod
-    def _box_prefix_from_well(well_id: str) -> Optional[str]:
-        token = ""
-        for ch in well_id:
-            if ch.isalpha():
-                token += ch
-            else:
-                break
-        return token.upper() or None
+    def _suggest_layout_filename(self) -> str:
+        """Return a default layout filename derived from the experiment name."""
+        raw_name = (getattr(self.settings_vm, "experiment_name", "") or "").strip()
+        sanitized = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in raw_name)
+        while "__" in sanitized:
+            sanitized = sanitized.replace("__", "_")
+        sanitized = sanitized.strip("_")
+        if not sanitized:
+            sanitized = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return f"layout_{sanitized}.json"
 
     def _on_save_layout(self) -> None:
         try:
@@ -481,8 +463,15 @@ class App:
             if not configured:
                 self.win.show_toast("Nothing to save: no configured wells.")
                 return
-            well_map = self.experiment_vm.build_well_params_map(configured)
-            default_name = f"layout_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+
+            selection = sorted(self.plate_vm.get_selection())
+            if selection:
+                try:
+                    self.experiment_vm.set_selection(set(selection))
+                except Exception:
+                    pass
+
+            default_name = self._suggest_layout_filename()
             initial_dir = os.path.abspath(self._storage_root)
             if not os.path.isdir(initial_dir):
                 initial_dir = os.getcwd()
@@ -496,7 +485,11 @@ class App:
             )
             if not path:
                 return
-            saved_path = self.uc_save_layout(path, configured, well_map)  # type: ignore[misc]
+            saved_path = self.uc_save_layout(  # type: ignore[misc]
+                path,
+                experiment_vm=self.experiment_vm,
+                selection=selection,
+            )
             self.win.show_toast(f"Saved {saved_path.name}")
         except Exception as e:
             self.win.show_toast(str(e))
@@ -514,41 +507,31 @@ class App:
             )
             if not path:
                 return
-            data = self.uc_load_layout(path)  # type: ignore[misc]
-            raw_map = data.get("well_params_map") or {}
-            wmap: Dict[str, Dict[str, str]] = {}
-            if isinstance(raw_map, dict):
-                for wid, snapshot in raw_map.items():
-                    wid_str = str(wid)
-                    if isinstance(snapshot, dict):
-                        wmap[wid_str] = dict(snapshot)
-                    else:
-                        wmap[wid_str] = {}
-            selection_raw = data.get("selection")
-            wells_list: List[str] = []
-            if isinstance(selection_raw, list):
+            data = self.uc_load_layout(  # type: ignore[misc]
+                path,
+                experiment_vm=self.experiment_vm,
+                plate_vm=self.plate_vm,
+            )
+            configured_wells = self.plate_vm.configured()
+            selection_raw = data.get("selection") or []
+            selection_list: List[str] = []
+            if isinstance(selection_raw, (list, tuple, set)):
                 for item in selection_raw:
-                    wid = str(item)
-                    if wid not in wells_list:
-                        wells_list.append(wid)
+                    wid = str(item).strip()
+                    if wid and wid not in selection_list:
+                        selection_list.append(wid)
             elif isinstance(selection_raw, str):
-                wells_list = [selection_raw]
-            if not wells_list:
-                wells_list = sorted(wmap.keys())
-            self.experiment_vm.well_params.clear()
-            for wid, snap in wmap.items():
-                self.experiment_vm.save_params_for(wid, snap)
-            configured_wells = set(wmap.keys()) or set(wells_list)
-            self.plate_vm.clear_all_configured()
-            self.plate_vm.mark_configured(configured_wells)
-            self.wellgrid.set_configured_wells(configured_wells)
-            if wells_list:
-                first_well = wells_list[0]
-                self.experiment_vm.set_selection({first_well})
-                self.experiment_vm.fields = dict(wmap.get(first_well, {}))
-                self.wellgrid.set_selection([first_well])
+                text = selection_raw.strip()
+                if text:
+                    selection_list.append(text)
+            if not selection_list and configured_wells:
+                selection_list = sorted(configured_wells)
+            if selection_list:
+                self.plate_vm.set_selection(selection_list)
             else:
-                self.experiment_vm.set_selection(set())
+                self.plate_vm.set_selection([])
+            self.wellgrid.set_configured_wells(configured_wells)
+            self.wellgrid.set_selection(selection_list)
             self.win.show_toast(f"Loaded {os.path.basename(path)}")
         except Exception as e:
             self.win.show_toast(str(e))
@@ -579,7 +562,7 @@ class App:
 
             adapter = self._device_adapter
             if adapter is None:
-                saved_url = (self.settings_vm.box_urls or {}).get(box_id, "").strip()
+                saved_url = (self.settings_vm.api_base_urls or {}).get(box_id, "").strip()
                 if saved_url:
                     if self._ensure_adapter():
                         adapter = self._device_adapter
@@ -672,7 +655,6 @@ class App:
             if not selected:
                 return
             new_dir = os.path.normpath(selected)
-            self.settings_vm.set_results_dir(new_dir)
             dlg.set_results_dir(new_dir)
 
         dlg = SettingsDialog(
@@ -684,15 +666,17 @@ class App:
             on_close=lambda: None,
         )
         # Populate dialog from VM
-        dlg.set_box_urls(self.settings_vm.box_urls)
+        dlg.set_api_base_urls(self.settings_vm.api_base_urls)
         dlg.set_api_keys(self.settings_vm.api_keys)
         dlg.set_timeouts(
             self.settings_vm.request_timeout_s, self.settings_vm.download_timeout_s
         )
         dlg.set_poll_interval(self.settings_vm.poll_interval_ms)
+        dlg.set_poll_backoff_max(self.settings_vm.poll_backoff_max_ms)
         dlg.set_results_dir(self.settings_vm.results_dir)
         dlg.set_experiment_name(self.settings_vm.experiment_name)
         dlg.set_subdir(self.settings_vm.subdir)
+        dlg.set_auto_download(self.settings_vm.auto_download_on_complete)
         dlg.set_use_streaming(self.settings_vm.use_streaming)
         dlg.set_debug_logging(self.settings_vm.debug_logging)
         dlg.set_relay_config(self.settings_vm.relay_ip, self.settings_vm.relay_port)
@@ -997,8 +981,8 @@ class App:
 
     def _apply_channel_activity(self, mapping: Dict[str, str]) -> None:
         self.activity.set_activity(mapping)
-        now_str = time.strftime("%H:%M:%S")
-        self.activity.set_updated_at(f"Updated at {now_str}")
+        label = self.progress_vm.updated_at_label or time.strftime("%H:%M:%S")
+        self.activity.set_updated_at(label)
 
     def _open_plot_for_well(self, well_id: str) -> None:
         self.win.show_toast(f"Open PNG for {well_id}")
