@@ -2,6 +2,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 
+from ..domain.util import well_id_to_box
+
 WellId = str  # e.g., "A1"
 BoxId = str   # e.g., "A"
 
@@ -76,15 +78,16 @@ class PlateVM:
     def well_to_box(well_id: WellId) -> BoxId:
         if not well_id:
             raise ValueError("Empty well_id")
-        if len(well_id) < 2:
+        text = well_id.strip()
+        if len(text) < 2:
             raise ValueError(f"Invalid well id '{well_id}'")
-        suffix = well_id[1:]
+        suffix = text[1:]
         if not suffix.isdigit():
             raise ValueError(f"Invalid well id '{well_id}'")
         number = int(suffix)
         if number <= 0:
             raise ValueError(f"Invalid well id '{well_id}'")
-        prefix = well_id[0].upper()
-        if prefix not in {"A", "B", "C", "D"}:
-            raise ValueError(f"Invalid box prefix: {prefix}")
+        prefix = well_id_to_box(text)
+        if not prefix:
+            raise ValueError(f"Invalid box prefix in well id '{well_id}'")
         return prefix

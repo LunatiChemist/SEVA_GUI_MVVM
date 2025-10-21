@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from seva.domain.entities import ExperimentPlan
 from seva.domain.ports import BoxId, JobPort, RunGroupId
+from seva.domain.util import well_id_to_box
 
 
 @dataclass
@@ -34,7 +35,10 @@ class JobRestMock(JobPort):
             if not well_id:
                 raise ValueError("Experiment plan contains an empty well identifier.")
 
-            box: BoxId = well_id[0].upper()
+            box_id = well_id_to_box(well_id)
+            if not box_id:
+                raise ValueError(f"Invalid well identifier: {well_id}")
+            box: BoxId = box_id
             run_id = f"{box}-run-{uuid4().hex[:8]}"
 
             # Mirror adapter expectations by ensuring params serialize without errors.

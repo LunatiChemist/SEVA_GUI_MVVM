@@ -4,7 +4,18 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
-from ..domain.entities import BoxSnapshot, GroupSnapshot, RunStatus, WellId
+from ..domain.entities import (
+    BoxId,
+    BoxSnapshot,
+    GroupId,
+    GroupSnapshot,
+    ProgressPct,
+    RunId,
+    RunStatus,
+    Seconds,
+    WellId,
+)
+from ..domain.runs_registry import RunsRegistry
 
 WellRow = Tuple[str, str, Optional[float], str, str, str]
 BoxRow = Tuple[str, Optional[float], str]
@@ -19,11 +30,30 @@ class ProgressVM:
     on_update_channel_activity: Optional[Callable[[ActivityMap], None]] = None
 
     run_group_id: Optional[str] = None
+    active_group_id: Optional[str] = None
     last_snapshot: Optional[GroupSnapshot] = None
     updated_at_label: str = ""
 
     def set_run_group(self, run_id: Optional[str]) -> None:
         self.run_group_id = run_id
+
+    def set_active_group(self, group_id: Optional[str], registry: RunsRegistry) -> None:
+        self.active_group_id = group_id
+        if not group_id:
+            return
+        entry = registry.get(group_id)
+        if not entry or not entry.last_snapshot:
+            return
+
+        snapshot_data = entry.last_snapshot
+        if isinstance(snapshot_data, GroupSnapshot):
+            self.apply_snapshot(snapshot_data)
+            return
+
+        if isinstance(snapshot_data, dict):
+            rebuilt = self._snapshot_from_serialized(snapshot_data)
+            if rebuilt:
+                self.apply_snapshot(rebuilt)
 
     def apply_snapshot(self, snapshot: GroupSnapshot) -> None:
         """Consume the latest GroupSnapshot and fan it out to the views."""
@@ -32,6 +62,7 @@ class ProgressVM:
 
         self.last_snapshot = snapshot
         self.run_group_id = str(snapshot.group)
+        self.active_group_id = str(snapshot.group)
 
         well_rows, activity_map, runs_by_box = self._build_well_state(snapshot)
         box_rows = self.derive_box_rows(snapshot, runs_by_box)
@@ -72,6 +103,92 @@ class ProgressVM:
                 )
             )
         return rows
+
+    def _snapshot_from_serialized(self, payload: Dict[str, Union[str, Dict, List]]) -> Optional[GroupSnapshot]:
+        """Rebuild a GroupSnapshot from a serialized registry payload."""
+        try:
+            group = GroupId(str(payload["group"]))
+        except Exception:
+            return None
+
+        runs_payload = payload.get("runs") or {}
+        boxes_payload = payload.get("boxes") or {}
+
+        runs: Dict[WellId, RunStatus] = {}
+        if isinstance(runs_payload, dict):
+            for well_token, meta in runs_payload.items():
+                try:
+                    well_id = WellId(str(well_token))
+                    run_id = RunId(str(meta.get("run_id") or ""))
+                    phase = str(meta.get("phase") or "unknown")
+                except Exception:
+                    continue
+
+                progress_val = meta.get("progress")
+                progress_obj = None
+                if isinstance(progress_val, (int, float)):
+                    try:
+                        progress_obj = ProgressPct(float(progress_val))
+                    except Exception:
+                        progress_obj = None
+
+                remaining_val = meta.get("remaining_s")
+                remaining_obj = None
+                if isinstance(remaining_val, (int, float)):
+                    try:
+                        remaining_obj = Seconds(int(remaining_val))
+                    except Exception:
+                        remaining_obj = None
+
+                error_text = meta.get("error")
+                runs[well_id] = RunStatus(
+                    run_id=run_id,
+                    phase=phase,
+                    progress=progress_obj,
+                    remaining_s=remaining_obj,
+                    error=str(error_text).strip() if error_text else None,
+                )
+
+        boxes: Dict[BoxId, BoxSnapshot] = {}
+        if isinstance(boxes_payload, dict):
+            for box_token, meta in boxes_payload.items():
+                try:
+                    box_id = BoxId(str(box_token))
+                except Exception:
+                    continue
+
+                progress_val = meta.get("progress")
+                progress_obj = None
+                if isinstance(progress_val, (int, float)):
+                    try:
+                        progress_obj = ProgressPct(float(progress_val))
+                    except Exception:
+                        progress_obj = None
+
+                remaining_val = meta.get("remaining_s")
+                remaining_obj = None
+                if isinstance(remaining_val, (int, float)):
+                    try:
+                        remaining_obj = Seconds(int(remaining_val))
+                    except Exception:
+                        remaining_obj = None
+
+                boxes[box_id] = BoxSnapshot(
+                    box=box_id,
+                    progress=progress_obj,
+                    remaining_s=remaining_obj,
+                )
+
+        all_done = bool(payload.get("all_done"))
+        try:
+            return GroupSnapshot(
+                group=group,
+                runs=runs,
+                boxes=boxes,
+                all_done=all_done,
+            )
+        except Exception:
+            return None
 
     def derive_box_rows(
         self,

@@ -4,6 +4,7 @@ from typing import List
 
 from ..domain.entities import ExperimentPlan
 from ..domain.ports import BoxId, DevicePort, ModeValidationResult, UseCaseError, WellId
+from ..domain.util import well_id_to_box
 from .start_experiment_batch import WellValidationResult
 
 
@@ -20,7 +21,9 @@ class ValidateStartPlan:
                 well_id_str = str(well_plan.well)
                 if not well_id_str or len(well_id_str) < 2:
                     raise ValueError(f"Invalid well id '{well_id_str}'")
-                box = well_id_str[0].upper()
+                box = well_id_to_box(well_id_str)
+                if not box:
+                    raise ValueError(f"Invalid well id '{well_id_str}'")
 
                 try:
                     params_payload = well_plan.params.to_payload()

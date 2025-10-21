@@ -3,9 +3,9 @@ from __future__ import annotations
 """Coordinator orchestrating the run flow without UI concerns."""
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Dict, Optional, Sequence, TYPE_CHECKING
+from typing import Any, Callable, Dict, Optional, Sequence, TYPE_CHECKING
 
 from seva.domain.entities import (
     ClientDateTime,
@@ -162,6 +162,37 @@ class RunFlowCoordinator:
         self.hooks.on_started(context)
         return context
 
+    def attach(
+        self,
+        *,
+        group_id: str,
+        plan_meta: Dict[str, Any],
+        storage_meta: Optional[Dict[str, str]] = None,
+        hooks: Optional[FlowHooks] = None,
+    ) -> GroupContext:
+        """
+        Rebuild coordinator state for an already running group.
+
+        Returns a fresh GroupContext that callers can reuse for polling.
+        """
+        if hooks is not None:
+            self.hooks = hooks
+
+        group_identifier = GroupId(str(plan_meta.get("group_id") or group_id))
+        meta = self._reconstruct_plan_meta(group_identifier, plan_meta)
+        context = GroupContext(
+            group=group_identifier,
+            meta=meta,
+            run_index={},
+            storage_meta=dict(storage_meta or {}),
+        )
+        self._last_start_result = None
+        self._active = True
+        self._current_delay_ms = self._baseline_poll_interval()
+        self._last_snapshot_signature = _UNSET
+        self._completed_download_targets.pop(str(group_identifier), None)
+        return context
+
     def poll_once(self, ctx: GroupContext) -> FlowTick:
         """
         Poll the backend once for the given group context.
@@ -246,6 +277,34 @@ class RunFlowCoordinator:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+    def _reconstruct_plan_meta(
+        self, group_identifier: GroupId, payload: Dict[str, Any]
+    ) -> PlanMeta:
+        """Recreate PlanMeta from a persisted payload."""
+        experiment_source = (
+            payload.get("experiment")
+            or payload.get("experiment_name")
+            or group_identifier.value
+        )
+        experiment = str(experiment_source).strip() or group_identifier.value
+
+        subdir: Optional[str] = None
+        if payload.get("subdir") is not None:
+            text = str(payload.get("subdir")).strip()
+            subdir = text or None
+
+        client_value = (
+            payload.get("client_datetime")
+            or payload.get("client_dt")
+            or payload.get("client_datetime_iso")
+        )
+        client_dt = self._coerce_client_datetime(client_value)
+        return PlanMeta(
+            experiment=experiment,
+            subdir=subdir,
+            client_dt=client_dt,
+            group_id=group_identifier,
+        )
 
     def _baseline_poll_interval(self) -> int:
         """Return the configured baseline poll interval in milliseconds."""
@@ -386,6 +445,34 @@ class RunFlowCoordinator:
         """Format client datetime for filesystem-safe storage labels."""
         localized = client_dt.value.astimezone()
         return localized.strftime("%Y-%m-%d_%H-%M-%S")
+
+    @staticmethod
+    def _coerce_client_datetime(value: Any) -> ClientDateTime:
+        """Best-effort parsing of persisted client datetime payloads."""
+        if isinstance(value, ClientDateTime):
+            return value
+        if isinstance(value, dict):
+            raw = value.get("value") or value.get("iso") or value.get("client_dt")
+            if raw:
+                value = str(raw)
+        if isinstance(value, datetime):
+            dt = value
+        elif isinstance(value, str):
+            text = value.strip()
+            if not text:
+                dt = datetime.now(timezone.utc)
+            else:
+                normalized = text.replace("Z", "+00:00")
+                try:
+                    dt = datetime.fromisoformat(normalized)
+                except ValueError:
+                    dt = datetime.now(timezone.utc)
+        else:
+            dt = datetime.now(timezone.utc)
+
+        if dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return ClientDateTime(dt)
 
     def _auto_download_enabled(self) -> bool:
         """Interpret the auto-download toggle with a sensible default."""
