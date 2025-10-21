@@ -175,7 +175,7 @@ def discover_devices():
             DEV_META[slot] = DeviceInfo(slot=slot, port=str(port_name), sn=serial_number)
 
 # ---------- Job-Modelle ----------
-class JobRequest(BaseModel):
+class JobRequest (BaseModel):
     devices: List[str] | Literal["all"] = Field(..., description='z.B. ["slot01","slot02"] oder "all"')
     mode: str = Field(..., description="z.B. 'CV', 'CA', 'LSV', ...")
     params: Dict = Field(default_factory=dict, description="Parameter für den Modus (siehe /modes/{mode}/params)")
