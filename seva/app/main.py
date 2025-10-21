@@ -478,7 +478,7 @@ class App:
 
         if self._job_adapter and self._device_adapter:
             self.uc_start = StartExperimentBatch(self._job_adapter)
-            self.uc_validate_start_plan = ValidateStartPlan(self._device_adapter)
+            self.uc_validate_start_plan = ValidateStartPlan(self._device_adapter, self._job_adapter)
             self.uc_test_connection = TestConnection(self._device_adapter)
         return True
 
@@ -554,7 +554,29 @@ class App:
                 self.win.show_toast("No runs started. Fix validation errors.")
                 return
 
-            ctx = coordinator.start(plan)
+            try:
+                ctx = coordinator.start(plan)
+            except UseCaseError as e:
+                if getattr(e, "code", "") == "SLOT_BUSY":
+                    meta = getattr(e, "meta", None) or {}
+                    busy = []
+                    if isinstance(meta, dict) and isinstance(meta.get("busy_wells"), list):
+                        busy = [str(w) for w in meta.get("busy_wells")]
+                    msg = e.message or "Slots busy."
+                    try:
+                        # If MainWindowView supports a warn kind, otherwise plain toast
+                        self.win.show_toast(f"Start abgelehnt: {msg}")
+                    except Exception:
+                        self.win.show_toast(f"Start abgelehnt: {msg}")
+                    # Optional: flash wells if supported by PlateVM view
+                    if busy and hasattr(self.plate_vm, "flash_wells"):
+                        try:
+                            self.plate_vm.flash_wells(busy)
+                        except Exception:
+                            pass
+                    coordinator.stop_polling()
+                    return
+                raise
             start_result = coordinator.last_start_result()
             if not isinstance(start_result, StartBatchResult):
                 raise RuntimeError("Coordinator returned an unexpected start result.")

@@ -7,6 +7,7 @@ import json
 from dataclasses import dataclass
 from datetime import timezone
 from typing import Dict, Iterable, Tuple, Optional, Any, List, Set
+import re
 from uuid import uuid4
 
 import requests
@@ -14,7 +15,7 @@ from requests import exceptions as req_exc
 
 # Domain Port
 from seva.domain.entities import ExperimentPlan
-from seva.domain.ports import JobPort, RunGroupId, BoxId
+from seva.domain.ports import JobPort, RunGroupId, BoxId, UseCaseError
 
 from .api_errors import (
     ApiClientError,
@@ -400,6 +401,36 @@ class JobRestAdapter(JobPort):
                     context=f"start[{box}]",
                 )
             resp = session.post(url, json_body=payload, timeout=self.cfg.request_timeout_s)
+            # Special handling: translate slot-busy conflicts into a domain error with context
+            if resp.status_code == 409:
+                msg = "Slots busy"
+                busy_wells: List[str] = []
+                try:
+                    j = self._json_any(resp)
+                    if isinstance(j, dict):
+                        m = j.get("message") or j.get("detail")
+                        if isinstance(m, str) and m.strip():
+                            msg = m.strip()
+                except Exception:
+                    try:
+                        txt = getattr(resp, "text", "")
+                        if isinstance(txt, str) and txt.strip():
+                            msg = txt.strip()
+                    except Exception:
+                        pass
+
+                slots = re.findall(r"slot(\d+)", msg or "")
+                for s in slots:
+                    try:
+                        idx = int(s)
+                        wid = self.slot_to_well.get((box, idx))
+                        if wid:
+                            busy_wells.append(wid)
+                    except Exception:
+                        continue
+
+                raise UseCaseError("SLOT_BUSY", msg or "Slots busy", meta={"busy_wells": busy_wells, "box": box})
+
             self._ensure_ok(resp, f"start[{box}]")
             data = self._json(resp)
             run_id_raw = data.get("run_id")
@@ -420,6 +451,37 @@ class JobRestAdapter(JobPort):
             self._store_run_snapshot(normalized)
 
         return group_id, run_ids
+
+    # ---- Busy listing ----
+    def list_busy_wells(self, box: BoxId) -> Set[str]:
+        session = self.sessions.get(box)
+        if session is None:
+            raise ApiError(
+                f"No HTTP session configured for box '{box}'",
+                context=f"jobs[{box}]",
+            )
+        url = self._make_url(box, "/jobs")
+        resp = session.get(url, params={"state": "incomplete"}, timeout=self.cfg.request_timeout_s)
+        self._ensure_ok(resp, f"jobs[{box}]")
+        data = self._json_any(resp)
+        busy: Set[str] = set()
+        if isinstance(data, list):
+            for job in data:
+                if not isinstance(job, dict):
+                    continue
+                devices = job.get("devices") or []
+                for label in devices:
+                    m = re.fullmatch(r"slot(\d+)", str(label).strip())
+                    if not m:
+                        continue
+                    try:
+                        idx = int(m.group(1))
+                    except Exception:
+                        continue
+                    wid = self.slot_to_well.get((box, idx))
+                    if wid:
+                        busy.add(wid)
+        return busy
 
     def cancel_run(self, box_id: BoxId, run_id: str) -> None:
         session = self.sessions.get(box_id)

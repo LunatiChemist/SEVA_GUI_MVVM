@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Protocol, Tuple, TypedDict
+from typing import Any, Dict, List, Literal, Optional, Protocol, Tuple, TypedDict, Set
 
 from .entities import ExperimentPlan
 
@@ -14,10 +14,11 @@ RunGroupId = str
 class UseCaseError(Exception):
     """Base class for use case level errors (user-presentable)."""
 
-    def __init__(self, code: str, message: str):
+    def __init__(self, code: str, message: str, meta: Optional[Dict[str, Any]] = None):
         super().__init__(message)
         self.code = code
         self.message = message
+        self.meta: Optional[Dict[str, Any]] = meta
 
 
 # ---- Ports (Hexagonal boundaries) ----
@@ -38,6 +39,7 @@ class JobPort(Protocol):
     def download_group_zip(
         self, run_group_id: RunGroupId, target_dir: str
     ) -> str: ...  # returns path
+    def list_busy_wells(self, box_id: BoxId) -> Set[WellId]: ...
 
 
 class ModeValidationResult(TypedDict):

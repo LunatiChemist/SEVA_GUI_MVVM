@@ -219,6 +219,16 @@ class RunsRegistry:
         self._persist()
 
     def remove(self, group_id: str) -> None:
+        # Safety: do not remove active groups; require cancel/done first
+        if group_id in self.active_groups():
+            coord = self._coordinators.get(group_id)
+            if coord and hasattr(coord, "stop_polling"):
+                try:
+                    coord.stop_polling()  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+            return
+
         entry = self._entries.pop(group_id, None)
         if entry is None:
             return
