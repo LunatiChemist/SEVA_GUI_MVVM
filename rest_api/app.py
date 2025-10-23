@@ -9,6 +9,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
 from pydantic import BaseModel, Field
 from contextlib import asynccontextmanager
+import shlex  
+import nas    
 
 try:
     from importlib import metadata as importlib_metadata
@@ -37,6 +39,8 @@ BOX_ID = os.getenv("BOX_ID", "")
 RUNS_ROOT = pathlib.Path(os.getenv("RUNS_ROOT", "/opt/box/runs"))
 RUNS_ROOT.mkdir(parents=True, exist_ok=True)
 storage.configure_runs_root(RUNS_ROOT)
+NAS_CONFIG_PATH = pathlib.Path(os.getenv("NAS_CONFIG_PATH", "/opt/box/nas_config.json"))
+NAS = nas.NASManager(runs_root=RUNS_ROOT, config_path=NAS_CONFIG_PATH, logger=logging.getLogger("nas"))
 
 RunStorageInfo = storage.RunStorageInfo
 RUN_DIRECTORY_LOCK = storage.RUN_DIRECTORY_LOCK
@@ -332,6 +336,10 @@ def job_snapshot(job: JobStatus) -> JobStatus:
 async def lifespan(app: FastAPI):
     discover_devices()
     try:
+        NAS.start_background()
+    except Exception:
+        log.exception("Failed to start NAS background tasks")
+    try:
         yield
     finally:
         for ctrl in DEVICES.values():
@@ -468,6 +476,12 @@ def _update_job_status_locked(job: Optional[JobStatus]) -> None:
     #drop transient meta once job is terminal
     JOB_META.pop(job.run_id, None)
     CANCEL_FLAGS.pop(job.run_id, None)
+    # NEU: Upload nur bei 'done' enqueuen (nicht bei failed/cancelled)
+    if job.status == "done":
+        try:
+            NAS.enqueue_upload(job.run_id)
+        except Exception:
+            log.exception("Failed to enqueue NAS upload for run_id=%s", job.run_id)
 
 
 def _request_controller_abort(ctrl: PotentiostatController) -> None:
@@ -762,11 +776,12 @@ def start_job(req: JobRequest, x_api_key: Optional[str] = Header(None)):
     started_at = utcnow_iso()
 
     try:
+        # File Strukture: [<experiment>?, <subdir>?, <timestamp_dir>]
         storage_info = _build_run_storage_info(req)
-        path_parts: List[str] = [storage_info.experiment]
-        if storage_info.subdir:
-            path_parts.append(storage_info.subdir)
-            path_parts.append(storage_info.timestamp_dir)
+
+        path_parts = [p for p in (storage_info.experiment, storage_info.subdir) if p]
+        path_parts.append(storage_info.timestamp_dir)
+
         run_dir = RUNS_ROOT.joinpath(*path_parts)
         run_dir.mkdir(parents=True, exist_ok=True)
         _record_run_directory(run_id, run_dir)
@@ -997,6 +1012,40 @@ def get_run_zip(run_id: str, x_api_key: Optional[str] = Header(None)):
     return Response(content=content,
                     media_type="application/zip",
                     headers={"Content-Disposition": f'attachment; filename="{run_id}.zip"'})
+
+# ---------- NAS Storage Requests ----------
+
+class NASSetupRequest(BaseModel):
+    host: str
+    username: str
+    password: str
+    remote_base_dir: str
+    port: int = 22
+    retention_days: int = 14
+
+@app.post("/nas/setup")
+def nas_setup(req: NASSetupRequest, x_api_key: Optional[str] = Header(None)):
+    require_key(x_api_key)
+    result = NAS.setup(
+        host=req.host,
+        port=req.port,
+        username=req.username,
+        password=req.password,
+        remote_base_dir=req.remote_base_dir,
+        retention_days=req.retention_days,
+    )
+    return result
+
+@app.get("/nas/health")
+def nas_health(x_api_key: Optional[str] = Header(None)):
+    require_key(x_api_key)
+    return NAS.health()
+
+@app.post("/runs/{run_id}/upload")
+def nas_upload_run(run_id: str, x_api_key: Optional[str] = Header(None)):
+    require_key(x_api_key)
+    enq = NAS.enqueue_upload(run_id)
+    return {"ok": True, "enqueued": bool(enq), "run_id": run_id}
 
 # ---------- Admin (optional) ----------
 @app.post("/admin/rescan")
