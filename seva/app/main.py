@@ -769,24 +769,27 @@ class App:
             )
             configured_wells = self.plate_vm.configured()
             selection_raw = data.get("selection") or []
-            selection_list: List[str] = []
+            selection_list = []
             if isinstance(selection_raw, (list, tuple, set)):
-                for item in selection_raw:
-                    wid = str(item).strip()
-                    if wid and wid not in selection_list:
-                        selection_list.append(wid)
-            elif isinstance(selection_raw, str):
-                text = selection_raw.strip()
-                if text:
-                    selection_list.append(text)
+                selection_list = [str(x).strip() for x in selection_raw if str(x).strip()]
+            elif isinstance(selection_raw, str) and selection_raw.strip():
+                selection_list = [selection_raw.strip()]
             if not selection_list and configured_wells:
                 selection_list = sorted(configured_wells)
-            if selection_list:
-                self.plate_vm.set_selection(selection_list)
-            else:
-                self.plate_vm.set_selection([])
+
+            # Elektrode-Mode aus VM in View spiegeln
+            try:
+                self.experiment.set_electrode_mode(self.experiment_vm.electrode_mode)
+            except Exception:
+                pass
+
+            # Auswahl propagieren → View wird über _on_selection_changed() aktualisiert
+            self.plate_vm.set_selection(selection_list)
             self.wellgrid.set_configured_wells(configured_wells)
             self.wellgrid.set_selection(selection_list)
+            # Safety: explizit nochmal synchronisieren (idempotent)
+            self._on_selection_changed(set(selection_list))
+
             self.win.show_toast(f"Loaded {os.path.basename(path)}")
         except Exception as e:
             self.win.show_toast(str(e))
@@ -1256,32 +1259,34 @@ class App:
     # VM ↔ View glue
     # ==================================================================
     def _on_selection_changed(self, sel: Set[str]) -> None:
-        # Show saved params if exactly one well selected
+        """Always clear first, then (if single) set snapshot + label."""
+        # Erst View leeren, um „hängende“ Werte zu vermeiden
+        self.experiment.clear_fields()
+
         if len(sel) == 1:
             wid = next(iter(sel))
+            # Label aktualisieren
+            try:
+                self.experiment.set_editing_well(wid)
+            except Exception:
+                pass
+            # Gruppierten Snapshot flatten und setzen
             params = self.experiment_vm.get_params_for(wid)
             if params:
                 self.experiment.set_fields(params)
-            else:
-                self.experiment.clear_fields()
         else:
-            # For multi-select or none: clear fields
-            self.experiment.clear_fields()
+            self.experiment.set_editing_well("–")
 
     def _on_apply_params(self) -> None:
         selection = self.plate_vm.get_selection()
         if not selection:
             self.win.show_toast("No wells selected.")
             return
-
-        # Save params for each selected well
+        # Pro Well gruppiert speichern (nur aktivierte Modi)
         for wid in selection:
             self.experiment_vm.save_params_for(wid, self.experiment_vm.fields)
-
-        # Mark selected wells as configured
         self.plate_vm.mark_configured(selection)
         self.wellgrid.add_configured_wells(selection)
-
         self.win.show_toast("Parameters applied.")
 
     def _on_reset_well_config(self) -> None:

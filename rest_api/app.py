@@ -10,7 +10,7 @@ from fastapi.exception_handlers import request_validation_exception_handler
 from pydantic import BaseModel, Field
 from contextlib import asynccontextmanager
 import shlex  
-import nas    
+import nas_smb as nas  
 
 try:
     from importlib import metadata as importlib_metadata
@@ -39,8 +39,8 @@ BOX_ID = os.getenv("BOX_ID", "")
 RUNS_ROOT = pathlib.Path(os.getenv("RUNS_ROOT", "/opt/box/runs"))
 RUNS_ROOT.mkdir(parents=True, exist_ok=True)
 storage.configure_runs_root(RUNS_ROOT)
-NAS_CONFIG_PATH = pathlib.Path(os.getenv("NAS_CONFIG_PATH", "/opt/box/nas_config.json"))
-NAS = nas.NASManager(runs_root=RUNS_ROOT, config_path=NAS_CONFIG_PATH, logger=logging.getLogger("nas"))
+NAS_CONFIG_PATH = pathlib.Path(os.getenv("NAS_CONFIG_PATH", "/opt/box/nas_smb.json"))
+NAS = nas.NASManager(runs_root=RUNS_ROOT, config_path=NAS_CONFIG_PATH, logger=logging.getLogger("nas_smb"))
 
 RunStorageInfo = storage.RunStorageInfo
 RUN_DIRECTORY_LOCK = storage.RUN_DIRECTORY_LOCK
@@ -1015,24 +1015,26 @@ def get_run_zip(run_id: str, x_api_key: Optional[str] = Header(None)):
 
 # ---------- NAS Storage Requests ----------
 
-class NASSetupRequest(BaseModel):
+class SMBSetupRequest(BaseModel):
     host: str
+    share: str
     username: str
     password: str
-    remote_base_dir: str
-    port: int = 22
+    base_subdir: str = ""     # optionaler Unterordner innerhalb des Shares
     retention_days: int = 14
+    domain: Optional[str] = None
 
 @app.post("/nas/setup")
-def nas_setup(req: NASSetupRequest, x_api_key: Optional[str] = Header(None)):
+def nas_setup(req: SMBSetupRequest, x_api_key: Optional[str] = Header(None)):
     require_key(x_api_key)
     result = NAS.setup(
         host=req.host,
-        port=req.port,
+        share=req.share,
         username=req.username,
         password=req.password,
-        remote_base_dir=req.remote_base_dir,
+        base_subdir=req.base_subdir,
         retention_days=req.retention_days,
+        domain=req.domain,
     )
     return result
 

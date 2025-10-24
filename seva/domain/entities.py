@@ -200,6 +200,12 @@ class PlanMeta:
     """Client-side timestamp capturing when the plan was assembled."""
     group_id: GroupId
     """Deterministic group identifier allocated for this plan."""
+    make_plot: bool = True
+    """Whether the backend should generate plots for each run."""
+    tia_gain: Optional[int] = None
+    """Optional transimpedance amplifier gain override."""
+    sampling_interval: Optional[float] = None
+    """Optional sampling interval override supplied by the client."""
 
     def __post_init__(self) -> None:
         experiment = self.experiment.strip()
@@ -218,26 +224,18 @@ class WellPlan:
 
     well: WellId
     """Identifier of the well for which this plan applies."""
-    mode: ModeName
+    mode: List[ModeName]
     """Name of the electrochemical mode that should run for this well."""
-    params: ModeParams
+    params_by_mode: Dict[ModeName,ModeParams]
     """Mode-specific parameters and toggles required to start the run."""
 
 
 @dataclass(frozen=True)
 class ExperimentPlan:
     """Aggregate capturing the entire experiment plan before submission."""
-
     meta: PlanMeta
     """Shared metadata applied to all well plans in the batch."""
     wells: List[WellPlan]
-    """Collection of well-level plans that comprise the experiment."""
-    make_plot: bool = True
-    """Whether the backend should generate plots for each run."""
-    tia_gain: Optional[int] = None
-    """Optional transimpedance amplifier gain override."""
-    sampling_interval: Optional[float] = None
-    """Optional sampling interval override supplied by the client."""
 
     def __post_init__(self) -> None:
         if not self.wells:
