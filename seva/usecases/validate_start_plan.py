@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Dict
+from typing import List, Dict,Tuple
 
 from ..domain.entities import ExperimentPlan
 from ..domain.ports import BoxId, DevicePort, ModeValidationResult, UseCaseError, WellId, JobPort
@@ -17,69 +17,81 @@ class ValidateStartPlan:
 
     def __call__(self, plan: ExperimentPlan) -> List[WellValidationResult]:
         try:
-            validations: List[WellValidationResult] = []
-            per_well: Dict[str, WellValidationResult] = {}
+            # key: (well_id_str, mode_str)  -> result
+            per_well_mode: Dict[Tuple[str, str], WellValidationResult] = {}
+            # key: box_id -> list[WellId] (für busy-check)
             wells_by_box: Dict[BoxId, List[WellId]] = {}
+
             for well_plan in plan.wells:
                 well_id_str = str(well_plan.well)
-                if not well_id_str or len(well_id_str) < 2:
-                    raise ValueError(f"Invalid well id '{well_id_str}'")
                 box = well_id_to_box(well_id_str)
-                if not box:
-                    raise ValueError(f"Invalid well id '{well_id_str}'")
 
-                try:
-                    params_payload = well_plan.params.to_payload()
-                except NotImplementedError as exc:
-                    raise ValueError(
-                        f"Well '{well_id_str}' parameters do not support payload serialization."
-                    ) from exc
-                except AttributeError as exc:
-                    raise ValueError(
-                        f"Well '{well_id_str}' parameters are missing a to_payload() method."
-                    ) from exc
-
-                mode = str(well_plan.mode)
-
-                try:
-                    result: ModeValidationResult = self.device_port.validate_mode(
-                        box, mode, params_payload
-                    )
-                except Exception as exc:
-                    raise UseCaseError("VALIDATION_FAILED", f"{well_id_str}: {exc}")
-
-                errors = list(result["errors"])
-                warnings = list(result["warnings"])
-                ok_flag = bool(result["ok"])
-
-                vr = WellValidationResult(
-                    well_id=WellId(well_id_str),
-                    box_id=BoxId(box),
-                    mode=mode,
-                    ok=ok_flag and not errors,
-                    errors=errors,
-                    warnings=warnings,
-                )
-                per_well[well_id_str] = vr
+                # Stelle sicher, dass wir später pro Box die betroffenen Wells kennen
                 wells_by_box.setdefault(box, []).append(WellId(well_id_str))
 
-            # Busy check per box
+                # Iteriere über alle Modi dieses Wells
+                for mode_name in well_plan.modes:
+                    mode_str = str(mode_name)
+                    
+                    params = well_plan.params_by_mode[mode_name]
+
+                    # Payload ableiten (gleiches Fehlermanagement wie zuvor)
+                    try:
+                        params_payload = params.to_payload()
+                    except NotImplementedError as exc:
+                        raise ValueError(
+                            f"Well '{well_id_str}' mode '{mode_str}' parameters do not support payload serialization."
+                        ) from exc
+                    except AttributeError as exc:
+                        raise ValueError(
+                            f"Well '{well_id_str}' mode '{mode_str}' parameters are missing a to_payload() method."
+                        ) from exc
+
+                    # Modus bei der Device-API validieren
+                    try:
+                        result: ModeValidationResult = self.device_port.validate_mode(
+                            box, mode_str, params_payload
+                        )
+                    except Exception as exc:
+                        raise UseCaseError(
+                            "VALIDATION_FAILED", f"{well_id_str}/{mode_str}: {exc}"
+                        )
+
+                    errors = list(result["errors"])
+                    warnings = list(result["warnings"])
+                    ok_flag = bool(result["ok"])
+
+                    vr = WellValidationResult(
+                        well_id=WellId(well_id_str),
+                        box_id=BoxId(box),
+                        mode=mode_str,
+                        ok=ok_flag and not errors,
+                        errors=errors,
+                        warnings=warnings,
+                    )
+                    per_well_mode[(well_id_str, mode_str)] = vr
+
+            # Busy-Check pro Box: markiert alle Modi eines busy Wells
             for box, bucket in wells_by_box.items():
                 try:
                     busy = self.job_port.list_busy_wells(box)
-                except Exception as exc:
-                    # Non-fatal for validation; surface as warning
-                    busy = set()
+                except Exception:
+                    busy = (
+                        set()
+                    )  # als Warning zu behandeln wäre denkbar; bisher non-fatal
                 if not busy:
                     continue
+
                 for wid in bucket:
                     if str(wid) in busy:
-                        vr = per_well[str(wid)]
-                        vr.ok = False
-                        vr.errors.append("SLOT_BUSY")
+                        # Alle Ergebnisse zu diesem Well anpassen (unabhängig vom Modus)
+                        for (w_id, m_str), vr in per_well_mode.items():
+                            if w_id == str(wid):
+                                vr.ok = False
+                                vr.errors.append("SLOT_BUSY")
 
-            validations = list(per_well.values())
-            return validations
+            return list(per_well_mode.values())
+
         except UseCaseError:
             raise
         except Exception as exc:

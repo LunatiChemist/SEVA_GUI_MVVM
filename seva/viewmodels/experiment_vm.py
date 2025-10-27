@@ -1,9 +1,8 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Optional, Set, Iterable, Tuple, cast
-
-WellId = str
-ModeName = str  # "CV" | "DC" | "AC" | "CDL" | "EIS"
+from typing import Any, Callable, Dict, List, Mapping ,Optional, Set, Iterable, Tuple, cast
+from ..domain import WellPlan, WellId, ModeName
+from ..domain.params import ModeParams, CVParams
 
 # Beibehalten zur Filterung von Formularfeldern für Copy/Paste
 _MODE_CONFIG: Dict[str, Dict[str, object]] = {
@@ -44,6 +43,10 @@ _RUN_FLAG_KEYS: Tuple[str, ...] = (
     "eval_cdl",
 )
 
+_MODE_BUILDERS: Dict[str, type[ModeParams]] = {
+    "CV": CVParams,
+    # TODO: register additional mode parameter builders when modes are implemented.
+}
 
 @dataclass
 class ExperimentVM:
@@ -149,27 +152,53 @@ class ExperimentVM:
             "selection": sorted(self.selection),
             "params": dict(self.fields),
         }
+    
+    def well_ids(self) -> List[WellId]:
+        data = self.well_params
+        return list(data.keys())
 
-    def build_well_params_map(
+
+    def mode_names_for_well(self,
+        well_id: WellId,
+    ) -> List[ModeName]:
+        data = self.well_params
+        return list(data[well_id].keys())
+
+
+    def modes_dict_for_well(self, well_id: WellId) -> Dict[ModeName, ModeParams]:
+        """
+        Liefert für einen Well die typisierten Mode-Parameter.
+        Wenn ein Mode in MODE_BUILDERS registriert ist, wird dessen Klasse verwendet,
+        sonst fällt es auf die Basisklasse ModeParams zurück.
+        """
+        modes_raw: Mapping[ModeName, Mapping[str, Any]] = self.well_params[well_id]
+        out: Dict[ModeName, ModeParams] = {}
+
+        for mode_name, cfg in modes_raw.items():
+            builder = _MODE_BUILDERS.get(mode_name, ModeParams)
+            try:
+                params = builder.from_form(cfg)  # type: ignore[arg-type]
+            except (NotImplementedError, AttributeError, TypeError):
+                # Fallback: direkt mit Flags initialisieren
+                params = builder(flags=dict(cfg))  # type: ignore[arg-type]
+
+            out[mode_name] = params
+
+        return out
+
+    def build_well_plan_map(
         self,
         wells: Optional[Iterable[WellId]] = None,
-    ) -> Dict[WellId, Dict[str, Any]]:
-        """Übergabe an den PlanBuilder: flache Snapshots, wie bisher erwartet."""
-        well_ids = list(wells) if wells is not None else list(self.well_params.keys())
-        result: Dict[WellId, Dict[str, Any]] = {}
-
+    ) -> List[WellPlan]:
+        """Compiles Wellplans for each Well"""
+        well_ids = list(wells)
+        plans_per_well = []
         for wid in well_ids:
-            modes = self.well_params.get(wid) or {}
-            if "CV" in modes:
-                # Flatten wie vorher: cv.* + Flags (nur run_cv=1)
-                flat: Dict[str, Any] = dict(modes["CV"])
-                for flag in _RUN_FLAG_KEYS:
-                    flat[flag] = "1" if flag == "run_cv" else "0"
-                result[wid] = flat
-                continue
-            # TODO: Wenn Domain bereit: DC/AC/EIS/CDL ebenfalls flatten (analog zu CV).
-
-        return result
+            plan = WellPlan(well=wid,
+                            modes=self.mode_names_for_well(wid),
+                            params_by_mode=self.modes_dict_for_well(wid))
+            plans_per_well.append(plan)
+        return plans_per_well
 
     # ---------- Commands ----------
     def cmd_copy_mode(

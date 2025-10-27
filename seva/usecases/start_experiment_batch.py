@@ -25,7 +25,6 @@ class StartBatchResult:
 
     run_group_id: RunGroupId | None
     per_box_runs: Dict[BoxId, List[str]]
-    started_wells: List[str]
 
 
 @dataclass
@@ -35,23 +34,6 @@ class StartExperimentBatch:
     job_port: JobPort
 
     def __call__(self, plan: ExperimentPlan) -> StartBatchResult:
-        if not isinstance(plan, ExperimentPlan):
-            raise TypeError("StartExperimentBatch requires an ExperimentPlan instance.")
-
-        started_wells: List[str] = []
-        for well_plan in plan.wells:
-            well_id = str(well_plan.well).strip()
-            if not well_id:
-                raise UseCaseError("START_FAILED", "Experiment plan contains an empty well identifier.")
-
-            try:
-                # Trigger serialization early so adapter failures surface as use-case errors.
-                well_plan.params.to_payload()
-            except Exception as exc:  # pragma: no cover - defensive normalization
-                raise UseCaseError("START_FAILED", f"{well_id}: {exc}") from exc
-
-            started_wells.append(well_id)
-
         try:
             run_group_id, per_box_runs = self.job_port.start_batch(plan)
         except UseCaseError:
@@ -62,5 +44,4 @@ class StartExperimentBatch:
         return StartBatchResult(
             run_group_id=run_group_id,
             per_box_runs=per_box_runs,
-            started_wells=started_wells,
         )

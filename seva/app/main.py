@@ -58,7 +58,7 @@ from ..adapters.relay_mock import RelayMock
 from ..usecases.save_plate_layout import SavePlateLayout
 from ..usecases.load_plate_layout import LoadPlateLayout
 from ..domain.entities import ExperimentPlan
-from ..domain.plan_builder import build_meta, from_well_params
+from ..domain.plan_builder import build_meta
 from ..domain.util import well_id_to_box
 from ..domain.runs_registry import RunsRegistry
 from ..domain.ports import UseCaseError
@@ -1679,9 +1679,9 @@ class App:
         configured = self.plate_vm.configured()
         if not configured:
             raise RuntimeError("No configured wells to start.")
-
-        well_params_map = self.experiment_vm.build_well_params_map(configured)
-        if not well_params_map:
+        
+        well_plan_list = self.experiment_vm.build_well_plan_map(configured)
+        if not well_plan_list:
             raise RuntimeError("No saved parameters found for configured wells.")
 
         inputs = self._collect_plan_inputs()
@@ -1693,12 +1693,9 @@ class App:
         # Persist plan inputs so downstream UI storage metadata can reuse them.
         self._last_plan_inputs = inputs
 
-        return from_well_params(
+        return ExperimentPlan(
             meta=meta,
-            well_params_map=well_params_map,
-            make_plot=False,
-            tia_gain=None,
-            sampling_interval=None,
+            wells=well_plan_list
         )
 
     def _collect_plan_inputs(self) -> Dict[str, Any]:

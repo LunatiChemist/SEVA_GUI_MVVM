@@ -200,7 +200,7 @@ class PlanMeta:
     """Client-side timestamp capturing when the plan was assembled."""
     group_id: GroupId
     """Deterministic group identifier allocated for this plan."""
-    make_plot: bool = True
+    make_plot: Optional[bool] = False
     """Whether the backend should generate plots for each run."""
     tia_gain: Optional[int] = None
     """Optional transimpedance amplifier gain override."""
@@ -221,13 +221,9 @@ class PlanMeta:
 @dataclass(frozen=True)
 class WellPlan:
     """Plan for an individual well including its mode and configuration."""
-
     well: WellId
-    """Identifier of the well for which this plan applies."""
-    mode: List[ModeName]
-    """Name of the electrochemical mode that should run for this well."""
+    modes: List[ModeName]
     params_by_mode: Dict[ModeName,ModeParams]
-    """Mode-specific parameters and toggles required to start the run."""
 
 
 @dataclass(frozen=True)
@@ -243,7 +239,7 @@ class ExperimentPlan:
         if not all(isinstance(plan, WellPlan) for plan in self.wells):
             raise TypeError("ExperimentPlan.wells must only contain WellPlan instances.")
 
-        object.__setattr__(self, "make_plot", bool(self.make_plot))
+        # object.__setattr__(self, "make_plot", bool(self.make_plot))
 
 
 @dataclass(frozen=True)

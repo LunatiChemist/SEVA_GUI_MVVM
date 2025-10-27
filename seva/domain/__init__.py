@@ -20,7 +20,7 @@ from .entities import (
     WellPlan,
 )
 from .naming import make_group_id
-from .plan_builder import build_meta, from_well_params
+from .plan_builder import build_meta
 from .snapshot_normalizer import normalize_status
 
 __all__ = [

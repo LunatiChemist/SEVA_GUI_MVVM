@@ -201,9 +201,7 @@ class JobRestAdapter(JobPort):
 
     def to_start_payload(self, plan: ExperimentPlan) -> Dict[str, Any]:
         if not isinstance(plan, ExperimentPlan):
-            raise TypeError(
-                f"to_start_payload expects ExperimentPlan, got {type(plan).__name__}"
-            )
+            raise TypeError(f"to_start_payload expects ExperimentPlan, got {type(plan).__name__}")
 
         meta = plan.meta
         client_dt = (
@@ -233,19 +231,19 @@ class JobRestAdapter(JobPort):
                 raise ValueError(f"Unknown well '{well_id}' for any configured box.")
             box, slot = slot_info
 
-            params_obj = getattr(well_plan, "params", None)
-            if params_obj is None:
-                raise ValueError(f"Well '{well_id}' has no mode parameters.")
-            try:
-                params_payload = params_obj.to_payload()
-            except NotImplementedError as exc:  # pragma: no cover - defensive
-                raise ValueError(
-                    f"Well '{well_id}' parameters do not support payload serialization."
-                ) from exc
-            except AttributeError as exc:  # pragma: no cover - defensive
-                raise ValueError(
-                    f"Well '{well_id}' parameters are missing a to_payload() method."
-                ) from exc
+            # Multi-mode: params_by_mode -> {str(mode): dict}
+            params_by_mode: Dict[str, Dict[str, Any]] = {}
+            for mode_name, params_obj in (well_plan.params_by_mode or {}).items():
+                try:
+                    params_by_mode[str(mode_name)] = params_obj.to_payload()
+                except NotImplementedError as exc:  # pragma: no cover
+                    raise ValueError(
+                        f"Well '{well_id}' mode '{mode_name}' parameters do not support payload serialization."
+                    ) from exc
+                except AttributeError as exc:  # pragma: no cover
+                    raise ValueError(
+                        f"Well '{well_id}' mode '{mode_name}' parameters are missing a to_payload() method."
+                    ) from exc
 
             devices = [self._slot_label(slot)]
 
@@ -254,11 +252,11 @@ class JobRestAdapter(JobPort):
                     "box": box,
                     "wells": [well_id],
                     "well_id": well_id,
-                    "mode": str(well_plan.mode),
-                    "params": params_payload,
-                    "tia_gain": plan.tia_gain,
-                    "sampling_interval": plan.sampling_interval,
-                    "make_plot": bool(plan.make_plot),
+                    "modes": [str(m) for m in (well_plan.modes or [])],
+                    "params_by_mode": params_by_mode,
+                    "tia_gain": meta.tia_gain,
+                    "sampling_interval": meta.sampling_interval,
+                    "make_plot": bool(meta.make_plot),
                     "experiment_name": storage_payload["experiment_name"],
                     "subdir": storage_payload["subdir"],
                     "client_datetime": storage_payload["client_datetime"],
@@ -267,11 +265,7 @@ class JobRestAdapter(JobPort):
                 }
             )
 
-        return {
-            "group_id": group_id,
-            "storage": storage_payload,
-            "jobs": jobs,
-        }
+        return {"group_id": group_id, "storage": storage_payload, "jobs": jobs}
 
     def health(self, box_id: BoxId) -> Dict:
         session = self.sessions.get(box_id)
