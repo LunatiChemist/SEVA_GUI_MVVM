@@ -222,6 +222,8 @@ class JobRestAdapter(JobPort):
 
         jobs: List[Dict[str, Any]] = []
         for well_plan in plan.wells:
+            if well_plan.modes[1] == "AC":
+                well_plan.modes[1] = "CA"
             well_id = str(well_plan.well)
             if not well_id:
                 raise ValueError("Experiment plan contains an empty well identifier.")
@@ -295,13 +297,7 @@ class JobRestAdapter(JobPort):
                 cleaned.append(item)
         return cleaned
 
-    def start_batch(
-        self, plan: ExperimentPlan
-    ) -> Tuple[RunGroupId, Dict[BoxId, List[str]]]:
-        """
-        Post pre-grouped jobs to each box using a domain experiment plan.
-        Returns ``(group_id, { box: [run_id, ...] })``.
-        """
+    def start_batch(self, plan: ExperimentPlan) -> Tuple[RunGroupId, Dict[BoxId, List[str]]]:
         prepared = self.to_start_payload(plan)
 
         jobs: List[Dict[str, Any]] = list(prepared.get("jobs") or [])
@@ -309,13 +305,9 @@ class JobRestAdapter(JobPort):
             raise ValueError("start_batch: missing 'jobs' in plan")
 
         group_id_raw = prepared.get("group_id")
-        if isinstance(group_id_raw, str) and group_id_raw.strip():
-            group_id = group_id_raw
-        else:
-            group_id = str(uuid4())
+        group_id = group_id_raw if isinstance(group_id_raw, str) and group_id_raw.strip() else str(uuid4())
         storage_meta: Dict[str, Any] = dict(prepared.get("storage") or {})
 
-        # Prepare mapping: group_id -> box -> [run_id,...]
         run_ids: Dict[BoxId, List[str]] = {}
         self._groups[group_id] = {}
 
@@ -324,16 +316,15 @@ class JobRestAdapter(JobPort):
             if not box:
                 raise ValueError("start_batch: job requires 'box' entry")
 
-            wells: List[str] = list(job.get("wells") or [])
-            well_id = job.get("well_id") or (wells[0] if wells else None)
+            well_id = job.get("well_id") or (job.get("wells") or [None])[0]
             if not well_id:
                 raise ValueError("start_batch: job missing 'well_id' entry")
 
             devices_raw: List[str] = list(job.get("devices") or [])
             if devices_raw:
-                devices = [str(device).strip() for device in devices_raw if str(device).strip()]
+                devices = [str(d).strip() for d in devices_raw if str(d).strip()]
             else:
-                wells_for_mapping = wells or [well_id]
+                wells_for_mapping = job.get("wells") or [well_id]
                 if not wells_for_mapping:
                     raise ValueError("start_batch: job missing wells for slot mapping")
                 slots: List[int] = []
@@ -346,29 +337,19 @@ class JobRestAdapter(JobPort):
             if not devices:
                 raise ValueError(f"start_batch: derived empty device list for well '{well_id}'")
 
-            experiment_name = job.get("experiment_name") or storage_meta.get(
-                "experiment_name"
-            )
-            if isinstance(experiment_name, str):
-                experiment_name = experiment_name.strip()
+            experiment_name = job.get("experiment_name") or storage_meta.get("experiment_name")
+            experiment_name = (experiment_name or "").strip()
             if not experiment_name:
                 raise ValueError("start_batch: missing experiment_name in job plan")
-            subdir = job.get("subdir", storage_meta.get("subdir"))
-            if isinstance(subdir, str):
-                subdir = subdir.strip() or None
-            client_datetime = job.get("client_datetime") or storage_meta.get(
-                "client_datetime"
-            )
-            if isinstance(client_datetime, str):
-                client_datetime = client_datetime.strip()
+            subdir = (job.get("subdir", storage_meta.get("subdir")) or "").strip() or None
+            client_datetime = (job.get("client_datetime") or storage_meta.get("client_datetime") or "").strip()
             if not client_datetime:
                 raise ValueError("start_batch: missing client_datetime in job plan")
 
             payload = {
                 "devices": devices,
-                "mode": job.get("mode"),
-                "well_id": well_id,
-                "params": job.get("params") or {},
+                "modes": job.get("modes") or [],
+                "params_by_mode": job.get("params_by_mode") or {},
                 "tia_gain": job.get("tia_gain", None),
                 "sampling_interval": job.get("sampling_interval", None),
                 "make_plot": bool(job.get("make_plot", True)),
@@ -381,70 +362,29 @@ class JobRestAdapter(JobPort):
             url = self._make_url(box, "/jobs")
             if self._log.isEnabledFor(logging.DEBUG):
                 self._log.debug(
-                    "POST start[%s]: well=%s devices=%s mode=%s group=%s",
-                    box,
-                    well_id,
-                    devices,
-                    job.get("mode"),
-                    group_id,
+                    "POST start[%s]: well=%s devices=%s modes=%s group=%s",
+                    box, well_id, devices, payload["modes"], group_id,
                 )
             session = self.sessions.get(box)
             if session is None:
-                raise ApiError(
-                    f"No HTTP session configured for box '{box}'",
-                    context=f"start[{box}]",
-                )
+                raise ApiError(f"No HTTP session configured for box '{box}'", context=f"start[{box}]")
             resp = session.post(url, json_body=payload, timeout=self.cfg.request_timeout_s)
-            # Special handling: translate slot-busy conflicts into a domain error with context
-            if resp.status_code == 409:
-                msg = "Slots busy"
-                busy_wells: List[str] = []
-                try:
-                    j = self._json_any(resp)
-                    if isinstance(j, dict):
-                        m = j.get("message") or j.get("detail")
-                        if isinstance(m, str) and m.strip():
-                            msg = m.strip()
-                except Exception:
-                    try:
-                        txt = getattr(resp, "text", "")
-                        if isinstance(txt, str) and txt.strip():
-                            msg = txt.strip()
-                    except Exception:
-                        pass
-
-                slots = re.findall(r"slot(\d+)", msg or "")
-                for s in slots:
-                    try:
-                        idx = int(s)
-                        wid = self.slot_to_well.get((box, idx))
-                        if wid:
-                            busy_wells.append(wid)
-                    except Exception:
-                        continue
-
-                raise UseCaseError("SLOT_BUSY", msg or "Slots busy", meta={"busy_wells": busy_wells, "box": box})
 
             self._ensure_ok(resp, f"start[{box}]")
             data = self._json(resp)
             run_id_raw = data.get("run_id")
             if not run_id_raw:
-                raise ApiError(
-                    "Response payload missing run_id",
-                    context=f"start[{box}]",
-                    payload=data,
-                )
+                raise ApiError("Response payload missing run_id", context=f"start[{box}]", payload=data)
             run_id = str(run_id_raw)
 
             self._groups[group_id].setdefault(box, []).append(run_id)
             run_ids.setdefault(box, []).append(run_id)
 
-            normalized = self._normalize_job_status(
-                box, data, fallback_run_id=run_id
-            )
+            normalized = self._normalize_job_status(box, data, fallback_run_id=run_id)
             self._store_run_snapshot(normalized)
 
         return group_id, run_ids
+
 
     # ---- Busy listing ----
     def list_busy_wells(self, box: BoxId) -> Set[str]:
@@ -616,6 +556,8 @@ class JobRestAdapter(JobPort):
                     "ended_at": data.get("ended_at"),
                     "progress_pct": data.get("progress_pct", 0),
                     "remaining_s": data.get("remaining_s"),
+                    "current_mode": data.get("current_mode") or data.get("mode"),
+                    "remaining_modes": data.get("remaining_modes") or [],
                 }
                 run_entries.append(run_entry)
                 statuses_capitalized.add(run_entry["status"].capitalize())
@@ -644,13 +586,17 @@ class JobRestAdapter(JobPort):
                     )
                     s_msg = slot_info.get("message") or ""
                     snapshot["wells"].append(
-                        (
-                            wid,
-                            s_status,
-                            data.get("progress_pct", 0),
-                            s_msg,
-                            run_entry["run_id"],
-                        )
+                        {
+                            "well": wid,
+                            "phase": s_status,  # UI-kompatibles Label (Queued/Running/Done/Error)
+                            "progress_pct": data.get("progress_pct", 0),
+                            "remaining_s": data.get("remaining_s"),
+                            "error": s_msg,
+                            "run_id": run_entry["run_id"],
+                            # NEU: Modi
+                            "current_mode": data.get("current_mode") or data.get("mode"),
+                            "remaining_modes": data.get("remaining_modes") or [],
+                        }
                     )
                     snapshot["activity"][wid] = s_status
 
@@ -782,6 +728,9 @@ class JobRestAdapter(JobPort):
                     "files": slot.get("files") or [],
                 }
             )
+        current_mode = payload.get("current_mode") or payload.get("mode")
+        modes = payload.get("modes") or []
+        remaining_modes = payload.get("remaining_modes") or []
         normalized = {
             "box": box,
             "run_id": run_id,
@@ -791,7 +740,10 @@ class JobRestAdapter(JobPort):
             "progress_pct": progress_pct,
             "remaining_s": remaining_s,
             "slots": slots,
-            "mode": payload.get("mode"),
+            "mode": current_mode,               # Backcompat
+            "current_mode": current_mode,
+            "modes": modes,
+            "remaining_modes": remaining_modes,
         }
         return normalized
 

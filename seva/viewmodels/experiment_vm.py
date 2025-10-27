@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Mapping ,Optional, Set, Iterable, Tuple, cast
 from ..domain import WellPlan, WellId, ModeName
 from ..domain.params import ModeParams, CVParams
+from ..domain.params.ac_bridge import ACParamsBridge
 
 # Beibehalten zur Filterung von Formularfeldern für Copy/Paste
 _MODE_CONFIG: Dict[str, Dict[str, object]] = {
@@ -45,6 +46,7 @@ _RUN_FLAG_KEYS: Tuple[str, ...] = (
 
 _MODE_BUILDERS: Dict[str, type[ModeParams]] = {
     "CV": CVParams,
+    "AC": ACParamsBridge
     # TODO: register additional mode parameter builders when modes are implemented.
 }
 
@@ -182,6 +184,8 @@ class ExperimentVM:
                 # Fallback: direkt mit Flags initialisieren
                 params = builder(flags=dict(cfg))  # type: ignore[arg-type]
 
+            if(mode_name=="AC"):
+                mode_name = "CA"
             out[mode_name] = params
 
         return out

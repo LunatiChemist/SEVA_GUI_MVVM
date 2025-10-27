@@ -324,6 +324,20 @@ def _validate_cdl_params(payload: Dict[str, Any]) -> ValidationResult:
     ok = not errors
     return ValidationResult(ok=ok, errors=errors, warnings=warnings)
 
+def _validate_ca_params(payload: Dict[str, Any]) -> ValidationResult:
+    """Placeholder validation for CDL mode (capacitance measurement)."""
+
+    errors: List[ValidationIssue] = []
+    warnings: List[ValidationIssue] = []
+    required = ("duration", "potential")
+    _require_fields(payload, required, errors=errors)
+    _warn_not_implemented(
+        warnings,
+        message="CDL validation is not yet implemented; values were not checked.",
+    )
+    ok = not errors
+    return ValidationResult(ok=ok, errors=errors, warnings=warnings)
+
 
 _MODE_VALIDATORS: Dict[str, Callable[[Dict[str, Any]], ValidationResult]] = {
     "CV": _validate_cv_params,
@@ -332,6 +346,7 @@ _MODE_VALIDATORS: Dict[str, Callable[[Dict[str, Any]], ValidationResult]] = {
     "LSV": _validate_lsv_params,
     "EIS": _validate_eis_params,
     "CDL": _validate_cdl_params,
+    "CA": _validate_ca_params,
 }
 
 

@@ -19,7 +19,7 @@ _FLAG_KEYS = (
 
 
 @dataclass(frozen=True)
-class ACParams(ModeParams):
+class ACParamsBridge(ModeParams):
     """Normalized AC-electrolysis parameters derived from the experiment form."""
 
     duration_s: Any
@@ -30,7 +30,7 @@ class ACParams(ModeParams):
     voltage_cutoff_v: Any
 
     @classmethod
-    def from_form(cls, form: Mapping[str, Any]) -> "ACParams":
+    def from_form(cls, form: Mapping[str, Any]) -> "ACParamsBridge":
         """Create a params object from the flat AC form snapshot."""
 
         data: Dict[str, Any] = dict(form or {})
@@ -67,16 +67,8 @@ class ACParams(ModeParams):
         """Serialize the parameters into the REST API payload."""
 
         payload: Dict[str, Any] = {}
-        self._maybe_set(payload, "duration_s", self.duration_s)
-        self._maybe_set(payload, "frequency_hz", self.frequency_hz)
-        self._maybe_set(payload, "voltage_v", self.voltage_v)
-        current = self.current_ma
-        if current is not None:
-            payload["current_ma"] = current
-        self._maybe_set(payload, "charge_cutoff_c", self.charge_cutoff_c)
-        self._maybe_set(payload, "voltage_cutoff_v", self.voltage_cutoff_v)
-        if self.control_mode:
-            payload["control_mode"] = self.control_mode
+        self._maybe_set(payload, "duration", self.duration_s)
+        self._maybe_set(payload, "potential", self.frequency_hz)
         return payload
 
     @staticmethod

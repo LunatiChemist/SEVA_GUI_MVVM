@@ -355,7 +355,9 @@ class App:
         rows = self.runs_vm.rows()
         self.runs_panel.set_rows(rows)
         active = self.runs_vm.active_group_id or self._active_group_id
-        self.runs_panel.select_group(active)
+        current_vm = getattr(self.progress_vm, "active_group_id", None)
+        if active and active != current_vm:
+            self.runs_panel.select_group(active)
 
     def _open_path(self, path: str) -> None:
         if not path:
@@ -371,6 +373,13 @@ class App:
             messagebox.showwarning("Open Folder", f"Kann Ordner nicht öffnen:\n{path}")
 
     def _on_runs_select(self, group_id: str) -> None:
+        # Wenn bereits aktiv, nichts neu rendern.
+        if self.progress_vm.active_group_id == group_id:
+            self.runs_vm.set_active_group(group_id)
+            self._active_group_id = group_id
+            self.win.set_run_group_id(group_id)
+            return
+
         self.runs_vm.set_active_group(group_id)
         self.progress_vm.set_active_group(group_id, self.runs)
         self._active_group_id = group_id
@@ -582,12 +591,6 @@ class App:
                 raise RuntimeError("Coordinator returned an unexpected start result.")
 
             if not start_result.run_group_id:
-                if not start_result.started_wells:
-                    self.win.show_toast("No runs started. Fix validation errors.")
-                else:
-                    self.win.show_toast(
-                        "Validation stopped some wells. Nothing started."
-                    )
                 coordinator.stop_polling()
                 return
 
@@ -640,7 +643,6 @@ class App:
 
             started_boxes = ", ".join(sorted(subruns.keys()))
             skipped = sum(1 for entry in validations if not entry.ok)
-            started_count = len(start_result.started_wells)
             if skipped:
                 self.win.show_toast(
                     f"Started group {group_id} ({started_count} wells, skipped {skipped})."
@@ -650,9 +652,6 @@ class App:
                     self.win.show_toast(f"Started group {group_id} on {started_boxes}")
                 else:
                     self.win.show_toast(f"Started group {group_id}.")
-
-            self.wellgrid.add_configured_wells(start_result.started_wells)
-
             self._schedule_poll(group_id, 0)
         except Exception as e:
             self._stop_polling()

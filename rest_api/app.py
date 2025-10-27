@@ -181,16 +181,16 @@ def discover_devices():
 # ---------- Job-Modelle ----------
 class JobRequest (BaseModel):
     devices: List[str] | Literal["all"] = Field(..., description='z.B. ["slot01","slot02"] oder "all"')
-    mode: str = Field(..., description="z.B. 'CV', 'CA', 'LSV', ...")
-    params: Dict = Field(default_factory=dict, description="Parameter für den Modus (siehe /modes/{mode}/params)")
+    modes: List[str] = Field(..., min_length=1, description="z.B. ['CV','EIS']")
+    params_by_mode: Dict[str, Dict] = Field(default_factory=dict, description="pro Modus Parameterschema")
     tia_gain: Optional[int] = 0
     sampling_interval: Optional[float] = None
     experiment_name: str = Field(..., description="Experimentname fuer die Ablage")
     subdir: Optional[str] = Field(default=None, description="Optionaler Unterordner fuer die Ablage")
     client_datetime: str = Field(..., description="Zeitstempel des Clients fuer Verzeichnis- und Dateinamen")
     run_name: Optional[str] = None
-    folder_name: Optional[str] = None      # optional eigener Ordnername (Legacy)
-    make_plot: bool = True                 # am Ende PNG erzeugen
+    folder_name: Optional[str] = None
+    make_plot: bool = True
 
 
 def _build_run_storage_info(req: JobRequest) -> RunStorageInfo:
@@ -228,6 +228,7 @@ class SlotStatus(BaseModel):
 
 class JobStatus(BaseModel):
     run_id: str
+    # Für Abwärtskompatibilität nutzen wir 'mode' als *aktuellen* Modus
     mode: str
     started_at: str
     status: Literal["running", "done", "failed", "cancelled"]
@@ -235,6 +236,9 @@ class JobStatus(BaseModel):
     slots: List[SlotStatus]
     progress_pct: int = 0
     remaining_s: Optional[int] = None
+    modes: List[str] = Field(default_factory=list)
+    current_mode: Optional[str] = None
+    remaining_modes: List[str] = Field(default_factory=list)
 
 
 class JobOverview(BaseModel):
@@ -513,6 +517,143 @@ def _request_controller_abort(ctrl: PotentiostatController) -> None:
     except Exception:
         pass
 
+def _run_slot_sequence(
+    run_id: str,
+    run_dir: pathlib.Path,
+    slot: str,
+    req: JobRequest,
+    slot_status: SlotStatus,
+    storage: RunStorageInfo,
+):
+    """Führt die Liste 'modes' nacheinander aus. Jede Messung schreibt in eigenen Mode-Unterordner."""
+    ctrl = DEVICES[slot]
+    slot_segment = _sanitize_path_segment(slot, "slot")
+    cancel_event = CANCEL_FLAGS.setdefault(run_id, threading.Event())
+
+    def _eval_plot(csv_path: pathlib.Path, mode: str, params: Dict[str, Any]) -> List[str]:
+        files: List[str] = []
+        try:
+            if req.make_plot:
+                png_path = csv_path.with_suffix(".png")
+                if (mode or "").upper() == "CV":
+                    plot_cv_cycles(str(csv_path), figpath=str(png_path), show=False, cycles=params.get("cycles"))
+                else:
+                    plot_time_series(str(csv_path), figpath=str(png_path), show=False)
+            folder = csv_path.parent
+            files = [str(p.relative_to(run_dir)) for p in folder.iterdir() if p.is_file()]
+        except Exception:
+            try:
+                folder = csv_path.parent
+                files = [str(p.relative_to(run_dir)) for p in folder.iterdir() if p.is_file()]
+            except Exception:
+                files = []
+        return sorted(files)
+
+    # Slot initial auf running setzen (einheitlich)
+    with JOB_LOCK:
+        slot_status.status = "running"
+        slot_status.started_at = slot_status.started_at or utcnow_iso()
+        slot_status.message = None
+        job = JOBS.get(run_id)
+        if job:
+            job.status = "running"
+            job.ended_at = None
+
+    files_collected: List[str] = []
+    error: Optional[str] = None
+
+    try:
+        for idx, mode in enumerate(req.modes or []):
+            if cancel_event.is_set():
+                error = "cancelled"
+                break
+
+            # Status: aktuellen/Rest-Modus setzen (auch 'mode' für Kompatibilität)
+            with JOB_LOCK:
+                job = JOBS.get(run_id)
+                if job:
+                    job.mode = mode
+                    job.current_mode = mode
+                    job.modes = list(req.modes or [])
+                    job.remaining_modes = list(req.modes[idx + 1:])
+
+            # Per-Mode Ordner/Dateinamen
+            mode_segment = _sanitize_path_segment(mode, "mode")
+            mode_dir = run_dir / "Wells" / slot_segment / mode_segment
+            mode_dir.mkdir(parents=True, exist_ok=True)
+            filename_base = f"{storage.filename_prefix}_{slot_segment}_{mode_segment}"
+            filename = f"{filename_base}.csv"
+
+            params = dict(req.params_by_mode.get(mode, {}) or {})
+
+            # Messung mit Abbruchfenster in Neben-Thread
+            measurement_error: Optional[Exception] = None
+            def _runner():
+                nonlocal measurement_error
+                try:
+                    ctrl.apply_measurement(
+                        mode=mode,
+                        params=params,
+                        tia_gain=req.tia_gain,
+                        sampling_interval=req.sampling_interval,
+                        filename=filename,
+                        folder=str(mode_dir),
+                    )
+                except Exception as exc:
+                    measurement_error = exc
+
+            t = threading.Thread(target=_runner, name=f"{run_id}-{slot}-{mode}", daemon=True)
+            t.start()
+            abort_requested = False
+            while t.is_alive():
+                t.join(timeout=0.2)
+                if cancel_event.is_set() and not abort_requested:
+                    _request_controller_abort(ctrl)
+                    abort_requested = True
+            t.join()
+
+            if cancel_event.is_set():
+                error = "cancelled"
+                break
+
+            if measurement_error:
+                error = str(measurement_error)
+                break
+
+            # Dateien einsammeln, Status fortschreiben
+            csv_path = mode_dir / filename
+            files_collected.extend(_eval_plot(csv_path, mode, params))
+
+    except Exception as exc:
+        error = str(exc)
+
+    # Slot/JOB finalisieren
+    with JOB_LOCK:
+        if error == "cancelled":
+            slot_status.status = "cancelled"
+            slot_status.message = "cancelled"
+        elif error:
+            slot_status.status = "failed"
+            slot_status.message = error
+        else:
+            slot_status.status = "done"
+            slot_status.message = None
+
+        slot_status.ended_at = utcnow_iso()
+        slot_status.files = sorted(files_collected)
+
+        job = JOBS.get(run_id)
+        if job:
+            # Wenn letzter Slot fertig, Job terminiert + Modes-Felder zurücksetzen
+            _update_job_status_locked(job)
+            if job.status in ("done", "failed", "cancelled"):
+                job.current_mode = None
+                job.remaining_modes = []
+                
+    with SLOT_STATE_LOCK:
+        if SLOT_RUNS.get(slot) == run_id:
+            del SLOT_RUNS[slot]
+
 
 def _run_one_slot(
     run_id: str,
@@ -733,8 +874,14 @@ def list_jobs(
 
 @app.post("/jobs", response_model=JobStatus)
 def start_job(req: JobRequest, x_api_key: Optional[str] = Header(None)):
-    """Start a new job across selected slots and launch worker threads."""
+    """Start a new job across selected slots and launch worker threads (multi-mode sequence)."""
     require_key(x_api_key)
+
+    if not req.modes:
+        raise http_error(status_code=422, code="jobs.invalid_request", message="modes must not be empty")
+    for m in req.modes:
+        if m not in req.params_by_mode:
+            raise http_error(status_code=422, code="jobs.invalid_request", message=f"missing params for mode {m}")
 
     with DEVICE_SCAN_LOCK:
         if req.devices == "all":
@@ -742,33 +889,18 @@ def start_job(req: JobRequest, x_api_key: Optional[str] = Header(None)):
         else:
             slots = [s for s in req.devices if s in DEVICES]
     if not slots:
-        raise http_error(
-            status_code=400,
-            code="jobs.invalid_devices",
-            message="Keine gueltigen devices angegeben",
-            hint="Verwende Slots aus /devices oder 'all'.",
-        )
+        raise http_error(status_code=400, code="jobs.invalid_devices", message="Keine gueltigen devices angegeben", hint="Verwende Slots aus /devices oder 'all'.")
 
     run_id = req.run_name or datetime.datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "_" + uuid.uuid4().hex[:6]
 
     with JOB_LOCK:
         if run_id in JOBS:
-            raise http_error(
-                status_code=409,
-                code="jobs.run_id_conflict",
-                message="run_id bereits aktiv",
-                hint="Andere run_id waehlen oder laufenden Job abwarten.",
-            )
+            raise http_error(status_code=409, code="jobs.run_id_conflict", message="run_id bereits aktiv", hint="Andere run_id waehlen oder laufenden Job abwarten.")
 
     with SLOT_STATE_LOCK:
         busy = sorted(s for s in slots if s in SLOT_RUNS)
         if busy:
-            raise http_error(
-                status_code=409,
-                code="jobs.slots_busy",
-                message=f"Slots belegt: {', '.join(busy)}",
-                hint="Warte bis die genannten Slots frei sind.",
-            )
+            raise http_error(status_code=409, code="jobs.slots_busy", message=f"Slots belegt: {', '.join(busy)}", hint="Warte bis die genannten Slots frei sind.")
         for s in slots:
             SLOT_RUNS[s] = run_id
 
@@ -776,12 +908,9 @@ def start_job(req: JobRequest, x_api_key: Optional[str] = Header(None)):
     started_at = utcnow_iso()
 
     try:
-        # File Strukture: [<experiment>?, <subdir>?, <timestamp_dir>]
         storage_info = _build_run_storage_info(req)
-
         path_parts = [p for p in (storage_info.experiment, storage_info.subdir) if p]
         path_parts.append(storage_info.timestamp_dir)
-
         run_dir = RUNS_ROOT.joinpath(*path_parts)
         run_dir.mkdir(parents=True, exist_ok=True)
         _record_run_directory(run_id, run_dir)
@@ -789,20 +918,25 @@ def start_job(req: JobRequest, x_api_key: Optional[str] = Header(None)):
         raw_group_id = _normalize_group_value(req.folder_name) or _normalize_group_value(req.subdir)
         storage_folder = storage_info.subdir
 
+        # Für Kompatibilität: 'mode' = erster Modus, 'modes' vollständig
+        first_mode = (req.modes or [""])[0]
         job = JobStatus(
             run_id=run_id,
-            mode=req.mode,
+            mode=first_mode,
             started_at=started_at,
             status="running",
             ended_at=None,
             slots=slot_statuses,
+            modes=list(req.modes or []),
+            current_mode=first_mode,
+            remaining_modes=list(req.modes[1:] if len(req.modes) > 1 else []),
         )
 
         with JOB_LOCK:
             JOBS[run_id] = job
             CANCEL_FLAGS[run_id] = threading.Event()
-            # Persist raw params so later progress calculations can reuse them.
-            record_job_meta(run_id, req.mode, req.params or {})
+            # Progress-Schätzung grob anhand des ersten Modus (KISS)
+            record_job_meta(run_id, first_mode, dict(req.params_by_mode.get(first_mode, {}) or {}))
             if raw_group_id:
                 JOB_GROUP_IDS[run_id] = raw_group_id
             else:
@@ -812,24 +946,12 @@ def start_job(req: JobRequest, x_api_key: Optional[str] = Header(None)):
             else:
                 JOB_GROUP_FOLDERS.pop(run_id, None)
 
-        log.info(
-            "Job start run_id=%s mode=%s devices=%s slots=%s",
-            run_id,
-            req.mode,
-            req.devices if req.devices != "all" else "all",
-            slots,
-        )
-        log.debug(
-            "Job storage run_id=%s group_id=%s folder=%s experiment=%s",
-            run_id,
-            raw_group_id or "-",
-            storage_folder or "-",
-            storage_info.experiment,
-        )
+        log.info("Job start run_id=%s modes=%s devices=%s slots=%s", run_id, req.modes, req.devices if req.devices != "all" else "all", slots)
+        log.debug("Job storage run_id=%s group_id=%s folder=%s experiment=%s", run_id, raw_group_id or "-", storage_folder or "-", storage_info.experiment)
 
         for slot_status in slot_statuses:
             t = threading.Thread(
-                target=_run_one_slot,
+                target=_run_slot_sequence,
                 args=(run_id, run_dir, slot_status.slot, req, slot_status, storage_info),
                 daemon=True,
             )
@@ -850,6 +972,7 @@ def start_job(req: JobRequest, x_api_key: Optional[str] = Header(None)):
 
     with JOB_LOCK:
         return job_snapshot(JOBS[run_id])
+
 
 
 @app.post("/jobs/{run_id}/cancel", status_code=202)

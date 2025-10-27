@@ -92,10 +92,12 @@ class RunOverviewView(ttk.Frame):
         frame.rowconfigure(0, weight=1)
         frame.columnconfigure(0, weight=1)
 
-        columns = ("well", "phase", "progress", "remaining", "error", "subrun")
+        columns = ("well", "phase", "current_mode", "next_modes" ,"progress", "remaining", "error", "subrun")
         self.table = ttk.Treeview(frame, columns=columns, show="headings", height=12)
         self.table.heading("well", text="Well")
         self.table.heading("phase", text="Phase")
+        self.table.heading("current_mode", text="Current Mode")
+        self.table.heading("next_modes", text="Next Modes")
         self.table.heading("progress", text="Progress %")
         self.table.heading("remaining", text="Remaining")
         self.table.heading("error", text="Last Error")
@@ -103,6 +105,8 @@ class RunOverviewView(ttk.Frame):
 
         self.table.column("well", width=60, anchor="center")
         self.table.column("phase", width=120, anchor="w")
+        self.table.column("current_mode", width=60, anchor="center")
+        self.table.column("next_modes", width=120, anchor="center")
         self.table.column("progress", width=90, anchor="e")
         self.table.column("remaining", width=100, anchor="e")
         self.table.column("error", width=300, anchor="w")
@@ -141,14 +145,11 @@ class RunOverviewView(ttk.Frame):
         """
         self.table.delete(*self.table.get_children())
         for row in rows:
-            if len(row) >= 6:
-                well, phase, progress, remaining, err, subrun = row[:6]
-            elif len(row) == 5:
-                well, phase, progress, err, subrun = row
-                remaining = None
-            else:
-                filled = list(row) + [""] * (6 - len(row))
-                well, phase, progress, remaining, err, subrun = filled[:6]
+            if len(row) != 8:
+                # defensiv: unerwartetes Format → leere Felder auffüllen
+                row = (list(row) + [""] * (8 - len(row)))[:8]
+
+            well, phase, current_mode, next_modes, progress, remaining, err, subrun = row
 
             try:
                 progress_str = f"{float(progress):.0f}"
@@ -158,7 +159,8 @@ class RunOverviewView(ttk.Frame):
             self.table.insert(
                 "",
                 "end",
-                values=(well, phase, progress_str, remaining_str, err or "", subrun or ""),
+                values=(well or "", phase or "", current_mode or "", next_modes or "",
+                        progress_str, remaining_str, err or "", subrun or ""),
             )
 
     def set_boxes(self, boxes: Iterable[BoxId]) -> None:

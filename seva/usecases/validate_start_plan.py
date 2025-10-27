@@ -31,8 +31,9 @@ class ValidateStartPlan:
 
                 # Iteriere über alle Modi dieses Wells
                 for mode_name in well_plan.modes:
+                    if(mode_name == "AC"):
+                        mode_name = "CA"
                     mode_str = str(mode_name)
-                    
                     params = well_plan.params_by_mode[mode_name]
 
                     # Payload ableiten (gleiches Fehlermanagement wie zuvor)

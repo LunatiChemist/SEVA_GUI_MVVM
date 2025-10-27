@@ -17,7 +17,10 @@ from ..domain.entities import (
 )
 from ..domain.runs_registry import RunsRegistry
 
-WellRow = Tuple[str, str, Optional[float], str, str, str]
+# -- oben im File / neben den anderen Typalias:
+WellRow = Tuple[str, str, str, str, Optional[float], str, str, str]
+#            |    |    |    |     |            |    |    |
+#            well phase cur  next  progress     rem  err  subrun
 BoxRow = Tuple[str, Optional[float], str]
 ActivityMap = Dict[str, str]
 
@@ -87,21 +90,34 @@ class ProgressVM:
     # Public DTO helpers
     # ------------------------------------------------------------------
     def derive_well_rows(self, snapshot: GroupSnapshot) -> List[WellRow]:
-        """Return well table rows sorted by WellId (domain order)."""
+        """Return well table rows sorted by WellId (domain order).
+
+        8-tuple per row (View-Spaltenreihenfolge):
+        (well, phase, current_mode, next_modes, progress, remaining, error, subrun)
+        """
         ordered_runs = sorted(snapshot.runs.items(), key=lambda item: item[0].value)
         rows: List[WellRow] = []
         for well_id, run in ordered_runs:
-            remaining_s = int(run.remaining_s.value) if run.remaining_s else None
-            rows.append(
-                (
-                    str(well_id),
-                    self._phase_label(run.phase),
-                    float(run.progress.value) if run.progress is not None else None,
-                    self.fmt_remaining(remaining_s),
-                    (run.error or "").strip(),
-                    str(run.run_id),
-                )
-            )
+            phase_label = self._phase_label(run.phase)
+
+            progress_val = float(run.progress.value) if run.progress is not None else None
+            remaining_s = int(run.remaining_s.value) if run.remaining_s is not None else None
+            remaining_label = self.fmt_remaining(remaining_s)
+
+            # direkt aus Domain-RunStatus (neu in entities):
+            cur = run.current_mode or ""
+            nxt = ", ".join(run.remaining_modes) if run.remaining_modes else ""
+
+            rows.append((
+                str(well_id),
+                phase_label,
+                cur,
+                nxt,
+                progress_val,
+                remaining_label,
+                (run.error or "").strip(),
+                str(run.run_id),
+            ))
         return rows
 
     def _snapshot_from_serialized(self, payload: Dict[str, Union[str, Dict, List]]) -> Optional[GroupSnapshot]:
@@ -140,13 +156,20 @@ class ProgressVM:
                     except Exception:
                         remaining_obj = None
 
-                error_text = meta.get("error")
+                cur = meta.get("current_mode") or meta.get("mode")  # fallback auf 'mode'
+                if cur is not None:
+                    cur = str(cur)
+                rem_raw = meta.get("remaining_modes")
+                rem = tuple(str(x) for x in rem_raw) if isinstance(rem_raw, (list, tuple)) else tuple()
+
                 runs[well_id] = RunStatus(
                     run_id=run_id,
                     phase=phase,
                     progress=progress_obj,
                     remaining_s=remaining_obj,
-                    error=str(error_text).strip() if error_text else None,
+                    error=str(meta.get("error") or "").strip() or None,
+                    current_mode=cur,
+                    remaining_modes=rem,
                 )
 
         boxes: Dict[BoxId, BoxSnapshot] = {}

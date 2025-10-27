@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Mapping, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 
 @dataclass(frozen=True)
@@ -256,6 +256,8 @@ class RunStatus:
     """Estimated number of seconds left until completion, if supplied."""
     error: Optional[str] = None
     """User-facing error message when the run fails, else None."""
+    current_mode: Optional[str] = None
+    remaining_modes: Tuple[str, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         if not isinstance(self.phase, str) or not self.phase.strip():

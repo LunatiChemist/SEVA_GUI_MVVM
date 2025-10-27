@@ -25,6 +25,7 @@ class StartBatchResult:
 
     run_group_id: RunGroupId | None
     per_box_runs: Dict[BoxId, List[str]]
+    started_wells: List[WellId]
 
 
 @dataclass
@@ -44,4 +45,5 @@ class StartExperimentBatch:
         return StartBatchResult(
             run_group_id=run_group_id,
             per_box_runs=per_box_runs,
+            started_wells=[]
         )

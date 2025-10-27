@@ -197,6 +197,8 @@ def normalize_status(raw: Mapping[str, Any] | GroupSnapshot | None) -> GroupSnap
                 remaining_raw = row.get("remaining") or row.get("remaining_s")
                 error_raw = row.get("error") or row.get("message")
                 run_id_raw = row.get("run_id") or row.get("subrun")
+                cur_raw = row.get("current_mode") or row.get("mode")
+                rem_raw = row.get("remaining_modes")
             elif isinstance(row, Sequence) and not isinstance(row, (str, bytes)):
                 row_list = list(row)
                 if len(row_list) < 2:
@@ -237,6 +239,8 @@ def normalize_status(raw: Mapping[str, Any] | GroupSnapshot | None) -> GroupSnap
                 progress=progress,
                 remaining_s=remaining,
                 error=error,
+                current_mode=_normalize_identifier(cur_raw),
+                remaining_modes=tuple(str(x).strip() for x in rem_raw) if isinstance(rem_raw, (list, tuple)) else tuple(),
             )
 
     if "all_done" in payload:
