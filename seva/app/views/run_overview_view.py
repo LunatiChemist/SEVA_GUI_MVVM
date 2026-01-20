@@ -16,6 +16,8 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Dict, Iterable, List, Optional, Tuple
 
+from .view_utils import safe_call
+
 BoxId = str   # e.g., "A"
 WellId = str  # e.g., "A1"
 
@@ -175,11 +177,7 @@ class RunOverviewView(ttk.Frame):
     # Internal helpers
     # ------------------------------------------------------------------
     def _safe(self, fn: Optional[callable]):
-        if fn:
-            try:
-                fn()
-            except Exception as e:
-                print(f"RunOverviewView callback failed: {e}")
+        safe_call(fn, on_error=lambda exc: print(f"RunOverviewView callback failed: {exc}"))
 
     def _format_remaining(self, remaining: Optional[object]) -> str:
         text = "" if remaining is None else str(remaining).strip()

@@ -4,24 +4,15 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict
 
+from seva.domain.layout_utils import normalize_selection, with_flag_defaults
 from seva.domain.ports import StoragePort
 from seva.viewmodels.settings_vm import default_settings_payload
 
 
 class StorageLocal(StoragePort):
     """Local filesystem storage for layouts and user settings (JSON)."""
-
-    _FLAG_DEFAULTS: Tuple[str, ...] = (
-        "run_cv",
-        "run_dc",
-        "run_ac",
-        "run_eis",
-        "run_lsv",
-        "run_cdl",
-        "eval_cdl",
-    )
 
     def __init__(self, root_dir: str = ".") -> None:
         self.root = Path(root_dir)
@@ -51,7 +42,9 @@ class StorageLocal(StoragePort):
             for raw_wid, snapshot in raw_map.items():
                 wid = str(raw_wid)
                 well_params_map[wid] = self._hydrate_snapshot(snapshot)
-        selection = self._normalize_selection(raw.get("selection"), well_params_map.keys())
+        selection = self._normalize_selection(
+            raw.get("selection"), well_params_map.keys()
+        )
         return {"selection": selection, "well_params_map": well_params_map}
 
     # ---- User settings (JSON) ----
@@ -106,7 +99,7 @@ class StorageLocal(StoragePort):
         if not isinstance(payload, dict):
             raise ValueError("Layout payload must be a dict.")
         selection_raw = payload.get("selection") or []
-        selection = self._coerce_selection(selection_raw)
+        selection = normalize_selection(selection_raw)
         raw_map = payload.get("well_params_map")
         if not isinstance(raw_map, dict):
             raise ValueError("Layout payload must contain well_params_map dict.")
@@ -120,22 +113,10 @@ class StorageLocal(StoragePort):
         return {"selection": selection, "well_params_map": prepared_map}
 
     def _normalize_selection(self, selection: Any, known_wells) -> list[str]:
-        normalized = self._coerce_selection(selection)
+        normalized = normalize_selection(selection)
         for wid in known_wells:
             if wid not in normalized:
                 normalized.append(wid)
-        return normalized
-
-    @staticmethod
-    def _coerce_selection(selection: Any) -> list[str]:
-        normalized: list[str] = []
-        if isinstance(selection, (list, tuple, set)):
-            for item in selection:
-                wid = str(item)
-                if wid not in normalized:
-                    normalized.append(wid)
-        elif isinstance(selection, str):
-            normalized.append(selection)
         return normalized
 
     @staticmethod
@@ -165,7 +146,4 @@ class StorageLocal(StoragePort):
                     snapshot.update(flags)
             else:
                 snapshot.update(payload)
-        for flag in self._FLAG_DEFAULTS:
-            if flag not in snapshot:
-                snapshot[flag] = "0"
-        return snapshot
+        return with_flag_defaults(snapshot)

@@ -21,4 +21,14 @@ def well_id_to_box(well_id: str) -> Optional[str]:
     return first.upper()
 
 
-__all__ = ["well_id_to_box"]
+def normalize_mode_name(mode: str) -> str:
+    """Return a normalized mode token for backend payloads."""
+    if mode is None:
+        return ""
+    token = str(mode).strip().upper()
+    if token == "AC":
+        return "CA"
+    return token
+
+
+__all__ = ["normalize_mode_name", "well_id_to_box"]

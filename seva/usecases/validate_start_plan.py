@@ -4,7 +4,7 @@ from typing import List, Dict,Tuple
 
 from ..domain.entities import ExperimentPlan
 from ..domain.ports import BoxId, DevicePort, ModeValidationResult, UseCaseError, WellId, JobPort
-from ..domain.util import well_id_to_box
+from ..domain.util import normalize_mode_name, well_id_to_box
 from .start_experiment_batch import WellValidationResult
 
 
@@ -31,10 +31,9 @@ class ValidateStartPlan:
 
                 # Iteriere über alle Modi dieses Wells
                 for mode_name in well_plan.modes:
-                    if(mode_name == "AC"):
-                        mode_name = "CA"
-                    mode_str = str(mode_name)
-                    params = well_plan.params_by_mode[mode_name]
+                    raw_mode = str(mode_name)
+                    mode_str = normalize_mode_name(raw_mode)
+                    params = well_plan.params_by_mode[mode_str]
 
                     # Payload ableiten (gleiches Fehlermanagement wie zuvor)
                     try:

@@ -58,4 +58,4 @@ def _ensure_local_timezone(candidate: datetime) -> datetime:
     return candidate.astimezone()
 
 
-__all__ = ["build_meta", "from_well_params"]
+__all__ = ["build_meta"]

@@ -4,6 +4,8 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable, Dict, Optional
 
+from .view_utils import safe_call
+
 BoxId = str
 
 
@@ -274,18 +276,21 @@ class SettingsDialog(tk.Toplevel):
             return "720x520"
 
     def _safe(self, fn: OnVoid) -> None:
-        if fn:
-            try:
-                fn()
-            except Exception as exc:  # pragma: no cover - GUI logging only
-                print(f"SettingsDialog callback failed: {exc}")
+        safe_call(
+            fn,
+            on_error=lambda exc: print(
+                f"SettingsDialog callback failed: {exc}"
+            ),
+        )
 
     def _safe_box(self, fn: OnBox, box_id: BoxId) -> None:
-        if fn:
-            try:
-                fn(box_id)
-            except Exception as exc:  # pragma: no cover - GUI logging only
-                print(f"SettingsDialog test connection failed for {box_id}: {exc}")
+        safe_call(
+            fn,
+            box_id,
+            on_error=lambda exc: print(
+                f"SettingsDialog test connection failed for {box_id}: {exc}"
+            ),
+        )
 
 
 if __name__ == "__main__":

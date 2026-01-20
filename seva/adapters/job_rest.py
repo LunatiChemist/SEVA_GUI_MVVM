@@ -16,6 +16,7 @@ from requests import exceptions as req_exc
 # Domain Port
 from seva.domain.entities import ExperimentPlan
 from seva.domain.ports import JobPort, RunGroupId, BoxId, UseCaseError
+from seva.domain.util import normalize_mode_name
 
 from .api_errors import (
     ApiClientError,
@@ -222,8 +223,9 @@ class JobRestAdapter(JobPort):
 
         jobs: List[Dict[str, Any]] = []
         for well_plan in plan.wells:
-            if well_plan.modes[1] == "AC":
-                well_plan.modes[1] = "CA"
+            normalized_modes = [
+                normalize_mode_name(str(mode)) for mode in (well_plan.modes or [])
+            ]
             well_id = str(well_plan.well)
             if not well_id:
                 raise ValueError("Experiment plan contains an empty well identifier.")
@@ -236,8 +238,9 @@ class JobRestAdapter(JobPort):
             # Multi-mode: params_by_mode -> {str(mode): dict}
             params_by_mode: Dict[str, Dict[str, Any]] = {}
             for mode_name, params_obj in (well_plan.params_by_mode or {}).items():
+                mode_key = normalize_mode_name(str(mode_name))
                 try:
-                    params_by_mode[str(mode_name)] = params_obj.to_payload()
+                    params_by_mode[mode_key] = params_obj.to_payload()
                 except NotImplementedError as exc:  # pragma: no cover
                     raise ValueError(
                         f"Well '{well_id}' mode '{mode_name}' parameters do not support payload serialization."
@@ -254,7 +257,7 @@ class JobRestAdapter(JobPort):
                     "box": box,
                     "wells": [well_id],
                     "well_id": well_id,
-                    "modes": [str(m) for m in (well_plan.modes or [])],
+                    "modes": normalized_modes,
                     "params_by_mode": params_by_mode,
                     "tia_gain": meta.tia_gain,
                     "sampling_interval": meta.sampling_interval,

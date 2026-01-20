@@ -4,18 +4,9 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
-from ..domain.entities import (
-    BoxId,
-    BoxSnapshot,
-    GroupId,
-    GroupSnapshot,
-    ProgressPct,
-    RunId,
-    RunStatus,
-    Seconds,
-    WellId,
-)
+from ..domain.entities import BoxId, BoxSnapshot, GroupSnapshot, RunStatus, WellId
 from ..domain.runs_registry import RunsRegistry
+from ..domain.snapshot_normalizer import normalize_status
 
 # -- oben im File / neben den anderen Typalias:
 WellRow = Tuple[str, str, str, str, Optional[float], str, str, str]
@@ -123,95 +114,10 @@ class ProgressVM:
     def _snapshot_from_serialized(self, payload: Dict[str, Union[str, Dict, List]]) -> Optional[GroupSnapshot]:
         """Rebuild a GroupSnapshot from a serialized registry payload."""
         try:
-            group = GroupId(str(payload["group"]))
+            snapshot = normalize_status(payload)
         except Exception:
             return None
-
-        runs_payload = payload.get("runs") or {}
-        boxes_payload = payload.get("boxes") or {}
-
-        runs: Dict[WellId, RunStatus] = {}
-        if isinstance(runs_payload, dict):
-            for well_token, meta in runs_payload.items():
-                try:
-                    well_id = WellId(str(well_token))
-                    run_id = RunId(str(meta.get("run_id") or ""))
-                    phase = str(meta.get("phase") or "unknown")
-                except Exception:
-                    continue
-
-                progress_val = meta.get("progress")
-                progress_obj = None
-                if isinstance(progress_val, (int, float)):
-                    try:
-                        progress_obj = ProgressPct(float(progress_val))
-                    except Exception:
-                        progress_obj = None
-
-                remaining_val = meta.get("remaining_s")
-                remaining_obj = None
-                if isinstance(remaining_val, (int, float)):
-                    try:
-                        remaining_obj = Seconds(int(remaining_val))
-                    except Exception:
-                        remaining_obj = None
-
-                cur = meta.get("current_mode") or meta.get("mode")  # fallback auf 'mode'
-                if cur is not None:
-                    cur = str(cur)
-                rem_raw = meta.get("remaining_modes")
-                rem = tuple(str(x) for x in rem_raw) if isinstance(rem_raw, (list, tuple)) else tuple()
-
-                runs[well_id] = RunStatus(
-                    run_id=run_id,
-                    phase=phase,
-                    progress=progress_obj,
-                    remaining_s=remaining_obj,
-                    error=str(meta.get("error") or "").strip() or None,
-                    current_mode=cur,
-                    remaining_modes=rem,
-                )
-
-        boxes: Dict[BoxId, BoxSnapshot] = {}
-        if isinstance(boxes_payload, dict):
-            for box_token, meta in boxes_payload.items():
-                try:
-                    box_id = BoxId(str(box_token))
-                except Exception:
-                    continue
-
-                progress_val = meta.get("progress")
-                progress_obj = None
-                if isinstance(progress_val, (int, float)):
-                    try:
-                        progress_obj = ProgressPct(float(progress_val))
-                    except Exception:
-                        progress_obj = None
-
-                remaining_val = meta.get("remaining_s")
-                remaining_obj = None
-                if isinstance(remaining_val, (int, float)):
-                    try:
-                        remaining_obj = Seconds(int(remaining_val))
-                    except Exception:
-                        remaining_obj = None
-
-                boxes[box_id] = BoxSnapshot(
-                    box=box_id,
-                    progress=progress_obj,
-                    remaining_s=remaining_obj,
-                )
-
-        all_done = bool(payload.get("all_done"))
-        try:
-            return GroupSnapshot(
-                group=group,
-                runs=runs,
-                boxes=boxes,
-                all_done=all_done,
-            )
-        except Exception:
-            return None
+        return snapshot
 
     def derive_box_rows(
         self,

@@ -8,6 +8,8 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable, Optional, Dict
 
+from .view_utils import safe_call
+
 
 class ExperimentPanelView(ttk.Frame):
     OnVoid = Optional[Callable[[], None]]
@@ -281,8 +283,4 @@ class ExperimentPanelView(ttk.Frame):
 
     # --- misc ----------------------------------------------------------
     def _safe(self, fn: Optional[Callable[[], None]]):
-        if fn:
-            try:
-                fn()
-            except Exception as e:
-                print(f"ExperimentPanelView callback failed: {e}")
+        safe_call(fn, on_error=lambda exc: print(f"ExperimentPanelView callback failed: {exc}"))

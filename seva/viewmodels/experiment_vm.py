@@ -2,8 +2,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Mapping ,Optional, Set, Iterable, Tuple, cast
 from ..domain import WellPlan, WellId, ModeName
-from ..domain.params import ModeParams, CVParams
-from ..domain.params.ac_bridge import ACParamsBridge
+from ..domain.params import ModeParams, CVParams, ACParams
+from ..domain.util import normalize_mode_name
 
 # Beibehalten zur Filterung von Formularfeldern für Copy/Paste
 _MODE_CONFIG: Dict[str, Dict[str, object]] = {
@@ -36,17 +36,9 @@ _MODE_CONFIG: Dict[str, Dict[str, object]] = {
     },
 }
 
-_RUN_FLAG_KEYS: Tuple[str, ...] = (
-    "run_cv",
-    "run_dc",
-    "run_ac",
-    "run_eis",
-    "eval_cdl",
-)
-
 _MODE_BUILDERS: Dict[str, type[ModeParams]] = {
     "CV": CVParams,
-    "AC": ACParamsBridge
+    "AC": ACParams,
     # TODO: register additional mode parameter builders when modes are implemented.
 }
 
@@ -177,16 +169,16 @@ class ExperimentVM:
         out: Dict[ModeName, ModeParams] = {}
 
         for mode_name, cfg in modes_raw.items():
-            builder = _MODE_BUILDERS.get(mode_name, ModeParams)
+            raw_mode = str(mode_name)
+            builder = _MODE_BUILDERS.get(raw_mode, ModeParams)
             try:
                 params = builder.from_form(cfg)  # type: ignore[arg-type]
             except (NotImplementedError, AttributeError, TypeError):
                 # Fallback: direkt mit Flags initialisieren
                 params = builder(flags=dict(cfg))  # type: ignore[arg-type]
 
-            if(mode_name=="AC"):
-                mode_name = "CA"
-            out[mode_name] = params
+            normalized_mode = normalize_mode_name(raw_mode)
+            out[normalized_mode] = params
 
         return out
 

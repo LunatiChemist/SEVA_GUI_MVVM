@@ -23,6 +23,8 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable, Dict, Iterable, Optional, Sequence, Set
 
+from .view_utils import safe_call
+
 WellId = str
 BoxId = str
 
@@ -224,18 +226,16 @@ class WellGridView(ttk.Frame):
     # Misc helpers
     # ------------------------------------------------------------------
     def _safe(self, fn: OnVoid) -> None:
-        if fn:
-            try:
-                fn()
-            except Exception as e:
-                print(f"WellGridView callback failed: {e}")
+        safe_call(fn, on_error=lambda exc: print(f"WellGridView callback failed: {exc}"))
 
     def _safe_well(self, fn: OnWell, well_id: WellId) -> None:
-        if fn:
-            try:
-                fn(well_id)
-            except Exception as e:
-                print(f"WellGridView well callback failed: {e}")
+        safe_call(
+            fn,
+            well_id,
+            on_error=lambda exc: print(
+                f"WellGridView well callback failed: {exc}"
+            ),
+        )
 
 if __name__ == "__main__":
     root = tk.Tk()

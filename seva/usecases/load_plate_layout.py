@@ -1,8 +1,9 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, TYPE_CHECKING
+from typing import Dict, List, Optional, TYPE_CHECKING
 
+from ..domain.layout_utils import normalize_selection
 from ..domain.ports import StoragePort, UseCaseError
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -23,7 +24,7 @@ class LoadPlateLayout:
     ) -> Dict:
         try:
             data = self.storage.load_layout(name)
-            selection = self._as_list(data.get("selection"))
+            selection = normalize_selection(data.get("selection"))
             well_params_map = data.get("well_params_map") or {}
             if experiment_vm is not None:
                 self._apply_to_experiment_vm(experiment_vm, selection, well_params_map)
@@ -77,15 +78,3 @@ class LoadPlateLayout:
             plate_vm.set_selection(selection)
         else:
             setattr(plate_vm, "_selected", set(selection))
-
-    def _as_list(self, selection: Optional[Iterable]) -> List[str]:
-        items: List[str] = []
-        if selection is None:
-            return items
-        if isinstance(selection, str):
-            return [selection]
-        for item in selection:
-            sid = str(item)
-            if sid not in items:
-                items.append(sid)
-        return items
