@@ -3,121 +3,28 @@ from __future__ import annotations
 
 import logging
 import os
-import json
-from dataclasses import dataclass
 from datetime import timezone
 from typing import Dict, Iterable, Tuple, Optional, Any, List, Set
 import re
 from uuid import uuid4
 
 import requests
-from requests import exceptions as req_exc
 
 # Domain Port
 from seva.domain.entities import ExperimentPlan
-from seva.domain.ports import JobPort, RunGroupId, BoxId, UseCaseError
+from seva.domain.ports import JobPort, RunGroupId, BoxId
 from seva.domain.util import normalize_mode_name
 
+from .http_client import HttpConfig, RetryingSession
 from .api_errors import (
     ApiClientError,
     ApiError,
     ApiServerError,
-    ApiTimeoutError,
     build_error_message,
     extract_error_code,
     extract_error_hint,
     parse_error_payload,
 )
-
-
-@dataclass
-class _HttpConfig:
-    request_timeout_s: int = 10
-    download_timeout_s: int = 60
-    retries: int = 2
-
-
-class _RetryingSession:
-    """Tiny requests wrapper with X-API-Key and simple retry.
-    Future: move to infra with exponential backoff + jitter.
-    """
-
-    def __init__(self, api_key: Optional[str], cfg: _HttpConfig) -> None:
-        self.session = requests.Session()
-        self.api_key = api_key
-        self.cfg = cfg
-
-    def _headers(
-        self, accept: str = "application/json", json_body: bool = False
-    ) -> Dict[str, str]:
-        h = {"Accept": accept}
-        if self.api_key:
-            h["X-API-Key"] = self.api_key
-        if json_body:
-            h["Content-Type"] = "application/json"
-        return h
-
-    def get(
-        self,
-        url: str,
-        *,
-        params: Optional[Dict[str, Any]] = None,
-        accept: str = "application/json",
-        timeout: Optional[int] = None,
-        stream: bool = False,
-    ):
-        last_err: Optional[Exception] = None
-        context = f"GET {url}"
-        for _ in range(self.cfg.retries + 1):
-            try:
-                return self.session.get(
-                    url,
-                    params=params,
-                    headers=self._headers(accept=accept),
-                    timeout=timeout or self.cfg.request_timeout_s,
-                    stream=stream,
-                )
-            except (req_exc.Timeout, req_exc.ConnectionError) as exc:
-                last_err = ApiTimeoutError(f"Timeout contacting {url}", context=context)
-            except Exception as exc:
-                last_err = exc
-        if last_err is None:
-            raise ApiError("Unexpected request failure", context=context)
-        if isinstance(last_err, ApiError):
-            raise last_err
-        if isinstance(last_err, req_exc.RequestException):
-            raise ApiError(str(last_err), context=context) from last_err
-        raise last_err
-
-    def post(
-        self,
-        url: str,
-        *,
-        json_body: Optional[Dict[str, Any]] = None,
-        timeout: Optional[int] = None,
-    ):
-        last_err: Optional[Exception] = None
-        context = f"POST {url}"
-        data = None if json_body is None else json.dumps(json_body)
-        for _ in range(self.cfg.retries + 1):
-            try:
-                return self.session.post(
-                    url,
-                    data=data,
-                    headers=self._headers(json_body=json_body is not None),
-                    timeout=timeout or self.cfg.request_timeout_s,
-                )
-            except (req_exc.Timeout, req_exc.ConnectionError) as exc:
-                last_err = ApiTimeoutError(f"Timeout contacting {url}", context=context)
-            except Exception as exc:
-                last_err = exc
-        if last_err is None:
-            raise ApiError("Unexpected request failure", context=context)
-        if isinstance(last_err, ApiError):
-            raise last_err
-        if isinstance(last_err, req_exc.RequestException):
-            raise ApiError(str(last_err), context=context) from last_err
-        raise last_err
 
 
 class JobRestAdapter(JobPort):
@@ -147,7 +54,7 @@ class JobRestAdapter(JobPort):
         self._log = logging.getLogger(__name__)
         self.base_urls = dict(base_urls)
         self.api_keys = dict(api_keys or {})
-        self.cfg = _HttpConfig(
+        self.cfg = HttpConfig(
             request_timeout_s=request_timeout_s,
             download_timeout_s=download_timeout_s,
             retries=retries,
@@ -156,8 +63,8 @@ class JobRestAdapter(JobPort):
         self.box_order: List[BoxId] = sorted(self.base_urls.keys())
 
         # Sessions per box
-        self.sessions: Dict[BoxId, _RetryingSession] = {
-            b: _RetryingSession(self.api_keys.get(b), self.cfg)
+        self.sessions: Dict[BoxId, RetryingSession] = {
+            b: RetryingSession(self.api_keys.get(b), self.cfg)
             for b in self.base_urls.keys()
         }
 
@@ -470,7 +377,7 @@ class JobRestAdapter(JobPort):
 
     def _cancel_run_with_session(
         self,
-        session: _RetryingSession,
+        session: RetryingSession,
         box: BoxId,
         run_id: str,
         *,

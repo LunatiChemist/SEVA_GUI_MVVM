@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import requests
-from requests import exceptions as req_exc
 
 from seva.domain.ports import BoxId, DevicePort, ModeValidationResult
 
@@ -13,96 +10,12 @@ from .api_errors import (
     ApiClientError,
     ApiError,
     ApiServerError,
-    ApiTimeoutError,
     build_error_message,
     extract_error_code,
     extract_error_hint,
     parse_error_payload,
 )
-
-
-@dataclass
-class _HttpConfig:
-    request_timeout_s: int = 10
-    retries: int = 2
-
-
-class _RetryingSession:
-    """Minified requests wrapper with optional API key and simple retries."""
-
-    def __init__(self, api_key: Optional[str], cfg: _HttpConfig) -> None:
-        self.session = requests.Session()
-        self.api_key = api_key
-        self.cfg = cfg
-
-    def _headers(self, *, accept: str = "application/json") -> Dict[str, str]:
-        headers = {"Accept": accept}
-        if self.api_key:
-            headers["X-API-Key"] = self.api_key
-        return headers
-
-    def get(
-        self,
-        url: str,
-        *,
-        timeout: Optional[int] = None,
-        accept: str = "application/json",
-    ) -> requests.Response:
-        last_err: Optional[Exception] = None
-        context = f"GET {url}"
-        for _ in range(self.cfg.retries + 1):
-            try:
-                return self.session.get(
-                    url,
-                    headers=self._headers(accept=accept),
-                    timeout=timeout or self.cfg.request_timeout_s,
-                )
-            except Exception as exc:
-                if isinstance(exc, (req_exc.Timeout, req_exc.ConnectionError)):
-                    last_err = ApiTimeoutError(f"Timeout contacting {url}", context=context)
-                else:
-                    last_err = exc
-        if last_err is None:
-            raise ApiError("Unexpected request failure", context=context)
-        if isinstance(last_err, ApiError):
-            raise last_err
-        if isinstance(last_err, req_exc.RequestException):
-            raise ApiError(str(last_err), context=context) from last_err
-        raise last_err
-
-    def post(
-        self,
-        url: str,
-        *,
-        json_body: Optional[Dict[str, Any]] = None,
-        timeout: Optional[int] = None,
-    ) -> requests.Response:
-        last_err: Optional[Exception] = None
-        context = f"POST {url}"
-        data = None if json_body is None else json.dumps(json_body)
-        headers = self._headers(accept="application/json")
-        if json_body is not None:
-            headers["Content-Type"] = "application/json"
-        for _ in range(self.cfg.retries + 1):
-            try:
-                return self.session.post(
-                    url,
-                    data=data,
-                    headers=headers,
-                    timeout=timeout or self.cfg.request_timeout_s,
-                )
-            except Exception as exc:
-                if isinstance(exc, (req_exc.Timeout, req_exc.ConnectionError)):
-                    last_err = ApiTimeoutError(f"Timeout contacting {url}", context=context)
-                else:
-                    last_err = exc
-        if last_err is None:
-            raise ApiError("Unexpected request failure", context=context)
-        if isinstance(last_err, ApiError):
-            raise last_err
-        if isinstance(last_err, req_exc.RequestException):
-            raise ApiError(str(last_err), context=context) from last_err
-        raise last_err
+from .http_client import HttpConfig, RetryingSession
 
 
 class DeviceRestAdapter(DevicePort):
@@ -121,9 +34,9 @@ class DeviceRestAdapter(DevicePort):
 
         self.base_urls = dict(base_urls)
         self.api_keys = dict(api_keys or {})
-        self.cfg = _HttpConfig(request_timeout_s=request_timeout_s, retries=retries)
-        self.sessions: Dict[BoxId, _RetryingSession] = {
-            box: _RetryingSession(self.api_keys.get(box), self.cfg)
+        self.cfg = HttpConfig(request_timeout_s=request_timeout_s, retries=retries)
+        self.sessions: Dict[BoxId, RetryingSession] = {
+            box: RetryingSession(self.api_keys.get(box), self.cfg)
             for box in self.base_urls
         }
         self._mode_list_cache: Dict[BoxId, List[str]] = {}
@@ -199,7 +112,7 @@ class DeviceRestAdapter(DevicePort):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-    def _session(self, box_id: BoxId) -> _RetryingSession:
+    def _session(self, box_id: BoxId) -> RetryingSession:
         try:
             return self.sessions[box_id]
         except KeyError as exc:

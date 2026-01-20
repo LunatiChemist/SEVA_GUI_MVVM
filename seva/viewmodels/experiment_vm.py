@@ -253,23 +253,18 @@ class ExperimentVM:
             elif mode_key == "DCAC":
                 # DC separat
                 if self._is_truthy(clipboard.get("run_dc")):
-                    dc = {k: v for k, v in clipboard.items() if k.startswith("ea.")}
-                    dc.pop("ea.frequency_hz", None)  # DC braucht keine Frequenz
-                    if "control_mode" in clipboard:
-                        dc["control_mode"] = clipboard["control_mode"]
-                    if "ea.target" in clipboard:
-                        dc["ea.target"] = clipboard["ea.target"]
-                    grouped["DC"] = dc
+                    grouped["DC"] = self._extract_ea_params(
+                        clipboard,
+                        include_frequency=False,
+                    )
                 else:
                     grouped.pop("DC", None)
                 # AC separat
                 if self._is_truthy(clipboard.get("run_ac")):
-                    ac = {k: v for k, v in clipboard.items() if k.startswith("ea.")}
-                    if "control_mode" in clipboard:
-                        ac["control_mode"] = clipboard["control_mode"]
-                    if "ea.target" in clipboard:
-                        ac["ea.target"] = clipboard["ea.target"]
-                    grouped["AC"] = ac
+                    grouped["AC"] = self._extract_ea_params(
+                        clipboard,
+                        include_frequency=True,
+                    )
                 else:
                     grouped.pop("AC", None)
 
@@ -312,21 +307,12 @@ class ExperimentVM:
             grouped["CV"] = {k: v for k, v in flat.items() if k.startswith("cv.")}
 
         if run_dc:
-            dc = {k: v for k, v in flat.items() if k.startswith("ea.")}
-            dc.pop("ea.frequency_hz", None)  # DC ohne Frequenz
-            if "control_mode" in flat:
-                dc["control_mode"] = flat["control_mode"]
-            if "ea.target" in flat:
-                dc["ea.target"] = flat["ea.target"]
+            dc = self._extract_ea_params(flat, include_frequency=False)
             if dc:
                 grouped["DC"] = dc
 
         if run_ac:
-            ac = {k: v for k, v in flat.items() if k.startswith("ea.")}
-            if "control_mode" in flat:
-                ac["control_mode"] = flat["control_mode"]
-            if "ea.target" in flat:
-                ac["ea.target"] = flat["ea.target"]
+            ac = self._extract_ea_params(flat, include_frequency=True)
             if ac:
                 grouped["AC"] = ac
 
@@ -368,3 +354,18 @@ class ExperimentVM:
         flat["run_eis"]  = "1" if "EIS" in grouped else "0"
 
         return flat
+
+    @staticmethod
+    def _extract_ea_params(
+        source: Mapping[str, str],
+        *,
+        include_frequency: bool,
+    ) -> Dict[str, str]:
+        params = {k: v for k, v in source.items() if k.startswith("ea.")}
+        if not include_frequency:
+            params.pop("ea.frequency_hz", None)
+        if "control_mode" in source:
+            params["control_mode"] = source["control_mode"]
+        if "ea.target" in source:
+            params["ea.target"] = source["ea.target"]
+        return params

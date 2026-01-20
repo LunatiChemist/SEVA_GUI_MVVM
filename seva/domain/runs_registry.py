@@ -4,6 +4,7 @@ import json
 import threading
 import time
 from dataclasses import asdict, dataclass, field
+import logging
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, TYPE_CHECKING
 
@@ -61,6 +62,7 @@ class RunsRegistry:
             return cls._instance
 
     def __init__(self) -> None:
+        self._log = logging.getLogger(__name__)
         self._entries: Dict[str, RunEntry] = {}
         self._coordinators: Dict[str, "RunFlowCoordinator"] = {}
         self._contexts: Dict[str, "GroupContext"] = {}
@@ -267,6 +269,7 @@ class RunsRegistry:
             return
 
         entries = data.get("entries") or []
+        failed = 0
         for payload in entries:
             try:
                 download_payload = payload.get("download") or {}
@@ -289,8 +292,11 @@ class RunsRegistry:
                     last_snapshot=payload.get("last_snapshot"),
                 )
             except Exception:
+                failed += 1
                 continue
             self._entries[entry.group_id] = entry
+        if failed:
+            self._log.warning("RunsRegistry load skipped %d invalid entries.", failed)
 
     def save(self) -> None:
         self._persist()

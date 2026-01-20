@@ -8,6 +8,7 @@ from ..domain.entities import BoxId, BoxSnapshot, GroupSnapshot, RunStatus, Well
 from ..domain.runs_registry import RunsRegistry
 from ..domain.snapshot_normalizer import normalize_status
 from ..domain.util import well_id_to_box
+from .status_format import phase_key, phase_label
 
 # -- oben im File / neben den anderen Typalias:
 WellRow = Tuple[str, str, str, str, Optional[float], str, str, str]
@@ -90,7 +91,7 @@ class ProgressVM:
         ordered_runs = sorted(snapshot.runs.items(), key=lambda item: item[0].value)
         rows: List[WellRow] = []
         for well_id, run in ordered_runs:
-            phase_label = self._phase_label(run.phase)
+            phase_text = phase_label(run.phase)
 
             progress_val = float(run.progress.value) if run.progress is not None else None
             remaining_s = int(run.remaining_s.value) if run.remaining_s is not None else None
@@ -102,7 +103,7 @@ class ProgressVM:
 
             rows.append((
                 str(well_id),
-                phase_label,
+                phase_text,
                 cur,
                 nxt,
                 progress_val,
@@ -261,7 +262,7 @@ class ProgressVM:
         if not runs:
             return "Idle"
 
-        phases = {self._phase_key(run.phase) for _, run in runs if run.phase}
+        phases = {phase_key(run.phase) for _, run in runs if run.phase}
         if {"failed", "error"} & phases:
             return "Error"
         if "running" in phases:
@@ -275,7 +276,7 @@ class ProgressVM:
         if not phases:
             return "Idle"
         phase_key = next(iter(phases))
-        return self._phase_label(phase_key)
+        return phase_label(phase_key)
 
     @staticmethod
     def _collect_box_run_ids(runs: List[Tuple[str, RunStatus]]) -> List[str]:
@@ -315,35 +316,12 @@ class ProgressVM:
     def _activity_label(self, run: RunStatus) -> str:
         if run.error:
             return "Error"
-        key = self._phase_key(run.phase)
+        key = phase_key(run.phase)
         if key in {"failed", "error"}:
             return "Error"
         if key in {"canceled", "cancelled"}:
             return "Canceled"
-        return self._phase_label(key)
-
-    def _phase_label(self, phase: str) -> str:
-        key = self._phase_key(phase)
-        mapping = {
-            "failed": "Failed",
-            "error": "Error",
-            "running": "Running",
-            "queued": "Queued",
-            "done": "Done",
-            "canceled": "Canceled",
-            "cancelled": "Canceled",
-            "idle": "Idle",
-        }
-        if not key:
-            return "Idle"
-        if key in mapping:
-            return mapping[key]
-        cleaned = key.replace("_", " ").replace("-", " ")
-        return cleaned.title()
-
-    @staticmethod
-    def _phase_key(phase: str) -> str:
-        return (phase or "").strip().lower()
+        return phase_label(key)
 
     @staticmethod
     def _extract_box_prefix(well_id: Union[WellId, str]) -> Optional[str]:

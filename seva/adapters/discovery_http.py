@@ -23,13 +23,6 @@ def _normalize_candidate(x: str, default_port: int) -> str:
         return f"http://{host}:{port}"
     return f"http://{x}:{default_port}"
 
-def _expand_cidr(cidr: str) -> Iterable[str]:
-    """Expand CIDR like '192.168.0.0/24' to host strings (no broadcast/network)."""
-    net = ipaddress.ip_network(cidr, strict=False)
-    for ip in net.hosts():
-        yield str(ip)
-
-
 def _try_expand_cidr(candidate: str) -> Optional[Iterable[str]]:
     try:
         network = ipaddress.ip_network(candidate, strict=False)

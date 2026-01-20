@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from seva.viewmodels.experiment_vm import ExperimentVM
+from seva.tests.unit.viewmodels.helpers import make_experiment_vm_with_fields
 
 
 def test_copy_paste_uses_form_snapshot_and_normalizes_flags() -> None:
-    vm = ExperimentVM()
-    vm.fields = {
+    vm = make_experiment_vm_with_fields({
         "cv.start_v": "0.05",
         "cv.vertex1_v": "0.45",
         "cv.vertex2_v": "-0.35",
@@ -19,7 +18,7 @@ def test_copy_paste_uses_form_snapshot_and_normalizes_flags() -> None:
         "run_lsv": "0",
         "run_cdl": "0",
         "eval_cdl": "0",
-    }
+    })
 
     vm.save_params_for(
         "A1",
