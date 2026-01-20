@@ -7,6 +7,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 from ..domain.entities import BoxId, BoxSnapshot, GroupSnapshot, RunStatus, WellId
 from ..domain.runs_registry import RunsRegistry
 from ..domain.snapshot_normalizer import normalize_status
+from ..domain.util import well_id_to_box
 
 # -- oben im File / neben den anderen Typalias:
 WellRow = Tuple[str, str, str, str, Optional[float], str, str, str]
@@ -346,11 +347,4 @@ class ProgressVM:
 
     @staticmethod
     def _extract_box_prefix(well_id: Union[WellId, str]) -> Optional[str]:
-        token = ""
-        for ch in str(well_id):
-            if ch.isalpha():
-                token += ch
-            else:
-                break
-        token = token.strip().upper()
-        return token or None
+        return well_id_to_box(str(well_id))

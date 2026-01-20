@@ -29,6 +29,14 @@ def _expand_cidr(cidr: str) -> Iterable[str]:
     for ip in net.hosts():
         yield str(ip)
 
+
+def _try_expand_cidr(candidate: str) -> Optional[Iterable[str]]:
+    try:
+        network = ipaddress.ip_network(candidate, strict=False)
+    except ValueError:
+        return None
+    return (str(ip) for ip in network.hosts())
+
 class HttpDiscoveryAdapter(DeviceDiscoveryPort):
     """
     KISS HTTP discovery:
@@ -51,9 +59,9 @@ class HttpDiscoveryAdapter(DeviceDiscoveryPort):
             c = c.strip()
             if not c:
                 continue
-            if "/" in c and any(tag in c for tag in ("/24", "/23", "/16", "/20", "/21", "/22")):
-                # CIDR expansion (simple)
-                for host in _expand_cidr(c):
+            cidr_hosts = _try_expand_cidr(c)
+            if cidr_hosts is not None:
+                for host in cidr_hosts:
                     base_urls.append(_normalize_candidate(host, self._port))
             else:
                 base_urls.append(_normalize_candidate(c, self._port))
