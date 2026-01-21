@@ -3,10 +3,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Protocol, Tuple, TypedDict, Set
 
-from .entities import ExperimentPlan
+from .entities import BoxId, ExperimentPlan, WellId
 
-WellId = str
-BoxId = str
 RunGroupId = str
 
 
