@@ -42,7 +42,6 @@ from ..usecases.run_flow_coordinator import (
     GroupContext,
     RunFlowCoordinator,
 )
-from ..adapters.device_rest import DeviceRestAdapter
 from ..adapters.storage_local import StorageLocal
 from ..adapters.discovery_http import HttpDiscoveryAdapter
 from ..adapters.relay_mock import RelayMock
@@ -875,31 +874,19 @@ class App:
                 dlg.request_timeout_var.get(), self.settings_vm.request_timeout_s
             )
 
-            device_port: Optional[DeviceRestAdapter] = None
-            uc: Optional[TestConnection] = None
-
             adapter = self.controller.device_adapter
             if adapter is None:
                 saved_url = (self.settings_vm.api_base_urls or {}).get(box_id, "").strip()
                 if saved_url:
                     if self._ensure_adapter():
                         adapter = self.controller.device_adapter
-            if adapter and getattr(adapter, "base_urls", {}).get(box_id) == base_url:
-                device_port = adapter
-                uc = self.controller.uc_test_connection
-                if uc is None:
-                    uc = TestConnection(device_port)
-                    self.controller.uc_test_connection = uc
 
-            if device_port is None or uc is None:
-                api_map = {box_id: api_key} if api_key else {}
-                device_port = DeviceRestAdapter(
-                    base_urls={box_id: base_url},
-                    api_keys=api_map,
-                    request_timeout_s=request_timeout,
-                    retries=0,
-                )
-                uc = TestConnection(device_port)
+            uc = self.controller.build_test_connection(
+                box_id=box_id,
+                base_url=base_url,
+                api_key=api_key,
+                request_timeout=request_timeout,
+            )
 
             assert uc is not None
             try:

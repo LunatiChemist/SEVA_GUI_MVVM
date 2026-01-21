@@ -90,3 +90,25 @@ class AppController:
             self.uc_test_connection = TestConnection(self._device_adapter)
         return True
 
+    def build_test_connection(
+        self,
+        *,
+        box_id: str,
+        base_url: str,
+        api_key: str,
+        request_timeout: int,
+    ) -> TestConnection:
+        adapter = self._device_adapter
+        if adapter and getattr(adapter, "base_urls", {}).get(box_id) == base_url:
+            if self.uc_test_connection is None:
+                self.uc_test_connection = TestConnection(adapter)
+            return self.uc_test_connection
+
+        api_map = {box_id: api_key} if api_key else {}
+        device_port = DeviceRestAdapter(
+            base_urls={box_id: base_url},
+            api_keys=api_map,
+            request_timeout_s=request_timeout,
+            retries=0,
+        )
+        return TestConnection(device_port)
