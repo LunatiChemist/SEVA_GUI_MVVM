@@ -8,18 +8,6 @@ from seva.domain.ports import BoxId, JobPort, RunGroupId, UseCaseError, WellId
 
 
 @dataclass
-class WellValidationResult:
-    """Structured summary for per-well validation feedback."""
-
-    well_id: WellId
-    box_id: BoxId
-    mode: str
-    ok: bool
-    errors: List[Dict[str, object]]
-    warnings: List[Dict[str, object]]
-
-
-@dataclass
 class StartBatchResult:
     """Aggregate outcome for a batch start attempt."""
 

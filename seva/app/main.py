@@ -12,7 +12,7 @@ from datetime import datetime
 from urllib.parse import urlparse
 from tkinter import filedialog, messagebox
 from dataclasses import dataclass
-from typing import Any, Dict, Set, Optional, Iterable, List, TYPE_CHECKING
+from typing import Any, Dict, Set, Optional, List, TYPE_CHECKING
 
 # ---- Views (UI-only) ----
 from .views.main_window import MainWindowView
@@ -37,9 +37,7 @@ from ..viewmodels.runs_vm import RunsVM
 from ..usecases.start_experiment_batch import (
     StartBatchResult,
     StartExperimentBatch,
-    WellValidationResult,
 )
-from ..usecases.validate_start_plan import ValidateStartPlan
 from ..usecases.poll_group_status import PollGroupStatus
 from ..usecases.download_group_results import DownloadGroupResults
 from ..usecases.cancel_group import CancelGroup
@@ -199,7 +197,6 @@ class App:
         self._job_adapter: Optional[JobRestAdapter] = None
         self._device_adapter: Optional[DeviceRestAdapter] = None
         self.uc_start: Optional[StartExperimentBatch] = None
-        self.uc_validate_start_plan: Optional[ValidateStartPlan] = None
         self.uc_poll: Optional[PollGroupStatus] = None
         self.uc_download: Optional[DownloadGroupResults] = None
         self.uc_cancel: Optional[CancelGroup] = None
@@ -316,9 +313,7 @@ class App:
             raise RuntimeError("Adapters not configured for coordinator factory.")
         coordinator = RunFlowCoordinator(
             job_port=self._job_adapter,
-            device_port=self._device_adapter,
             storage_port=self._storage,
-            uc_validate_start=self.uc_validate_start_plan,
             uc_start=self.uc_start,
             uc_poll=self.uc_poll,
             uc_download=self.uc_download,
@@ -488,7 +483,6 @@ class App:
 
         if self._job_adapter and self._device_adapter:
             self.uc_start = StartExperimentBatch(self._job_adapter)
-            self.uc_validate_start_plan = ValidateStartPlan(self._device_adapter, self._job_adapter)
             self.uc_test_connection = TestConnection(self._device_adapter)
         return True
 
@@ -510,7 +504,7 @@ class App:
     # ==================================================================
     def _on_submit(self) -> None:
         """Handle toolbar submit triggered by the user."""
-        # Submit: validate plan and kick off coordinator flow.
+        # Submit: kick off coordinator flow.
         try:
             if not self._ensure_adapter():
                 return
@@ -540,29 +534,16 @@ class App:
             self._log.info("Submitting start request: %s", summary)
             self._log.debug("Start selection=%s", sorted(configured))
 
-            start_hooks = FlowHooks(
-                on_validation_errors=self._handle_start_validations,
-            )
+            start_hooks = FlowHooks()
             coordinator = RunFlowCoordinator(
                 job_port=self._job_adapter,
-                device_port=self._device_adapter,
                 storage_port=self._storage,
-                uc_validate_start=self.uc_validate_start_plan,
                 uc_start=self.uc_start,
                 uc_poll=self.uc_poll,
                 uc_download=self.uc_download,
                 settings=self.settings_vm,
                 hooks=start_hooks,
             )
-
-            validations = coordinator.validate(plan)
-            has_invalid = any(not entry.ok for entry in validations)
-            has_warnings = any(entry.ok and entry.warnings for entry in validations)
-            if has_invalid or has_warnings:
-                self._handle_start_validations(validations)
-            if has_invalid:
-                self.win.show_toast("No runs started. Fix validation errors.")
-                return
 
             try:
                 ctx = coordinator.start(plan)
@@ -1613,57 +1594,6 @@ class App:
                 if slot:
                     return slot
         return None
-
-    def _handle_start_validations(
-        self, validations: Iterable[WellValidationResult]
-    ) -> None:
-        entries = list(validations)
-        if not entries:
-            return
-
-        invalid = [entry for entry in entries if not entry.ok]
-        warning_candidates = [
-            entry for entry in entries if entry.ok and entry.warnings
-        ]
-
-        def _summarize(
-            entries: List[WellValidationResult], attr: str
-        ) -> str:
-            snippets: List[str] = []
-            for entry in entries:
-                issues = getattr(entry, attr)
-                if not issues:
-                    continue
-                parts: List[str] = []
-                for issue in issues:
-                    if not isinstance(issue, dict):
-                        continue
-                    field = str(issue.get("field", "") or "*")
-                    code = str(issue.get("code", "issue"))
-                    parts.append(f"{field}:{code}")
-                if not parts:
-                    continue
-                snippets.append(f"{entry.well_id} ({entry.mode}): {', '.join(parts)}")
-            if not snippets:
-                return ""
-            preview = "; ".join(snippets[:3])
-            if len(snippets) > 3:
-                preview += f"; +{len(snippets) - 3} more"
-            return preview
-
-        if invalid:
-            summary = _summarize(invalid, "errors")
-            message = (
-                f"Validation blocked wells: {summary}"
-                if summary
-                else "Validation blocked wells."
-            )
-            self.win.show_toast(message)
-
-        if warning_candidates:
-            summary = _summarize(warning_candidates, "warnings")
-            if summary:
-                self.win.show_toast(f"Validation warnings: {summary}")
 
     # ==================================================================
     # Plan building

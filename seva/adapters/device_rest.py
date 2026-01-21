@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
-from seva.domain.ports import BoxId, DevicePort, ModeValidationResult
+from seva.domain.ports import BoxId, DevicePort
 
 from .api_errors import (
     ApiClientError,
@@ -90,24 +90,6 @@ class DeviceRestAdapter(DevicePort):
         schema = dict(data)
         cache[mode_key] = schema
         return dict(schema)
-
-    def validate_mode(
-        self, box_id: BoxId, mode: str, params: Dict[str, Any]
-    ) -> ModeValidationResult:
-        mode_key = self._normalize_mode_key(mode)
-        # Warm schema cache on first validation to avoid duplicate network calls later.
-        if mode_key not in self._mode_schema_cache.get(box_id, {}):
-            try:
-                self.get_mode_schema(box_id, mode_key)
-            except Exception:
-                # Ignore cache warming errors; validation call will surface issues.
-                pass
-
-        url = self._make_url(box_id, f"/modes/{mode_key}/validate")
-        resp = self._session(box_id).post(url, json_body=dict(params or {}))
-        self._ensure_ok(resp, f"mode_validate[{box_id}:{mode_key}]")
-        payload = self._json_any(resp)
-        return self._normalize_validation(payload, ctx=f"mode_validate[{box_id}:{mode_key}]")
 
     # ------------------------------------------------------------------
     # Helpers
@@ -195,23 +177,3 @@ class DeviceRestAdapter(DevicePort):
             snippet = getattr(resp, "text", "")[:400]
             raise RuntimeError(f"Invalid JSON response: {snippet}")
 
-    @staticmethod
-    def _normalize_validation(payload: Any, *, ctx: str) -> ModeValidationResult:
-        if not isinstance(payload, dict):
-            raise RuntimeError(f"{ctx}: expected object response")
-        errors = DeviceRestAdapter._issue_list(payload.get("errors"))
-        warnings = DeviceRestAdapter._issue_list(payload.get("warnings"))
-        raw_ok = payload.get("ok")
-        ok = bool(raw_ok) if raw_ok is not None else not errors
-        result: ModeValidationResult = {
-            "ok": ok,
-            "errors": errors,
-            "warnings": warnings,
-        }
-        return result
-
-    @staticmethod
-    def _issue_list(raw: Any) -> List[Dict[str, Any]]:
-        if not isinstance(raw, list):
-            return []
-        return [entry for entry in raw if isinstance(entry, dict)]

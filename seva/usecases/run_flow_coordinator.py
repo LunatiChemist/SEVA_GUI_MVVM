@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Sequence, TYPE_CHECKING
+from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
 
 from seva.domain.entities import (
     ClientDateTime,
@@ -16,13 +16,11 @@ from seva.domain.entities import (
     RunId,
     WellId,
 )
-from seva.domain.ports import DevicePort, JobPort, StoragePort
-from seva.usecases.start_experiment_batch import WellValidationResult
+from seva.domain.ports import JobPort, StoragePort
 
 if TYPE_CHECKING:  # pragma: no cover - type checking helper
     from seva.domain.settings import SettingsConfig
 
-ValidationSummary = Sequence[WellValidationResult]
 GroupRunIndex = Dict[WellId, RunId]
 _UNSET = object()
 
@@ -67,14 +65,11 @@ class FlowHooks:
     on_snapshot: Callable[[GroupSnapshot], None] = _noop
     on_completed: Callable[[Path], None] = _noop
     on_error: Callable[[str], None] = _noop
-    on_validation_errors: Callable[[ValidationSummary], None] = _noop
-
     def __post_init__(self) -> None:
         self.on_started = self.on_started or _noop
         self.on_snapshot = self.on_snapshot or _noop
         self.on_completed = self.on_completed or _noop
         self.on_error = self.on_error or _noop
-        self.on_validation_errors = self.on_validation_errors or _noop
 
 
 class RunFlowCoordinator:
@@ -83,9 +78,7 @@ class RunFlowCoordinator:
     def __init__(
         self,
         job_port: JobPort,
-        device_port: DevicePort,
         storage_port: StoragePort,
-        uc_validate_start,
         uc_start,
         uc_poll,
         uc_download,
@@ -99,9 +92,7 @@ class RunFlowCoordinator:
         while the flow contract is being extracted.
         """
         self.job_port = job_port
-        self.device_port = device_port
         self.storage_port = storage_port
-        self.uc_validate_start = uc_validate_start
         self.uc_start = uc_start
         self.uc_poll = uc_poll
         self.uc_download = uc_download
@@ -122,16 +113,6 @@ class RunFlowCoordinator:
         For the initial skeleton the plan is passed through unchanged.
         """
         return vm_state
-
-    def validate(
-        self, plan: ExperimentPlan
-    ) -> ValidationSummary:
-        """
-        Run plan validation by delegating to the existing use-case.
-
-        Returns the validation summary produced by the underlying use-case.
-        """
-        return self.uc_validate_start(plan)
 
     def start(
         self, plan: ExperimentPlan

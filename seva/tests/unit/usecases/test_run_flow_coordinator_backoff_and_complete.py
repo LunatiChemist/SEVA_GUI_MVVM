@@ -83,9 +83,7 @@ def _make_coordinator(
 ) -> RunFlowCoordinator:
     return RunFlowCoordinator(
         job_port=object(),
-        device_port=object(),
         storage_port=object(),
-        uc_validate_start=lambda plan: [],
         uc_start=lambda plan: _DummyStartResult(),
         uc_poll=uc_poll,
         uc_download=uc_download,
@@ -198,4 +196,3 @@ def test_poll_error_returns_error_tick_without_delay() -> None:
     assert tick.next_delay_ms is None
     assert tick.error_msg == "boom"
     assert errors == ["boom"]
-

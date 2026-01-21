@@ -5,7 +5,6 @@ import logging
 import os
 from datetime import timezone
 from typing import Dict, Iterable, Tuple, Optional, Any, List, Set
-import re
 from uuid import uuid4
 
 import requests
@@ -294,38 +293,6 @@ class JobRestAdapter(JobPort):
             self._store_run_snapshot(normalized)
 
         return group_id, run_ids
-
-
-    # ---- Busy listing ----
-    def list_busy_wells(self, box: BoxId) -> Set[str]:
-        session = self.sessions.get(box)
-        if session is None:
-            raise ApiError(
-                f"No HTTP session configured for box '{box}'",
-                context=f"jobs[{box}]",
-            )
-        url = self._make_url(box, "/jobs")
-        resp = session.get(url, params={"state": "incomplete"}, timeout=self.cfg.request_timeout_s)
-        self._ensure_ok(resp, f"jobs[{box}]")
-        data = self._json_any(resp)
-        busy: Set[str] = set()
-        if isinstance(data, list):
-            for job in data:
-                if not isinstance(job, dict):
-                    continue
-                devices = job.get("devices") or []
-                for label in devices:
-                    m = re.fullmatch(r"slot(\d+)", str(label).strip())
-                    if not m:
-                        continue
-                    try:
-                        idx = int(m.group(1))
-                    except Exception:
-                        continue
-                    wid = self.slot_to_well.get((box, idx))
-                    if wid:
-                        busy.add(wid)
-        return busy
 
     def cancel_run(self, box_id: BoxId, run_id: str) -> None:
         session = self.sessions.get(box_id)
