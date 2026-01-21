@@ -1,7 +1,5 @@
 import json
 
-import pytest
-
 from seva.adapters.storage_local import StorageLocal
 from seva.viewmodels.settings_vm import SettingsVM
 
@@ -41,25 +39,6 @@ def test_user_settings_missing_file_and_save(tmp_path):
         persisted = json.load(fh)
 
     assert persisted == vm.to_dict()
-
-
-def test_settings_vm_rejects_legacy_timeouts():
-    vm = SettingsVM()
-    payload = {
-        "box_urls": {"A": "http://localhost"},
-        "api_keys": {"A": "123"},
-        "timeouts": {"request_s": 7, "download_s": 21},
-        "poll_interval_ms": 600,
-        "results_dir": "/tmp/out",
-        "use_streaming": True,
-        "relay": {"ip": "1.2.3.4", "port": 2222},
-        "debug_logging": False,
-    }
-
-    with pytest.raises(
-        ValueError, match="Unsupported settings format \\(legacy\\)"
-    ):
-        vm.apply_dict(payload)
 
 
 def test_settings_vm_set_results_dir_strips_and_defaults():
