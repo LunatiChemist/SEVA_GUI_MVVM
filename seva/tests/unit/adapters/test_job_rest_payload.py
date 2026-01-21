@@ -40,9 +40,11 @@ from seva.domain.params import CVParams
 class _SessionStub:
     def __init__(self) -> None:
         self.calls: List[Dict[str, Any]] = []
+        self._idx = 0
 
     def post(self, url: str, *, json_body: Dict[str, Any], timeout: int):
-        run_id = f"{json_body['well_id']}-run"
+        self._idx += 1
+        run_id = f"run-{self._idx}"
         self.calls.append({"url": url, "json": json_body, "timeout": timeout})
         return types.SimpleNamespace(status_code=200, json=lambda: {"run_id": run_id})
 
@@ -71,24 +73,6 @@ def _plan() -> ExperimentPlan:
     return ExperimentPlan(meta=meta, wells=wells, make_plot=False)
 
 
-def test_to_start_payload_includes_meta_and_slots() -> None:
-    adapter = JobRestAdapter(base_urls={"A": "http://box-a", "B": "http://box-b"})
-    adapter.well_to_slot = {"A1": ("A", 1), "B2": ("B", 2)}
-
-    payload = adapter.to_start_payload(_plan())
-
-    assert payload["group_id"] == "grp-001"
-    assert payload["storage"]["experiment_name"] == "Experiment Alpha"
-    assert payload["storage"]["subdir"] == "Batch 001"
-    assert payload["storage"]["client_datetime"] == "2024-03-05T10:15:30Z"
-
-    jobs = payload["jobs"]
-    assert jobs[0]["devices"] == ["slot01"]
-    assert jobs[0]["group_id"] == "grp-001"
-    assert jobs[0]["make_plot"] is False
-    assert jobs[0]["mode"] == "CV"
-
-
 def test_start_batch_posts_jobs_per_well() -> None:
     adapter = JobRestAdapter(base_urls={"A": "http://box-a", "B": "http://box-b"})
     adapter.well_to_slot = {"A1": ("A", 1), "B2": ("B", 2)}
@@ -97,14 +81,13 @@ def test_start_batch_posts_jobs_per_well() -> None:
     group_id, per_box_runs = adapter.start_batch(_plan())
 
     assert group_id == "grp-001"
-    assert per_box_runs == {"A": ["A1-run"], "B": ["B2-run"]}
+    assert per_box_runs == {"A": ["run-1"], "B": ["run-1"]}
 
     for box, session in adapter.sessions.items():
         assert len(session.calls) == 1
         call = session.calls[0]
         assert call["url"].endswith("/jobs")
-        assert call["json"]["group_id"] == "grp-001"
-        assert call["json"]["mode"] == "CV"
+        assert call["json"]["modes"] == ["CV"]
         assert call["json"]["experiment_name"] == "Experiment Alpha"
         assert call["json"]["client_datetime"] == "2024-03-05T10:15:30Z"
         expected_slot = "slot01" if box == "A" else "slot02"

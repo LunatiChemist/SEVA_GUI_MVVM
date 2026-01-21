@@ -30,10 +30,9 @@ class JobRestAdapter(JobPort):
     """REST adapter for your FastAPI boxes.
 
     Endpoints:
-      - POST {base}/jobs               body: {"devices":[1,2], "mode":"CV|CA|LSV|...", "params":{...}}
+      - POST {base}/jobs               body: {"devices":["slot01"], "modes":["CV"], "params_by_mode":{...}}
               -> {"run_id": "..."}
-      - GET  {base}/jobs/{run_id}      -> {"run_id": "...", "started_at": "...",
-                                            "channels":[{"slot":1,"state":"Running"}, ...]}
+      - POST {base}/jobs/status        -> [{"run_id":"...", "status":"running", ...}]
       - GET  {base}/runs/{run_id}/zip  -> application/zip
 
     Notes:
@@ -106,78 +105,6 @@ class JobRestAdapter(JobPort):
 
     # ---------- JobPort implementation ----------
 
-    def to_start_payload(self, plan: ExperimentPlan) -> Dict[str, Any]:
-        if not isinstance(plan, ExperimentPlan):
-            raise TypeError(f"to_start_payload expects ExperimentPlan, got {type(plan).__name__}")
-
-        meta = plan.meta
-        client_dt = (
-            meta.client_dt.value.astimezone(timezone.utc)
-            .replace(microsecond=0)
-        )
-        client_dt_text = client_dt.isoformat()
-        if client_dt_text.endswith("+00:00"):
-            client_dt_text = client_dt_text[:-6] + "Z"
-
-        group_id = str(meta.group_id)
-        storage_payload = {
-            "experiment_name": meta.experiment,
-            "subdir": meta.subdir or None,
-            "client_datetime": client_dt_text,
-            "group_id": group_id,
-        }
-
-        jobs: List[Dict[str, Any]] = []
-        for well_plan in plan.wells:
-            normalized_modes = [
-                normalize_mode_name(str(mode)) for mode in (well_plan.modes or [])
-            ]
-            well_id = str(well_plan.well)
-            if not well_id:
-                raise ValueError("Experiment plan contains an empty well identifier.")
-
-            slot_info = self.well_to_slot.get(well_id)
-            if not slot_info:
-                raise ValueError(f"Unknown well '{well_id}' for any configured box.")
-            box, slot = slot_info
-
-            # Multi-mode: params_by_mode -> {str(mode): dict}
-            params_by_mode: Dict[str, Dict[str, Any]] = {}
-            for mode_name, params_obj in (well_plan.params_by_mode or {}).items():
-                mode_key = normalize_mode_name(str(mode_name))
-                try:
-                    params_by_mode[mode_key] = params_obj.to_payload()
-                except NotImplementedError as exc:  # pragma: no cover
-                    raise ValueError(
-                        f"Well '{well_id}' mode '{mode_name}' parameters do not support payload serialization."
-                    ) from exc
-                except AttributeError as exc:  # pragma: no cover
-                    raise ValueError(
-                        f"Well '{well_id}' mode '{mode_name}' parameters are missing a to_payload() method."
-                    ) from exc
-
-            devices = [self._slot_label(slot)]
-
-            jobs.append(
-                {
-                    "box": box,
-                    "wells": [well_id],
-                    "well_id": well_id,
-                    "modes": normalized_modes,
-                    "params_by_mode": params_by_mode,
-                    "tia_gain": meta.tia_gain,
-                    "sampling_interval": meta.sampling_interval,
-                    "make_plot": bool(meta.make_plot),
-                    "experiment_name": storage_payload["experiment_name"],
-                    "subdir": storage_payload["subdir"],
-                    "client_datetime": storage_payload["client_datetime"],
-                    "group_id": group_id,
-                    "devices": devices,
-                }
-            )
-
-        return {"group_id": group_id, "storage": storage_payload, "jobs": jobs}
-
     def health(self, box_id: BoxId) -> Dict:
         session = self.sessions.get(box_id)
         if session is None:
@@ -207,65 +134,68 @@ class JobRestAdapter(JobPort):
         return cleaned
 
     def start_batch(self, plan: ExperimentPlan) -> Tuple[RunGroupId, Dict[BoxId, List[str]]]:
-        prepared = self.to_start_payload(plan)
+        if not isinstance(plan, ExperimentPlan):
+            raise TypeError(f"start_batch expects ExperimentPlan, got {type(plan).__name__}")
 
-        jobs: List[Dict[str, Any]] = list(prepared.get("jobs") or [])
-        if not jobs:
-            raise ValueError("start_batch: missing 'jobs' in plan")
+        meta = plan.meta
+        client_dt = (
+            meta.client_dt.value.astimezone(timezone.utc)
+            .replace(microsecond=0)
+        )
+        client_dt_text = client_dt.isoformat()
+        if client_dt_text.endswith("+00:00"):
+            client_dt_text = client_dt_text[:-6] + "Z"
 
-        group_id_raw = prepared.get("group_id")
-        group_id = group_id_raw if isinstance(group_id_raw, str) and group_id_raw.strip() else str(uuid4())
-        storage_meta: Dict[str, Any] = dict(prepared.get("storage") or {})
+        group_id = str(meta.group_id) if str(meta.group_id).strip() else str(uuid4())
+        experiment_name = (meta.experiment or "").strip()
+        if not experiment_name:
+            raise ValueError("start_batch: missing experiment_name in plan meta")
+        subdir = (meta.subdir or "").strip() or None
 
         run_ids: Dict[BoxId, List[str]] = {}
         self._groups[group_id] = {}
 
-        for job in jobs:
-            box: BoxId = job.get("box")
-            if not box:
-                raise ValueError("start_batch: job requires 'box' entry")
+        if not plan.wells:
+            raise ValueError("start_batch: plan contains no wells")
 
-            well_id = job.get("well_id") or (job.get("wells") or [None])[0]
+        for well_plan in plan.wells:
+            normalized_modes = [
+                normalize_mode_name(str(mode)) for mode in (well_plan.modes or [])
+            ]
+            well_id = str(well_plan.well)
             if not well_id:
-                raise ValueError("start_batch: job missing 'well_id' entry")
+                raise ValueError("Experiment plan contains an empty well identifier.")
 
-            devices_raw: List[str] = list(job.get("devices") or [])
-            if devices_raw:
-                devices = [str(d).strip() for d in devices_raw if str(d).strip()]
-            else:
-                wells_for_mapping = job.get("wells") or [well_id]
-                if not wells_for_mapping:
-                    raise ValueError("start_batch: job missing wells for slot mapping")
-                slots: List[int] = []
-                for wid in wells_for_mapping:
-                    tpl = self.well_to_slot.get(wid)
-                    if not tpl or tpl[0] != box:
-                        raise ValueError(f"Unknown or mismatched well '{wid}' for box '{box}'")
-                    slots.append(tpl[1])
-                devices = [self._slot_label(s) for s in sorted(set(slots))]
-            if not devices:
-                raise ValueError(f"start_batch: derived empty device list for well '{well_id}'")
+            slot_info = self.well_to_slot.get(well_id)
+            if not slot_info:
+                raise ValueError(f"Unknown well '{well_id}' for any configured box.")
+            box, slot = slot_info
+            devices = [self._slot_label(slot)]
 
-            experiment_name = job.get("experiment_name") or storage_meta.get("experiment_name")
-            experiment_name = (experiment_name or "").strip()
-            if not experiment_name:
-                raise ValueError("start_batch: missing experiment_name in job plan")
-            subdir = (job.get("subdir", storage_meta.get("subdir")) or "").strip() or None
-            client_datetime = (job.get("client_datetime") or storage_meta.get("client_datetime") or "").strip()
-            if not client_datetime:
-                raise ValueError("start_batch: missing client_datetime in job plan")
+            params_by_mode: Dict[str, Dict[str, Any]] = {}
+            for mode_name, params_obj in (well_plan.params_by_mode or {}).items():
+                mode_key = normalize_mode_name(str(mode_name))
+                try:
+                    params_by_mode[mode_key] = params_obj.to_payload()
+                except NotImplementedError as exc:  # pragma: no cover
+                    raise ValueError(
+                        f"Well '{well_id}' mode '{mode_name}' parameters do not support payload serialization."
+                    ) from exc
+                except AttributeError as exc:  # pragma: no cover
+                    raise ValueError(
+                        f"Well '{well_id}' mode '{mode_name}' parameters are missing a to_payload() method."
+                    ) from exc
 
             payload = {
                 "devices": devices,
-                "modes": job.get("modes") or [],
-                "params_by_mode": job.get("params_by_mode") or {},
-                "tia_gain": job.get("tia_gain", None),
-                "sampling_interval": job.get("sampling_interval", None),
-                "make_plot": bool(job.get("make_plot", True)),
+                "modes": normalized_modes,
+                "params_by_mode": params_by_mode,
+                "tia_gain": meta.tia_gain,
+                "sampling_interval": meta.sampling_interval,
+                "make_plot": bool(meta.make_plot),
                 "experiment_name": experiment_name,
                 "subdir": subdir,
-                "client_datetime": client_datetime,
-                "group_id": group_id,
+                "client_datetime": client_dt_text,
             }
 
             url = self._make_url(box, "/jobs")
