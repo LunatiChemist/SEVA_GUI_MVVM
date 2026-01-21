@@ -35,7 +35,6 @@ from ..viewmodels.runs_vm import RunsVM
 
 # ---- UseCases & Adapter ----
 from ..usecases.start_experiment_batch import StartBatchResult
-from ..usecases.test_connection import TestConnection
 from ..usecases.run_flow_coordinator import (
     FlowHooks,
     FlowTick,
