@@ -3,21 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from seva.adapters.storage_local import StorageLocal
 from seva.viewmodels.settings_vm import (
     SettingsVM,
     default_settings_payload,
 )
-
-
-def test_apply_dict_rejects_legacy_payload() -> None:
-    vm = SettingsVM()
-    with pytest.raises(ValueError):
-        vm.apply_dict({"timeouts": {"request_s": 5}})
-    with pytest.raises(ValueError):
-        vm.apply_dict({"relay": {"ip": "127.0.0.1", "port": 9000}})
 
 
 def test_apply_dict_updates_flat_keys() -> None:

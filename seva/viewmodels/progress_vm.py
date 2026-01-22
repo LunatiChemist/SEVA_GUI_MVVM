@@ -275,8 +275,8 @@ class ProgressVM:
             return "Done"
         if not phases:
             return "Idle"
-        phase_key = next(iter(phases))
-        return phase_label(phase_key)
+        phase_token = next(iter(phases))
+        return phase_label(phase_token)
 
     @staticmethod
     def _collect_box_run_ids(runs: List[Tuple[str, RunStatus]]) -> List[str]:

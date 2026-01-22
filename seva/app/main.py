@@ -12,7 +12,7 @@ from datetime import datetime
 from urllib.parse import urlparse
 from tkinter import filedialog, messagebox
 from dataclasses import dataclass
-from typing import Any, Dict, Set, Optional, Iterable, List, TYPE_CHECKING
+from typing import Any, Dict, Set, Optional, List, TYPE_CHECKING
 
 # ---- Views (UI-only) ----
 from .views.main_window import MainWindowView
@@ -34,24 +34,13 @@ from ..viewmodels.live_data_vm import LiveDataVM
 from ..viewmodels.runs_vm import RunsVM
 
 # ---- UseCases & Adapter ----
-from ..usecases.start_experiment_batch import (
-    StartBatchResult,
-    StartExperimentBatch,
-    WellValidationResult,
-)
-from ..usecases.validate_start_plan import ValidateStartPlan
-from ..usecases.poll_group_status import PollGroupStatus
-from ..usecases.download_group_results import DownloadGroupResults
-from ..usecases.cancel_group import CancelGroup
-from ..usecases.test_connection import TestConnection
+from ..usecases.start_experiment_batch import StartBatchResult
 from ..usecases.run_flow_coordinator import (
     FlowHooks,
     FlowTick,
     GroupContext,
     RunFlowCoordinator,
 )
-from ..adapters.job_rest import JobRestAdapter
-from ..adapters.device_rest import DeviceRestAdapter
 from ..adapters.storage_local import StorageLocal
 from ..adapters.discovery_http import HttpDiscoveryAdapter
 from ..adapters.relay_mock import RelayMock
@@ -74,14 +63,10 @@ from ..adapters.api_errors import (
     extract_error_hint,
 )
 from ..utils import logging as logging_utils
+from .controller import AppController
 
 if TYPE_CHECKING:
     from ..usecases.cancel_runs import CancelRuns
-
-try:
-    from ..usecases.cancel_runs import CancelRuns as _CancelRunsClass
-except ImportError:
-    _CancelRunsClass = None
 
 logging_utils.configure_root()
 
@@ -196,15 +181,7 @@ class App:
         self._refresh_runs_panel()
 
         # ---- REST Adapter & UseCases (lazy init after settings) ----
-        self._job_adapter: Optional[JobRestAdapter] = None
-        self._device_adapter: Optional[DeviceRestAdapter] = None
-        self.uc_start: Optional[StartExperimentBatch] = None
-        self.uc_validate_start_plan: Optional[ValidateStartPlan] = None
-        self.uc_poll: Optional[PollGroupStatus] = None
-        self.uc_download: Optional[DownloadGroupResults] = None
-        self.uc_cancel: Optional[CancelGroup] = None
-        self.uc_cancel_runs: Optional['CancelRuns'] = None
-        self.uc_test_connection: Optional[TestConnection] = None
+        self.controller = AppController(self.settings_vm)
 
         # ---- Download metadata per group ----
         self._group_storage_meta: Dict[str, Dict[str, str]] = {}
@@ -315,13 +292,11 @@ class App:
         if not self._ensure_adapter():
             raise RuntimeError("Adapters not configured for coordinator factory.")
         coordinator = RunFlowCoordinator(
-            job_port=self._job_adapter,
-            device_port=self._device_adapter,
+            job_port=self.controller.job_adapter,
             storage_port=self._storage,
-            uc_validate_start=self.uc_validate_start_plan,
-            uc_start=self.uc_start,
-            uc_poll=self.uc_poll,
-            uc_download=self.uc_download,
+            uc_start=self.controller.uc_start,
+            uc_poll=self.controller.uc_poll,
+            uc_download=self.controller.uc_download,
             settings=self.settings_vm,
             hooks=hooks,
         )
@@ -397,7 +372,7 @@ class App:
         self._open_path(path)
 
     def _on_runs_cancel(self, group_id: str) -> None:
-        if not self._ensure_adapter() or not self.uc_cancel:
+        if not self._ensure_adapter() or not self.controller.uc_cancel:
             messagebox.showinfo("Cancel Group", "Cancel use case nicht verfügbar.")
             return
 
@@ -412,7 +387,7 @@ class App:
             return
 
         try:
-            self.uc_cancel(group_id)  # type: ignore[misc]
+            self.controller.uc_cancel(group_id)  # type: ignore[misc]
             self._stop_polling(group_id)
             self.runs.mark_cancelled(group_id)
             self._refresh_runs_panel()
@@ -449,48 +424,11 @@ class App:
     # Adapter wiring
     # ==================================================================
     def _ensure_adapter(self) -> bool:
-        """Build the REST adapter and use cases from SettingsVM if not yet present."""
-        if (
-            self._job_adapter
-            and self._device_adapter
-            and (self.uc_cancel_runs or _CancelRunsClass is None)
-        ):
+        """Ensure controller has adapters and use-cases initialized."""
+        if self.controller.ensure_ready():
             return True
-
-        base_urls = {k: v for k, v in (self.settings_vm.api_base_urls or {}).items() if v}
-        if not base_urls:
-            self.win.show_toast("Configure box URLs in Settings first.")
-            return False
-
-        api_keys = {k: v for k, v in (self.settings_vm.api_keys or {}).items() if v}
-        if self._job_adapter is None:
-            self._job_adapter = JobRestAdapter(
-                base_urls=base_urls,
-                api_keys=api_keys,
-                request_timeout_s=self.settings_vm.request_timeout_s,
-                download_timeout_s=self.settings_vm.download_timeout_s,
-                retries=2,
-            )
-            self.uc_poll = PollGroupStatus(self._job_adapter)
-            self.uc_download = DownloadGroupResults(self._job_adapter)
-            self.uc_cancel = CancelGroup(self._job_adapter)
-
-        if _CancelRunsClass and self._job_adapter and self.uc_cancel_runs is None:
-            self.uc_cancel_runs = _CancelRunsClass(self._job_adapter)
-
-        if self._device_adapter is None:
-            self._device_adapter = DeviceRestAdapter(
-                base_urls=base_urls,
-                api_keys=api_keys,
-                request_timeout_s=self.settings_vm.request_timeout_s,
-                retries=2,
-            )
-
-        if self._job_adapter and self._device_adapter:
-            self.uc_start = StartExperimentBatch(self._job_adapter)
-            self.uc_validate_start_plan = ValidateStartPlan(self._device_adapter, self._job_adapter)
-            self.uc_test_connection = TestConnection(self._device_adapter)
-        return True
+        self.win.show_toast("Configure box URLs in Settings first.")
+        return False
 
     # ==================================================================
     # Demo data seeding (light)
@@ -510,7 +448,7 @@ class App:
     # ==================================================================
     def _on_submit(self) -> None:
         """Handle toolbar submit triggered by the user."""
-        # Submit: validate plan and kick off coordinator flow.
+        # Submit: kick off coordinator flow.
         try:
             if not self._ensure_adapter():
                 return
@@ -540,29 +478,16 @@ class App:
             self._log.info("Submitting start request: %s", summary)
             self._log.debug("Start selection=%s", sorted(configured))
 
-            start_hooks = FlowHooks(
-                on_validation_errors=self._handle_start_validations,
-            )
+            start_hooks = FlowHooks()
             coordinator = RunFlowCoordinator(
-                job_port=self._job_adapter,
-                device_port=self._device_adapter,
+                job_port=self.controller.job_adapter,
                 storage_port=self._storage,
-                uc_validate_start=self.uc_validate_start_plan,
-                uc_start=self.uc_start,
-                uc_poll=self.uc_poll,
-                uc_download=self.uc_download,
+                uc_start=self.controller.uc_start,
+                uc_poll=self.controller.uc_poll,
+                uc_download=self.controller.uc_download,
                 settings=self.settings_vm,
                 hooks=start_hooks,
             )
-
-            validations = coordinator.validate(plan)
-            has_invalid = any(not entry.ok for entry in validations)
-            has_warnings = any(entry.ok and entry.warnings for entry in validations)
-            if has_invalid or has_warnings:
-                self._handle_start_validations(validations)
-            if has_invalid:
-                self.win.show_toast("No runs started. Fix validation errors.")
-                return
 
             try:
                 ctx = coordinator.start(plan)
@@ -643,16 +568,10 @@ class App:
             self.win.set_run_group_id(group_id)
 
             started_boxes = ", ".join(sorted(subruns.keys()))
-            skipped = sum(1 for entry in validations if not entry.ok)
-            if skipped:
-                self.win.show_toast(
-                    f"Started group {group_id} ({started_count} wells, skipped {skipped})."
-                )
+            if started_boxes:
+                self.win.show_toast(f"Started group {group_id} on {started_boxes}")
             else:
-                if started_boxes:
-                    self.win.show_toast(f"Started group {group_id} on {started_boxes}")
-                else:
-                    self.win.show_toast(f"Started group {group_id}.")
+                self.win.show_toast(f"Started group {group_id}.")
             self._schedule_poll(group_id, 0)
         except Exception as e:
             self._stop_polling()
@@ -665,7 +584,7 @@ class App:
         try:
             current = self._active_group_id
             self._log.info("Cancel requested for group %s", current)
-            self.uc_cancel(current)  # prints notice in adapter
+            self.controller.uc_cancel(current)  # type: ignore[misc]
             self._stop_polling(current)
             self.runs.mark_cancelled(current)
             self.win.show_toast(f"Cancel requested for group {current}.")
@@ -681,7 +600,7 @@ class App:
             return
         if not self._ensure_adapter():
             return
-        cancel_runs = self.uc_cancel_runs
+        cancel_runs = self.controller.uc_cancel_runs
         if cancel_runs is None:
             self.win.show_toast("Cancel selected runs not available.")
             return
@@ -954,31 +873,19 @@ class App:
                 dlg.request_timeout_var.get(), self.settings_vm.request_timeout_s
             )
 
-            device_port: Optional[DeviceRestAdapter] = None
-            uc: Optional[TestConnection] = None
-
-            adapter = self._device_adapter
+            adapter = self.controller.device_adapter
             if adapter is None:
                 saved_url = (self.settings_vm.api_base_urls or {}).get(box_id, "").strip()
                 if saved_url:
                     if self._ensure_adapter():
-                        adapter = self._device_adapter
-            if adapter and getattr(adapter, "base_urls", {}).get(box_id) == base_url:
-                device_port = adapter
-                uc = self.uc_test_connection
-                if uc is None:
-                    uc = TestConnection(device_port)
-                    self.uc_test_connection = uc
+                        adapter = self.controller.device_adapter
 
-            if device_port is None or uc is None:
-                api_map = {box_id: api_key} if api_key else {}
-                device_port = DeviceRestAdapter(
-                    base_urls={box_id: base_url},
-                    api_keys=api_map,
-                    request_timeout_s=request_timeout,
-                    retries=0,
-                )
-                uc = TestConnection(device_port)
+            uc = self.controller.build_test_connection(
+                box_id=box_id,
+                base_url=base_url,
+                api_key=api_key,
+                request_timeout=request_timeout,
+            )
 
             assert uc is not None
             try:
@@ -1126,9 +1033,7 @@ class App:
 
         # reset adapter to reflect new settings
         self._stop_polling()
-        self._job_adapter = None
-        self._device_adapter = None
-        self.uc_test_connection = None
+        self.controller.reset()
         self._apply_box_configuration()
         self.win.show_toast("Settings saved.")
 
@@ -1170,7 +1075,7 @@ class App:
             self.win.show_toast("Results directory is not configured for downloads.")
             return
         try:
-            out_dir = self.uc_download(
+            out_dir = self.controller.uc_download(
                 group_id,
                 results_dir,
                 storage_meta,
@@ -1613,57 +1518,6 @@ class App:
                 if slot:
                     return slot
         return None
-
-    def _handle_start_validations(
-        self, validations: Iterable[WellValidationResult]
-    ) -> None:
-        entries = list(validations)
-        if not entries:
-            return
-
-        invalid = [entry for entry in entries if not entry.ok]
-        warning_candidates = [
-            entry for entry in entries if entry.ok and entry.warnings
-        ]
-
-        def _summarize(
-            entries: List[WellValidationResult], attr: str
-        ) -> str:
-            snippets: List[str] = []
-            for entry in entries:
-                issues = getattr(entry, attr)
-                if not issues:
-                    continue
-                parts: List[str] = []
-                for issue in issues:
-                    if not isinstance(issue, dict):
-                        continue
-                    field = str(issue.get("field", "") or "*")
-                    code = str(issue.get("code", "issue"))
-                    parts.append(f"{field}:{code}")
-                if not parts:
-                    continue
-                snippets.append(f"{entry.well_id} ({entry.mode}): {', '.join(parts)}")
-            if not snippets:
-                return ""
-            preview = "; ".join(snippets[:3])
-            if len(snippets) > 3:
-                preview += f"; +{len(snippets) - 3} more"
-            return preview
-
-        if invalid:
-            summary = _summarize(invalid, "errors")
-            message = (
-                f"Validation blocked wells: {summary}"
-                if summary
-                else "Validation blocked wells."
-            )
-            self.win.show_toast(message)
-
-        if warning_candidates:
-            summary = _summarize(warning_candidates, "warnings")
-            if summary:
-                self.win.show_toast(f"Validation warnings: {summary}")
 
     # ==================================================================
     # Plan building

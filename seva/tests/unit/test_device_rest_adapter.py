@@ -135,36 +135,6 @@ def test_device_adapter_get_mode_schema_uses_cache() -> None:
     assert len(stub.calls) == 1
 
 
-def test_device_adapter_validate_mode_normalizes_payload() -> None:
-    adapter = DeviceRestAdapter({"boxG": "http://box"})
-    responses = [
-        _ResponseStub({"param": "value"}),  # schema warm-up
-        _ResponseStub(
-            {
-                "ok": None,
-                "errors": [{"field": "start", "code": "missing", "message": "missing"}],
-                "warnings": [
-                    "ignore-me",
-                    {"field": "scan_rate", "code": "high", "message": "High value"},
-                ],
-            }
-        ),
-    ]
-    stub = _SessionStub(responses)
-    adapter.sessions["boxG"] = stub  # type: ignore[assignment]
-
-    result = adapter.validate_mode("boxG", "cv", {"start": ""})
-
-    assert result["ok"] is False
-    assert result["errors"] == [
-        {"field": "start", "code": "missing", "message": "missing"}
-    ]
-    assert result["warnings"] == [
-        {"field": "scan_rate", "code": "high", "message": "High value"}
-    ]
-    assert [call["method"] for call in stub.calls] == ["GET", "POST"]
-
-
 def test_device_adapter_get_mode_schema_raises_on_unauthorized() -> None:
     adapter = DeviceRestAdapter({"boxD": "http://box"})
     stub = _SessionStub([_ResponseStub("forbidden", status_code=401)])
@@ -212,12 +182,6 @@ class _DevicePortStub(DevicePort):
     def get_mode_schema(self, box_id: BoxId, mode: str) -> Dict[str, Any]:
         self.calls.append({"method": "get_mode_schema", "box": box_id, "mode": mode})
         return {}
-
-    def validate_mode(self, box_id: BoxId, mode: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        self.calls.append(
-            {"method": "validate_mode", "box": box_id, "mode": mode, "params": dict(params)}
-        )
-        return {"ok": True, "errors": [], "warnings": []}
 
 
 def test_test_connection_usecase_uses_device_port() -> None:

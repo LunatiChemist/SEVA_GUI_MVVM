@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import List, Sequence
+from typing import List
 import types
 
 from seva.domain.entities import (
@@ -20,9 +20,8 @@ from seva.domain.entities import (
 )
 from seva.domain.plan_builder import build_meta, from_well_params
 from seva.domain.params import CVParams
-from seva.domain.ports import BoxId as PortBoxId
 from seva.usecases.run_flow_coordinator import FlowHooks, RunFlowCoordinator
-from seva.usecases.start_experiment_batch import StartBatchResult, WellValidationResult
+from seva.usecases.start_experiment_batch import StartBatchResult
 from seva.viewmodels.progress_vm import ProgressVM
 
 
@@ -64,11 +63,6 @@ class _JobPortStub:
         raise NotImplementedError
 
 
-class _DevicePortStub:
-    def validate_mode(self, box_id: PortBoxId, mode: str, params):
-        return {"ok": True, "errors": [], "warnings": []}
-
-
 class _StoragePortStub:
     def save_layout(self, name, payload):
         raise NotImplementedError
@@ -86,23 +80,16 @@ class _StoragePortStub:
 def test_domain_first_flow_validates_and_updates_progress() -> None:
     plan = _experiment_plan()
     job_port = _JobPortStub()
-    device_port = _DevicePortStub()
     storage_port = _StoragePortStub()
 
     started_groups: List[str] = []
     started_contexts: List[str] = []
     observed_snapshots: List[GroupSnapshot] = []
-    validation_calls: List[Sequence[WellValidationResult]] = []
 
     hooks = FlowHooks(
         on_started=lambda ctx: started_contexts.append(str(ctx.group)),
         on_snapshot=lambda snap: observed_snapshots.append(snap),
-        on_validation_errors=lambda entries: validation_calls.append(entries),
     )
-
-    def _validate(plan_input: ExperimentPlan):
-        assert isinstance(plan_input, ExperimentPlan)
-        return []
 
     def _start(plan_input: ExperimentPlan):
         assert isinstance(plan_input, ExperimentPlan)
@@ -142,9 +129,7 @@ def test_domain_first_flow_validates_and_updates_progress() -> None:
 
     coordinator = RunFlowCoordinator(
         job_port=job_port,
-        device_port=device_port,
         storage_port=storage_port,
-        uc_validate_start=_validate,
         uc_start=_start,
         uc_poll=_poll,
         uc_download=_download,
@@ -152,8 +137,6 @@ def test_domain_first_flow_validates_and_updates_progress() -> None:
         hooks=hooks,
     )
 
-    results = coordinator.validate(plan)
-    assert results == []
     ctx = coordinator.start(plan)
     assert started_groups == [str(plan.meta.group_id)]
     assert started_contexts == [str(plan.meta.group_id)]
@@ -161,7 +144,6 @@ def test_domain_first_flow_validates_and_updates_progress() -> None:
     tick = coordinator.poll_once(ctx)
     assert tick.snapshot is snapshot
     assert observed_snapshots == [snapshot]
-    assert validation_calls == []
 
     progress_vm = ProgressVM()
     progress_vm.apply_snapshot(snapshot)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import MagicMock, sentinel
+from unittest.mock import MagicMock
 
 from seva.domain.entities import (
     ClientDateTime,
@@ -43,37 +43,18 @@ def _build_plan() -> ExperimentPlan:
 def _make_coordinator(
     *,
     hooks: FlowHooks | None = None,
-    uc_validate,
     uc_start,
     uc_poll,
 ) -> RunFlowCoordinator:
     return RunFlowCoordinator(
         job_port=MagicMock(),
-        device_port=MagicMock(),
         storage_port=MagicMock(),
-        uc_validate_start=uc_validate,
         uc_start=uc_start,
         uc_poll=uc_poll,
         uc_download=MagicMock(),
         settings=SimpleNamespace(poll_interval_ms=750, poll_backoff_max_ms=5000, auto_download_on_complete=False, results_dir="results"),
         hooks=hooks,
     )
-
-
-def test_validate_delegates_use_case() -> None:
-    plan = _build_plan()
-    uc_validate = MagicMock(return_value=[sentinel.validation])
-    coordinator = _make_coordinator(
-        hooks=FlowHooks(),
-        uc_validate=uc_validate,
-        uc_start=MagicMock(),
-        uc_poll=MagicMock(),
-    )
-
-    summary = coordinator.validate(plan)
-
-    assert summary == [sentinel.validation]
-    uc_validate.assert_called_once_with(plan)
 
 
 def test_start_returns_context_and_fires_hook() -> None:
@@ -83,7 +64,6 @@ def test_start_returns_context_and_fires_hook() -> None:
     uc_start = MagicMock(return_value=SimpleNamespace(run_group_id="run-123"))
     coordinator = _make_coordinator(
         hooks=hooks,
-        uc_validate=MagicMock(),
         uc_start=uc_start,
         uc_poll=MagicMock(),
     )
@@ -107,7 +87,6 @@ def test_poll_once_returns_tick_and_emits_snapshot_hook() -> None:
     uc_poll = MagicMock(return_value=snapshot)
     coordinator = _make_coordinator(
         hooks=hooks,
-        uc_validate=MagicMock(),
         uc_start=uc_start,
         uc_poll=uc_poll,
     )

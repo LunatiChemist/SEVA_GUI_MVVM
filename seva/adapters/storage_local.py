@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict
 
-from seva.domain.layout_utils import normalize_selection, with_flag_defaults
+from seva.domain.layout_utils import normalize_selection
 from seva.domain.ports import StoragePort
 from seva.viewmodels.settings_vm import default_settings_payload
 
@@ -119,31 +119,12 @@ class StorageLocal(StoragePort):
                 normalized.append(wid)
         return normalized
 
-    @staticmethod
-    def _is_flag_key(key: Any) -> bool:
-        return isinstance(key, str) and (key.startswith("run_") or key == "eval_cdl")
-
     def _prepare_snapshot_for_dump(self, snapshot: Any) -> Any:
-        """Split snapshot into fields/flags for persistence (legacy: flat dict)."""
         if not isinstance(snapshot, dict):
             return snapshot
-        fields: Dict[str, Any] = {}
-        flags: Dict[str, Any] = {}
-        for key, value in snapshot.items():
-            (flags if self._is_flag_key(key) else fields)[key] = value
-        return {"fields": fields, "flags": flags}
+        return dict(snapshot)
 
     def _hydrate_snapshot(self, payload: Any) -> Dict[str, Any]:
-        """Merge persisted payload back into a flat snapshot with default flags."""
-        snapshot: Dict[str, Any] = {}
         if isinstance(payload, dict):
-            if "fields" in payload or "flags" in payload:
-                fields = payload.get("fields")
-                if isinstance(fields, dict):
-                    snapshot.update(fields)
-                flags = payload.get("flags")
-                if isinstance(flags, dict):
-                    snapshot.update(flags)
-            else:
-                snapshot.update(payload)
-        return with_flag_defaults(snapshot)
+            return dict(payload)
+        return {}

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, TYPE_CHECKING
 
-from ..domain.layout_utils import normalize_selection, with_flag_defaults
+from ..domain.layout_utils import normalize_selection
 from ..domain.ports import StoragePort, UseCaseError, WellId
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -79,14 +79,14 @@ class SavePlateLayout:
         if is_per_well:
             for wid, snapshot in params.items():
                 sid = str(wid)
-                result[sid] = with_flag_defaults(snapshot)
+                result[sid] = dict(snapshot)
             for wid in selection:
                 sid = str(wid)
                 if sid not in result:
-                    result[sid] = with_flag_defaults({})
+                    result[sid] = {}
         else:
             template = dict(params)
             for wid in selection:
                 sid = str(wid)
-                result[sid] = with_flag_defaults(template)
+                result[sid] = dict(template)
         return result
