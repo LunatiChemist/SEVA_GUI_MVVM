@@ -409,7 +409,12 @@ def list_devices(x_api_key: Optional[str] = Header(None)):
     if auth_error := require_key(x_api_key):
         return auth_error
     with DEVICE_SCAN_LOCK:
-        return [DEV_META[s].model_dump() for s in sorted(DEV_META.keys())]
+        slots = sorted(DEV_META.keys())
+        return {
+            "devices": [DEV_META[s].model_dump() for s in slots],
+            "slots": slots,
+            "count": len(slots),
+        }
 
 @app.get("/modes")
 def list_modes(x_api_key: Optional[str] = Header(None)):

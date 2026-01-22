@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+from seva.domain.mapping import extract_device_entries
 from seva.domain.ports import BoxId, DevicePort
 
 from .api_errors import (
@@ -56,9 +57,7 @@ class DeviceRestAdapter(DevicePort):
         resp = self._session(box_id).get(url)
         self._ensure_ok(resp, f"devices[{box_id}]")
         data = self._json_any(resp)
-        if not isinstance(data, list):
-            raise RuntimeError(f"devices[{box_id}]: expected list response")
-        return [entry for entry in data if isinstance(entry, dict)]
+        return [dict(entry) for entry in extract_device_entries(data)]
 
     def get_modes(self, box_id: BoxId) -> List[str]:
         cached = self._mode_list_cache.get(box_id)

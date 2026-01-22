@@ -12,6 +12,11 @@ import requests
 # Domain Port
 from seva.domain.entities import ExperimentPlan
 from seva.domain.util import normalize_mode_name
+from seva.domain.mapping import (
+    build_slot_registry,
+    extract_device_entries,
+    extract_slot_labels,
+)
 from seva.domain.ports import JobPort, RunGroupId, BoxId
 
 from .http_client import HttpConfig, RetryingSession
@@ -81,27 +86,20 @@ class JobRestAdapter(JobPort):
     # ---------- Registry ----------
 
     def _build_registry(self) -> None:
-        """Build well_id <-> (box, slot) mapping using fixed box-local offsets.
-
-        Offsets per box letter: A:+0, B:+10, C:+20, D:+30. The well number is
-        `offset + slot_index` (slot_index is 1-based). Examples:
-        - slot01 on box A -> well A1
-        - slot01 on box B -> well B11
-        - slot10 on box D -> well D40
-        """
-        offsets = {"A": 0, "B": 10, "C": 20, "D": 30}
-        self.well_to_slot.clear()
-        self.slot_to_well.clear()
+        """Build well_id <-> (box, slot) mapping using server-reported slots."""
+        slots_by_box: Dict[BoxId, List[str]] = {}
         for box in self.box_order:
-            box_letter = str(box)[:1].upper()
-            if box_letter not in offsets:
-                raise ValueError(f"Unsupported box id '{box}': expected leading letter in {sorted(offsets)}")
-            offset = offsets[box_letter]
-            for slot in range(1, 11):
-                well_number = offset + slot
-                well_id = f"{box}{well_number}"
-                self.well_to_slot[well_id] = (box, slot)
-                self.slot_to_well[(box, slot)] = well_id
+            payload = self._fetch_devices_payload(box)
+            slots = extract_slot_labels(payload)
+            if not slots:
+                raise ValueError(f"No slots available for box '{box}'.")
+            slots_by_box[box] = slots
+
+        well_to_slot, slot_to_well = build_slot_registry(
+            self.box_order, slots_by_box
+        )
+        self.well_to_slot = well_to_slot
+        self.slot_to_well = slot_to_well
 
     # ---------- JobPort implementation ----------
 
@@ -118,19 +116,10 @@ class JobRestAdapter(JobPort):
         return data
 
     def list_devices(self, box_id: BoxId) -> List[Dict]:
-        session = self.sessions.get(box_id)
-        if session is None:
-            raise ValueError(f"No session configured for box '{box_id}'")
-        url = self._make_url(box_id, "/devices")
-        resp = session.get(url, timeout=self.cfg.request_timeout_s)
-        self._ensure_ok(resp, f"devices[{box_id}]")
-        data = self._json_any(resp)
-        if not isinstance(data, list):
-            raise RuntimeError(f"devices[{box_id}]: expected list response")
+        payload = self._fetch_devices_payload(box_id)
         cleaned: List[Dict[str, Any]] = []
-        for item in data:
-            if isinstance(item, dict):
-                cleaned.append(item)
+        for item in extract_device_entries(payload):
+            cleaned.append(dict(item))
         return cleaned
 
     def start_batch(self, plan: ExperimentPlan) -> Tuple[RunGroupId, Dict[BoxId, List[str]]]:
@@ -513,6 +502,16 @@ class JobRestAdapter(JobPort):
         if base.endswith("/"):
             base = base[:-1]
         return f"{base}{path}"
+
+    def _fetch_devices_payload(self, box_id: BoxId) -> Any:
+        """Fetch raw device payload for registry and device queries."""
+        session = self.sessions.get(box_id)
+        if session is None:
+            raise ValueError(f"No session configured for box '{box_id}'")
+        url = self._make_url(box_id, "/devices")
+        resp = session.get(url, timeout=self.cfg.request_timeout_s)
+        self._ensure_ok(resp, f"devices[{box_id}]")
+        return self._json_any(resp)
 
     def _slot_label(self, slot: int) -> str:
         return f"slot{slot:02d}"
