@@ -397,7 +397,12 @@ def health(x_api_key: Optional[str] = Header(None)):
 def list_devices(x_api_key: Optional[str] = Header(None)):
     require_key(x_api_key)
     with DEVICE_SCAN_LOCK:
-        return [DEV_META[s].model_dump() for s in sorted(DEV_META.keys())]
+        slots = sorted(DEV_META.keys())
+        return {
+            "devices": [DEV_META[s].model_dump() for s in slots],
+            "slots": slots,
+            "count": len(slots),
+        }
 
 @app.get("/modes")
 def list_modes(x_api_key: Optional[str] = Header(None)):

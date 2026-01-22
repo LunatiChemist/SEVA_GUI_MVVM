@@ -7,6 +7,7 @@ import zipfile
 from dataclasses import dataclass
 from typing import Dict, Iterable, Mapping, Optional, Tuple
 
+from ..domain.mapping import normalize_slot_registry, resolve_well_id
 from ..domain.ports import JobPort, RunGroupId, UseCaseError
 
 
@@ -155,10 +156,7 @@ class DownloadGroupResults:
                 if not match:
                     continue
                 slot_num = int(match.group(1))
-                well_id = slot_registry.get((box, slot_num))
-                if not well_id:
-                    alt_box = str(box)[:1].upper()
-                    well_id = slot_registry.get((alt_box, slot_num))
+                well_id = resolve_well_id(slot_registry, box, slot_num)
                 if not well_id:
                     raise UseCaseError(
                         "UNKNOWN_SLOT",
@@ -182,16 +180,7 @@ class DownloadGroupResults:
                 "MISSING_SLOT_REGISTRY",
                 "Adapter does not expose slot-to-well registry.",
             )
-        normalized: Dict[Tuple[str, int], str] = {}
-        for key, value in registry.items():
-            if (
-                isinstance(key, tuple)
-                and len(key) == 2
-                and isinstance(key[0], str)
-                and isinstance(key[1], int)
-                and isinstance(value, str)
-            ):
-                normalized[(key[0], key[1])] = value
+        normalized = normalize_slot_registry(registry)
         if not normalized:
             raise UseCaseError(
                 "MISSING_SLOT_REGISTRY",
