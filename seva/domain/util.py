@@ -25,7 +25,10 @@ def normalize_mode_name(mode: str) -> str:
     """Return a normalized mode token for backend payloads."""
     if mode is None:
         return ""
-    return str(mode).strip().upper()
+    token = str(mode).strip().upper()
+    if token == "AC":
+        return "CA"
+    return token
 
 
 __all__ = ["normalize_mode_name", "well_id_to_box"]

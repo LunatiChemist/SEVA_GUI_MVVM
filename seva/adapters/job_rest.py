@@ -11,6 +11,7 @@ import requests
 
 # Domain Port
 from seva.domain.entities import ExperimentPlan
+from seva.domain.util import normalize_mode_name
 from seva.domain.ports import JobPort, RunGroupId, BoxId
 
 from .http_client import HttpConfig, RetryingSession
@@ -158,7 +159,10 @@ class JobRestAdapter(JobPort):
             raise ValueError("start_batch: plan contains no wells")
 
         for well_plan in plan.wells:
-            normalized_modes = [str(mode) for mode in (well_plan.modes or [])]
+            normalized_modes = [
+                normalized for mode in (well_plan.modes or [])
+                if (normalized := normalize_mode_name(mode))
+            ]
             well_id = str(well_plan.well)
             if not well_id:
                 raise ValueError("Experiment plan contains an empty well identifier.")
