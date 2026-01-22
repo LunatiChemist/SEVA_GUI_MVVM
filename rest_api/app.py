@@ -4,7 +4,7 @@ from typing import Optional, Literal, Dict, List, Any
 from datetime import timezone
 import serial.tools.list_ports
 from fastapi import Body, FastAPI, HTTPException, Header, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
 from pydantic import BaseModel, Field
@@ -137,12 +137,12 @@ def _build_error_detail(code: str, message: str, hint: Optional[str] = None) -> 
     return {"code": code, "message": message, "hint": hint or ""}
 
 
-def http_error(status_code: int, code: str, message: str, hint: Optional[str] = None) -> HTTPException:
+def http_error(status_code: int, code: str, message: str, hint: Optional[str] = None) -> JSONResponse:
     if status_code == 422:
         log.info("Validation failed [%s]: %s", code, message)
         if hint:
             log.debug("Validation hint: %s", hint)
-    return HTTPException(status_code=status_code, detail=_build_error_detail(code, message, hint))
+    return JSONResponse(status_code=status_code, content=_build_error_detail(code, message, hint))
 
 
 PYBEEP_VERSION = _detect_pybeep_version()
@@ -364,17 +364,26 @@ async def handle_request_validation(
     errors = exc.errors()
     log.info("Validation 422 path=%s issues=%d", request.url.path, len(errors))
     log.debug("Validation detail: %s", errors)
-    return await request_validation_exception_handler(request, exc)
+    return JSONResponse(
+        status_code=422,
+        content={
+            "code": "request.validation_error",
+            "message": "Validation failed",
+            "hint": "Bitte Request-Payload und Felder pruefen.",
+            "detail": errors,
+        },
+    )
 
 # ---------- Auth Helper ----------
-def require_key(x_api_key: Optional[str]):
+def require_key(x_api_key: Optional[str]) -> Optional[JSONResponse]:
     if API_KEY and x_api_key != API_KEY:
-        raise http_error(
+        return http_error(
             status_code=401,
             code="auth.invalid_api_key",
             message="Unauthorized",
             hint="X-API-Key Header fehlt oder ist falsch.",
         )
+    return None
 
 
 @app.get("/version")
@@ -389,26 +398,29 @@ def version_info() -> Dict[str, str]:
 # ---------- Health / Geräte / Modi ----------
 @app.get("/health")
 def health(x_api_key: Optional[str] = Header(None)):
-    require_key(x_api_key)
+    if auth_error := require_key(x_api_key):
+        return auth_error
     with DEVICE_SCAN_LOCK:
         device_count = len(DEVICES)
     return {"ok": True, "devices": device_count, "box_id": BOX_ID}
 
 @app.get("/devices")
 def list_devices(x_api_key: Optional[str] = Header(None)):
-    require_key(x_api_key)
+    if auth_error := require_key(x_api_key):
+        return auth_error
     with DEVICE_SCAN_LOCK:
         return [DEV_META[s].model_dump() for s in sorted(DEV_META.keys())]
 
 @app.get("/modes")
 def list_modes(x_api_key: Optional[str] = Header(None)):
-    require_key(x_api_key)
+    if auth_error := require_key(x_api_key):
+        return auth_error
     # Nimm die Modi vom ersten Gerät (alle sind identisch konfiguriert)
     with DEVICE_SCAN_LOCK:
         try:
             first = next(iter(DEVICES.values()))
         except StopIteration:
-            raise http_error(
+            return http_error(
                 status_code=503,
                 code="devices.unavailable",
                 message="Keine Geraete registriert",
@@ -418,12 +430,13 @@ def list_modes(x_api_key: Optional[str] = Header(None)):
 
 @app.get("/modes/{mode}/params")
 def mode_params(mode: str, x_api_key: Optional[str] = Header(None)):
-    require_key(x_api_key)
+    if auth_error := require_key(x_api_key):
+        return auth_error
     with DEVICE_SCAN_LOCK:
         try:
             first = next(iter(DEVICES.values()))
         except StopIteration:
-            raise http_error(
+            return http_error(
                 status_code=503,
                 code="devices.unavailable",
                 message="Keine Geraete registriert",
@@ -432,7 +445,7 @@ def mode_params(mode: str, x_api_key: Optional[str] = Header(None)):
     try:
         return {k: str(v) for k, v in first.get_mode_params(mode).items()}
     except Exception as e:
-        raise http_error(
+        return http_error(
             status_code=400,
             code="modes.parameter_error",
             message=str(e),
@@ -448,12 +461,13 @@ def validate_mode_params(
 ) -> ValidationResult:
     """Validate mode parameter payloads without contacting any hardware."""
 
-    require_key(x_api_key)
+    if auth_error := require_key(x_api_key):
+        return auth_error
 
     try:
         return validate_mode_payload(mode, params or {})
     except UnsupportedModeError as exc:
-        raise http_error(
+        return http_error(
             status_code=404,
             code="modes.not_found",
             message=str(exc),
@@ -792,10 +806,11 @@ def _run_one_slot(
 @app.post("/jobs/status", response_model=List[JobStatus])
 def jobs_bulk_status(req: JobStatusBulkRequest, x_api_key: Optional[str] = Header(None)):
     """Return snapshot data for multiple runs in a single call."""
-    require_key(x_api_key)
+    if auth_error := require_key(x_api_key):
+        return auth_error
     run_ids = [rid for rid in (req.run_ids or []) if rid]
     if not run_ids:
-        raise http_error(
+        return http_error(
             status_code=400,
             code="jobs.missing_run_ids",
             message="Keine run_ids angegeben",
@@ -805,7 +820,7 @@ def jobs_bulk_status(req: JobStatusBulkRequest, x_api_key: Optional[str] = Heade
         missing = [rid for rid in run_ids if rid not in JOBS]
         if missing:
             missing_str = ", ".join(sorted(missing))
-            raise http_error(
+            return http_error(
                 status_code=404,
                 code="jobs.run_ids_unknown",
                 message=f"Unbekannte run_ids: {missing_str}",
@@ -823,7 +838,8 @@ def list_jobs(
     x_api_key: Optional[str] = Header(None),
 ) -> List[JobOverview]:
     """Return a lightweight job overview list with optional filtering."""
-    require_key(x_api_key)
+    if auth_error := require_key(x_api_key):
+        return auth_error
     state_filter = state or None
     group_filter = _normalize_group_value(group_id)
     group_filter_lower = group_filter.lower() if group_filter else None
@@ -876,13 +892,14 @@ def list_jobs(
 @app.post("/jobs", response_model=JobStatus)
 def start_job(req: JobRequest, x_api_key: Optional[str] = Header(None)):
     """Start a new job across selected slots and launch worker threads (multi-mode sequence)."""
-    require_key(x_api_key)
+    if auth_error := require_key(x_api_key):
+        return auth_error
 
     if not req.modes:
-        raise http_error(status_code=422, code="jobs.invalid_request", message="modes must not be empty")
+        return http_error(status_code=422, code="jobs.invalid_request", message="modes must not be empty")
     for m in req.modes:
         if m not in req.params_by_mode:
-            raise http_error(status_code=422, code="jobs.invalid_request", message=f"missing params for mode {m}")
+            return http_error(status_code=422, code="jobs.invalid_request", message=f"missing params for mode {m}")
 
     with DEVICE_SCAN_LOCK:
         if req.devices == "all":
@@ -890,18 +907,18 @@ def start_job(req: JobRequest, x_api_key: Optional[str] = Header(None)):
         else:
             slots = [s for s in req.devices if s in DEVICES]
     if not slots:
-        raise http_error(status_code=400, code="jobs.invalid_devices", message="Keine gueltigen devices angegeben", hint="Verwende Slots aus /devices oder 'all'.")
+        return http_error(status_code=400, code="jobs.invalid_devices", message="Keine gueltigen devices angegeben", hint="Verwende Slots aus /devices oder 'all'.")
 
     run_id = req.run_name or datetime.datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "_" + uuid.uuid4().hex[:6]
 
     with JOB_LOCK:
         if run_id in JOBS:
-            raise http_error(status_code=409, code="jobs.run_id_conflict", message="run_id bereits aktiv", hint="Andere run_id waehlen oder laufenden Job abwarten.")
+            return http_error(status_code=409, code="jobs.run_id_conflict", message="run_id bereits aktiv", hint="Andere run_id waehlen oder laufenden Job abwarten.")
 
     with SLOT_STATE_LOCK:
         busy = sorted(s for s in slots if s in SLOT_RUNS)
         if busy:
-            raise http_error(status_code=409, code="jobs.slots_busy", message=f"Slots belegt: {', '.join(busy)}", hint="Warte bis die genannten Slots frei sind.")
+            return http_error(status_code=409, code="jobs.slots_busy", message=f"Slots belegt: {', '.join(busy)}", hint="Warte bis die genannten Slots frei sind.")
         for s in slots:
             SLOT_RUNS[s] = run_id
 
@@ -983,11 +1000,12 @@ def start_job(req: JobRequest, x_api_key: Optional[str] = Header(None)):
 @app.post("/jobs/{run_id}/cancel", status_code=202)
 def cancel_job(run_id: str, x_api_key: Optional[str] = Header(None)):
     """Signal cancellation for a running or queued job."""
-    require_key(x_api_key)
+    if auth_error := require_key(x_api_key):
+        return auth_error
     with JOB_LOCK:
         job = JOBS.get(run_id)
         if not job:
-            raise http_error(
+            return http_error(
                 status_code=404,
                 code="jobs.not_found",
                 message="Unbekannte run_id",
@@ -1028,11 +1046,12 @@ def cancel_job(run_id: str, x_api_key: Optional[str] = Header(None)):
 @app.get("/jobs/{run_id}", response_model=JobStatus)
 def job_status(run_id: str, x_api_key: Optional[str] = Header(None)):
     """Return the latest status snapshot for a single run."""
-    require_key(x_api_key)
+    if auth_error := require_key(x_api_key):
+        return auth_error
     with JOB_LOCK:
         job = JOBS.get(run_id)
         if not job:
-            raise http_error(
+            return http_error(
                 status_code=404,
                 code="jobs.not_found",
                 message="Unbekannte run_id",
@@ -1043,10 +1062,11 @@ def job_status(run_id: str, x_api_key: Optional[str] = Header(None)):
 
 @app.get("/runs/{run_id}/files")
 def list_run_files(run_id: str, x_api_key: Optional[str] = Header(None)):
-    require_key(x_api_key)
+    if auth_error := require_key(x_api_key):
+        return auth_error
     run_dir = _resolve_run_directory(run_id)
     if not run_dir.is_dir():
-        raise http_error(
+        return http_error(
             status_code=404,
             code="runs.not_found",
             message="Run nicht gefunden",
@@ -1064,17 +1084,18 @@ def list_run_files(run_id: str, x_api_key: Optional[str] = Header(None)):
 
 @app.get("/runs/{run_id}/file")
 def get_run_file(run_id: str, path: str, x_api_key: Optional[str] = Header(None)):
-    require_key(x_api_key)
+    if auth_error := require_key(x_api_key):
+        return auth_error
     run_dir = _resolve_run_directory(run_id)
     if not run_dir.is_dir():
-        raise http_error(
+        return http_error(
             status_code=404,
             code="runs.not_found",
             message="Run nicht gefunden",
             hint="run_id pruefen oder vorhandene Runs auflisten.",
         )
     if not path:
-        raise http_error(
+        return http_error(
             status_code=404,
             code="runs.file_not_found",
             message="Datei nicht gefunden",
@@ -1085,7 +1106,7 @@ def get_run_file(run_id: str, path: str, x_api_key: Optional[str] = Header(None)
     try:
         target_path = (run_dir / path).resolve(strict=True)
     except FileNotFoundError:
-        raise http_error(
+        return http_error(
             status_code=404,
             code="runs.file_not_found",
             message="Datei nicht gefunden",
@@ -1095,7 +1116,7 @@ def get_run_file(run_id: str, path: str, x_api_key: Optional[str] = Header(None)
     try:
         target_path.relative_to(run_root)
     except ValueError:
-        raise http_error(
+        return http_error(
             status_code=404,
             code="runs.file_not_found",
             message="Datei nicht gefunden",
@@ -1103,7 +1124,7 @@ def get_run_file(run_id: str, path: str, x_api_key: Optional[str] = Header(None)
         )
 
     if not target_path.is_file():
-        raise http_error(
+        return http_error(
             status_code=404,
             code="runs.file_not_found",
             message="Datei nicht gefunden",
@@ -1117,10 +1138,11 @@ def get_run_file(run_id: str, path: str, x_api_key: Optional[str] = Header(None)
 
 @app.get("/runs/{run_id}/zip")
 def get_run_zip(run_id: str, x_api_key: Optional[str] = Header(None)):
-    require_key(x_api_key)
+    if auth_error := require_key(x_api_key):
+        return auth_error
     run_dir = _resolve_run_directory(run_id)
     if not run_dir.is_dir():
-        raise http_error(
+        return http_error(
             status_code=404,
             code="runs.not_found",
             message="Run nicht gefunden",
@@ -1154,7 +1176,8 @@ class SMBSetupRequest(BaseModel):
 
 @app.post("/nas/setup")
 def nas_setup(req: SMBSetupRequest, x_api_key: Optional[str] = Header(None)):
-    require_key(x_api_key)
+    if auth_error := require_key(x_api_key):
+        return auth_error
     result = NAS.setup(
         host=req.host,
         share=req.share,
@@ -1168,19 +1191,22 @@ def nas_setup(req: SMBSetupRequest, x_api_key: Optional[str] = Header(None)):
 
 @app.get("/nas/health")
 def nas_health(x_api_key: Optional[str] = Header(None)):
-    require_key(x_api_key)
+    if auth_error := require_key(x_api_key):
+        return auth_error
     return NAS.health()
 
 @app.post("/runs/{run_id}/upload")
 def nas_upload_run(run_id: str, x_api_key: Optional[str] = Header(None)):
-    require_key(x_api_key)
+    if auth_error := require_key(x_api_key):
+        return auth_error
     enq = NAS.enqueue_upload(run_id)
     return {"ok": True, "enqueued": bool(enq), "run_id": run_id}
 
 # ---------- Admin (optional) ----------
 @app.post("/admin/rescan")
 def rescan(x_api_key: Optional[str] = Header(None)):
-    require_key(x_api_key)
+    if auth_error := require_key(x_api_key):
+        return auth_error
     discover_devices()
     with DEVICE_SCAN_LOCK:
         return {"devices": list(DEVICES.keys())}
