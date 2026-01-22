@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, TYPE_CHECKING
 
-from ..domain.layout_utils import normalize_selection
 from ..domain.ports import StoragePort, UseCaseError, WellId
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -27,11 +26,11 @@ class SavePlateLayout:
             if experiment_vm is not None:
                 payload = self._build_payload_from_vm(experiment_vm, selection)
             else:
-                normalized_selection = normalize_selection(wells)
+                selection_list = list(wells or [])
                 params_dict: Dict = params or {}
-                well_params_map = self._normalize_params(normalized_selection, params_dict)
+                well_params_map = self._normalize_params(selection_list, params_dict)
                 payload = {
-                    "selection": normalized_selection,
+                    "selection": selection_list,
                     "well_params_map": well_params_map,
                 }
             return self.storage.save_layout(name, payload)
@@ -51,22 +50,13 @@ class SavePlateLayout:
             if selection is not None
             else getattr(experiment_vm, "selection", list(source_params.keys()))
         )
-        normalized_selection = normalize_selection(base_selection)
-        well_params_map = self._normalize_params(normalized_selection, source_params)
-        # Ensure selection covers all configured wells to keep storage/layout consistent
-        combined_selection = normalize_selection(
-            list(normalized_selection) + list(well_params_map.keys())
-        )
-        # Update VM snapshot with normalized data so that save/load roundtrips match
-        if hasattr(experiment_vm, "well_params"):
-            experiment_vm.well_params = {
-                wid: dict(snapshot) for wid, snapshot in well_params_map.items()
-            }
-        if hasattr(experiment_vm, "set_selection"):
-            try:
-                experiment_vm.set_selection(set(combined_selection))  # type: ignore[arg-type]
-            except Exception:
-                pass
+        selection_list = list(base_selection)
+        well_params_map = self._normalize_params(selection_list, source_params)
+        combined_selection = list(dict.fromkeys(selection_list + list(well_params_map.keys())))
+        experiment_vm.well_params = {
+            wid: dict(snapshot) for wid, snapshot in well_params_map.items()
+        }
+        experiment_vm.set_selection(set(combined_selection))  # type: ignore[arg-type]
         return {"selection": combined_selection, "well_params_map": well_params_map}
 
     def _normalize_params(

@@ -16,7 +16,6 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from .view_utils import safe_call
 
 BoxId = str   # e.g., "A"
 WellId = str  # e.g., "A1"
@@ -58,7 +57,7 @@ class RunOverviewView(ttk.Frame):
     def _build_toolbar(self) -> None:
         bar = ttk.Frame(self)
         bar.grid(row=0, column=0, sticky="ew", padx=6, pady=(6, 4))
-        ttk.Button(bar, text="Download Group", command=lambda: self._safe(self._on_download_group_results)).pack(side="left", padx=18)
+        ttk.Button(bar, text="Download Group", command=self._on_download_group_results).pack(side="left", padx=18)
 
     # ------------------------------------------------------------------
     def _build_box_summary(self) -> None:
@@ -133,10 +132,7 @@ class RunOverviewView(ttk.Frame):
         if box_id not in self._boxes:
             return
         self._box_status_lbl[box_id].configure(text=phase)
-        try:
-            pct = max(0, min(100, float(progress_pct)))
-        except Exception:
-            pct = 0
+        pct = max(0, min(100, float(progress_pct)))
         self._box_prog[box_id].configure(value=pct)
         self._box_subrun[box_id].configure(text=sub_run_id or "–")
 
@@ -147,16 +143,9 @@ class RunOverviewView(ttk.Frame):
         """
         self.table.delete(*self.table.get_children())
         for row in rows:
-            if len(row) != 8:
-                # defensiv: unerwartetes Format → leere Felder auffüllen
-                row = (list(row) + [""] * (8 - len(row)))[:8]
-
             well, phase, current_mode, next_modes, progress, remaining, err, subrun = row
 
-            try:
-                progress_str = f"{float(progress):.0f}"
-            except Exception:
-                progress_str = ""
+            progress_str = f"{float(progress):.0f}"
             remaining_str = self._format_remaining(remaining)
             self.table.insert(
                 "",
@@ -176,9 +165,6 @@ class RunOverviewView(ttk.Frame):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-    def _safe(self, fn: Optional[callable]):
-        safe_call(fn, on_error=lambda exc: print(f"RunOverviewView callback failed: {exc}"))
-
     def _format_remaining(self, remaining: Optional[object]) -> str:
         text = "" if remaining is None else str(remaining).strip()
         return text or "—"

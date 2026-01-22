@@ -120,27 +120,10 @@ class DeviceRestAdapter(DevicePort):
         if not isinstance(data, list):
             raise RuntimeError(f"{ctx}: expected list response")
 
-        modes: List[str] = []
-        for entry in data:
-            if isinstance(entry, str):
-                text = entry.strip()
-                if text:
-                    modes.append(text.upper())
-                continue
-            if isinstance(entry, dict):
-                raw = entry.get("mode") or entry.get("name") or entry.get("id")
-                if isinstance(raw, str) and raw.strip():
-                    modes.append(raw.strip().upper())
+        modes = [entry.strip().upper() for entry in data if isinstance(entry, str) and entry.strip()]
         if not modes:
             raise RuntimeError(f"{ctx}: no valid modes in response")
-        # Deduplicate while preserving order
-        seen = set()
-        unique: List[str] = []
-        for mode in modes:
-            if mode not in seen:
-                seen.add(mode)
-                unique.append(mode)
-        return unique
+        return modes
 
     @staticmethod
     def _ensure_ok(resp: requests.Response, ctx: str) -> None:
@@ -176,4 +159,3 @@ class DeviceRestAdapter(DevicePort):
         except Exception:
             snippet = getattr(resp, "text", "")[:400]
             raise RuntimeError(f"Invalid JSON response: {snippet}")
-

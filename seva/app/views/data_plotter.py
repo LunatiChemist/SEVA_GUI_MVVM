@@ -84,7 +84,7 @@ class DataPlotter(tk.Toplevel):
         controls.pack(fill="x", padx=8, pady=(0, 6))
         controls.columnconfigure(8, weight=1)
 
-        ttk.Button(controls, text="Fetch/Refresh", command=lambda: self._safe(self._on_fetch_data)).grid(row=0, column=0, padx=(0,8))
+        ttk.Button(controls, text="Fetch/Refresh", command=self._on_fetch_data).grid(row=0, column=0, padx=(0,8))
 
         ttk.Label(controls, text="X").grid(row=0, column=1, sticky="e")
         self._x_var = tk.StringVar()
@@ -109,10 +109,10 @@ class DataPlotter(tk.Toplevel):
         ttk.Entry(controls, textvariable=self._rs_var, width=8).grid(row=0, column=8, sticky="w")
 
         ttk.Button(controls, text="Apply IR", command=lambda: self._emit_ir_apply()).grid(row=0, column=9, padx=(12,4))
-        ttk.Button(controls, text="Reset IR", command=lambda: self._safe(self._on_reset_ir)).grid(row=0, column=10)
+        ttk.Button(controls, text="Reset IR", command=self._on_reset_ir).grid(row=0, column=10)
 
-        ttk.Button(controls, text="Export CSV", command=lambda: self._safe(self._on_export_csv)).grid(row=0, column=11, padx=(18,4))
-        ttk.Button(controls, text="Export PNG", command=lambda: self._safe(self._on_export_png)).grid(row=0, column=12)
+        ttk.Button(controls, text="Export CSV", command=self._on_export_csv).grid(row=0, column=11, padx=(18,4))
+        ttk.Button(controls, text="Export PNG", command=self._on_export_png).grid(row=0, column=12)
 
         # ---------------- Body: Scrollable list of wells ----------------
         body = ttk.Frame(self)
@@ -219,62 +219,32 @@ class DataPlotter(tk.Toplevel):
     # ------------------------------------------------------------------
     def _emit_axes(self) -> None:
         if self._on_axes_changed:
-            try:
-                self._on_axes_changed(self._x_var.get(), self._y_var.get())
-            except Exception as e:
-                print(f"DataPlotter axes callback failed: {e}")
+            self._on_axes_changed(self._x_var.get(), self._y_var.get())
 
     def _emit_section(self) -> None:
         if self._on_section_changed:
-            try:
-                self._on_section_changed(self._section_var.get())
-            except Exception as e:
-                print(f"DataPlotter section callback failed: {e}")
+            self._on_section_changed(self._section_var.get())
 
     def _emit_ir_apply(self) -> None:
         if self._on_apply_ir:
-            try:
-                self._on_apply_ir(self._rs_var.get())
-            except Exception as e:
-                print(f"DataPlotter apply IR failed: {e}")
+            self._on_apply_ir(self._rs_var.get())
 
     def _emit_open_plot(self, well_id: WellId) -> None:
         if self._on_open_plot:
-            try:
-                self._on_open_plot(well_id)
-            except Exception as e:
-                print(f"DataPlotter open plot failed: {e}")
+            self._on_open_plot(well_id)
 
     def _emit_open_folder(self, well_id: WellId) -> None:
         if self._on_open_results_folder:
-            try:
-                self._on_open_results_folder(well_id)
-            except Exception as e:
-                print(f"DataPlotter open folder failed: {e}")
+            self._on_open_results_folder(well_id)
 
     def _emit_toggle_include(self, well_id: WellId, included: bool) -> None:
         if self._on_toggle_include:
-            try:
-                self._on_toggle_include(well_id, bool(included))
-            except Exception as e:
-                print(f"DataPlotter toggle include failed: {e}")
+            self._on_toggle_include(well_id, bool(included))
 
     def _on_close_clicked(self) -> None:
         if self._on_close:
-            try:
-                self._on_close()
-            except Exception as e:
-                print(f"DataPlotter on_close failed: {e}")
+            self._on_close()
         self.destroy()
-
-    # ------------------------------------------------------------------
-    def _safe(self, fn: OnVoid) -> None:
-        if fn:
-            try:
-                fn()
-            except Exception as e:
-                print(f"DataPlotter callback failed: {e}")
-
 
 if __name__ == "__main__":
     root = tk.Tk()

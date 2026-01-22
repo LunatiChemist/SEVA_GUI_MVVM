@@ -14,7 +14,7 @@ from .entities import (
     WellPlan,
     GroupId,
 )
-from .naming import make_group_id
+from .naming import make_group_id_from_parts
 from .params import CVParams, ModeParams
 
 _MODE_BUILDERS: Dict[str, type[ModeParams]] = {
@@ -32,18 +32,10 @@ def build_meta(
 
     localized = _ensure_local_timezone(client_dt_local)
     client_dt = ClientDateTime(localized)
-
-    # Use a placeholder identifier to satisfy PlanMeta construction prior to naming.
-    placeholder = PlanMeta(
+    group_id = make_group_id_from_parts(experiment, subdir, client_dt)
+    return PlanMeta(
         experiment=experiment,
         subdir=subdir,
-        client_dt=client_dt,
-        group_id=GroupId("pending"),
-    )
-    group_id = make_group_id(placeholder)
-    return PlanMeta(
-        experiment=placeholder.experiment,
-        subdir=placeholder.subdir,
         client_dt=client_dt,
         group_id=group_id,
     )

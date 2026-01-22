@@ -12,7 +12,6 @@ import requests
 # Domain Port
 from seva.domain.entities import ExperimentPlan
 from seva.domain.ports import JobPort, RunGroupId, BoxId
-from seva.domain.util import normalize_mode_name
 
 from .http_client import HttpConfig, RetryingSession
 from .api_errors import (
@@ -159,9 +158,7 @@ class JobRestAdapter(JobPort):
             raise ValueError("start_batch: plan contains no wells")
 
         for well_plan in plan.wells:
-            normalized_modes = [
-                normalize_mode_name(str(mode)) for mode in (well_plan.modes or [])
-            ]
+            normalized_modes = [str(mode) for mode in (well_plan.modes or [])]
             well_id = str(well_plan.well)
             if not well_id:
                 raise ValueError("Experiment plan contains an empty well identifier.")
@@ -174,7 +171,7 @@ class JobRestAdapter(JobPort):
 
             params_by_mode: Dict[str, Dict[str, Any]] = {}
             for mode_name, params_obj in (well_plan.params_by_mode or {}).items():
-                mode_key = normalize_mode_name(str(mode_name))
+                mode_key = str(mode_name)
                 try:
                     params_by_mode[mode_key] = params_obj.to_payload()
                 except NotImplementedError as exc:  # pragma: no cover
@@ -219,7 +216,7 @@ class JobRestAdapter(JobPort):
             self._groups[group_id].setdefault(box, []).append(run_id)
             run_ids.setdefault(box, []).append(run_id)
 
-            normalized = self._normalize_job_status(box, data, fallback_run_id=run_id)
+            normalized = self._normalize_job_status(box, data)
             self._store_run_snapshot(normalized)
 
         return group_id, run_ids
@@ -496,61 +493,30 @@ class JobRestAdapter(JobPort):
         return normalized in {"done", "failed", "canceled", "cancelled"}
 
     def _normalize_job_status(
-        self, box: BoxId, payload: Dict[str, Any], *, fallback_run_id: Optional[str] = None
+        self, box: BoxId, payload: Dict[str, Any]
     ) -> Dict[str, Any]:
         if not isinstance(payload, dict):
             raise RuntimeError("Invalid job status payload: expected object")
-        run_id_raw = payload.get("run_id") or fallback_run_id
+        run_id_raw = payload.get("run_id")
         if not run_id_raw:
             raise RuntimeError("Job status payload missing run_id")
         run_id = str(run_id_raw)
-        status = str(payload.get("status") or "queued").lower()
-        progress_raw = payload.get("progress_pct")
-        try:
-            progress_pct = int(progress_raw)
-        except Exception:
-            progress_pct = 0
-        remaining_raw = payload.get("remaining_s")
-        if isinstance(remaining_raw, (int, float)):
-            remaining_s: Optional[int] = int(remaining_raw)
-        elif remaining_raw is not None:
-            try:
-                remaining_s = int(float(remaining_raw))
-            except Exception:
-                remaining_s = None
-        else:
-            remaining_s = None
-        slots_raw = payload.get("slots") or []
-        slots: List[Dict[str, Any]] = []
-        for slot in slots_raw:
-            if not isinstance(slot, dict):
-                continue
-            slots.append(
-                {
-                    "slot": slot.get("slot"),
-                    "status": str(slot.get("status") or "queued").lower(),
-                    "message": slot.get("message"),
-                    "started_at": slot.get("started_at"),
-                    "ended_at": slot.get("ended_at"),
-                    "files": slot.get("files") or [],
-                }
-            )
+        status = str(payload.get("status") or "queued").lower() or "queued"
+        slots = payload.get("slots") or []
         current_mode = payload.get("current_mode") or payload.get("mode")
-        modes = payload.get("modes") or []
-        remaining_modes = payload.get("remaining_modes") or []
         normalized = {
             "box": box,
             "run_id": run_id,
             "status": status,
             "started_at": payload.get("started_at"),
             "ended_at": payload.get("ended_at"),
-            "progress_pct": progress_pct,
-            "remaining_s": remaining_s,
+            "progress_pct": payload.get("progress_pct") or 0,
+            "remaining_s": payload.get("remaining_s"),
             "slots": slots,
-            "mode": current_mode,               # Backcompat
+            "mode": current_mode,
             "current_mode": current_mode,
-            "modes": modes,
-            "remaining_modes": remaining_modes,
+            "modes": payload.get("modes") or [],
+            "remaining_modes": payload.get("remaining_modes") or [],
         }
         return normalized
 

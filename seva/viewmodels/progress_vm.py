@@ -115,11 +115,7 @@ class ProgressVM:
 
     def _snapshot_from_serialized(self, payload: Dict[str, Union[str, Dict, List]]) -> Optional[GroupSnapshot]:
         """Rebuild a GroupSnapshot from a serialized registry payload."""
-        try:
-            snapshot = normalize_status(payload)
-        except Exception:
-            return None
-        return snapshot
+        return normalize_status(payload)
 
     def derive_box_rows(
         self,
@@ -182,10 +178,7 @@ class ProgressVM:
         """Format remaining seconds as m:ss or h:mm:ss."""
         if seconds is None:
             return ""
-        try:
-            total = int(seconds)
-        except (TypeError, ValueError):
-            return ""
+        total = int(seconds)
         if total < 0:
             total = 0
         hours, rem = divmod(total, 3600)

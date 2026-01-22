@@ -34,14 +34,13 @@ class ACParams(ModeParams):
         """Create a params object from the flat AC form snapshot."""
 
         data: Dict[str, Any] = dict(form or {})
-        control_mode = cls._normalize_control_mode(data.get("control_mode"))
         return cls(
-            duration_s=cls._coerce_float(data.get("ea.duration_s")),
-            frequency_hz=cls._coerce_float(data.get("ea.frequency_hz")),
-            target=cls._coerce_float(data.get("ea.target")),
-            control_mode=control_mode,
-            charge_cutoff_c=cls._coerce_float(data.get("ea.charge_cutoff_c")),
-            voltage_cutoff_v=cls._coerce_float(data.get("ea.voltage_cutoff_v")),
+            duration_s=data.get("ea.duration_s"),
+            frequency_hz=data.get("ea.frequency_hz"),
+            target=data.get("ea.target"),
+            control_mode=data.get("control_mode"),
+            charge_cutoff_c=data.get("ea.charge_cutoff_c"),
+            voltage_cutoff_v=data.get("ea.voltage_cutoff_v"),
             flags=cls._extract_flags(data),
         )
 
@@ -79,20 +78,6 @@ class ACParams(ModeParams):
             payload["control_mode"] = self.control_mode
         return payload
 
-    @staticmethod
-    def _coerce_float(value: Any) -> Any:
-        if value is None:
-            return value
-        if isinstance(value, str):
-            stripped = value.strip()
-            if not stripped:
-                return value
-            value = stripped
-        try:
-            return float(value)
-        except Exception:
-            return value
-
     @classmethod
     def _extract_flags(cls, data: Mapping[str, Any]) -> Dict[str, Any]:
         flags: Dict[str, Any] = {}
@@ -109,19 +94,6 @@ class ACParams(ModeParams):
     @staticmethod
     def _is_flag_key(key: str) -> bool:
         return key in _FLAG_KEYS or key.startswith("run_")
-
-    @staticmethod
-    def _normalize_control_mode(value: Any) -> Optional[str]:
-        if value is None:
-            return None
-        text = str(value).strip().lower()
-        if not text:
-            return None
-        if "current" in text:
-            return "current"
-        if "potential" in text or "voltage" in text:
-            return "potential"
-        return text
 
     @staticmethod
     def _maybe_set(target: Dict[str, Any], key: str, value: Any) -> None:

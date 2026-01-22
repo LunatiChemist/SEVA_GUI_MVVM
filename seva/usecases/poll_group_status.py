@@ -24,18 +24,7 @@ class PollGroupStatus:
         if isinstance(raw_snapshot, GroupSnapshot):
             snapshot = raw_snapshot
         else:
-            payload: Dict[str, Any]
-            if isinstance(raw_snapshot, Mapping):
-                payload = dict(raw_snapshot)
-            else:
-                payload = {}
-
-        # Ensure the group identifier travels with the snapshot before normalization.
-            if desired_group:
-                payload.setdefault("group", desired_group)
-            else:
-                payload.setdefault("group", run_group_id)
-
+            payload = raw_snapshot if isinstance(raw_snapshot, Mapping) else {}
             snapshot = normalize_status(payload)
 
         if desired_group and str(snapshot.group) != desired_group:

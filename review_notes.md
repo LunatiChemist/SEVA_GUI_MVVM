@@ -1,0 +1,133 @@
+# Review Evidence
+
+## Commands executed
+- `ls`
+- `find .. -name AGENTS.md -print`
+- `rg -n "DTO|Dto|dto|mapping|normalize|normaliz|legacy|fallback" seva`
+- `sed -n '1,220p' seva/viewmodels/experiment_vm.py`
+- `sed -n '1,260p' seva/viewmodels/settings_vm.py`
+- `sed -n '1,220p' seva/domain/snapshot_normalizer.py`
+- `sed -n '1,260p' seva/adapters/job_rest.py`
+- `sed -n '1,220p' seva/adapters/device_rest.py`
+- `sed -n '480,880p' seva/app/main.py`
+- `sed -n '1200,1380p' seva/app/main.py`
+- `sed -n '1,220p' seva/domain/entities.py`
+- `sed -n '1,220p' seva/usecases/save_plate_layout.py`
+- `sed -n '1,220p' seva/usecases/load_plate_layout.py`
+- `sed -n '1,140p' seva/tests/ci/test_no_legacy_paths.py`
+- `rg -n "normalize|mapping|legacy|fallback|dto" seva/domain seva/usecases seva/viewmodels seva/adapters seva/app seva/utils`
+- `sed -n '1,220p' seva/adapters/storage_local.py`
+- `sed -n '1,200p' seva/adapters/discovery_http.py`
+- `sed -n '1,200p' seva/utils/logging.py`
+- `sed -n '1,220p' seva/viewmodels/progress_vm.py`
+- `sed -n '1,220p' seva/usecases/run_flow_coordinator.py`
+- `sed -n '1,200p' seva/usecases/download_group_results.py`
+- `sed -n '1,200p' seva/domain/params/ac.py`
+- `sed -n '1,200p' seva/app/views/experiment_panel_view.py`
+- `sed -n '1,220p' seva/app/views/settings_dialog.py`
+- `sed -n '1,200p' seva/app/views/channel_activity_view.py`
+- `rg -n "normalize|fallback|legacy|dto|mapping|guard|defensive" seva`
+- `sed -n '1,220p' seva/domain/runs_registry.py`
+- `sed -n '1,240p' seva/domain/discovery.py`
+- `sed -n '1,260p' seva/app/views/data_plotter.py`
+- `sed -n '1,220p' seva/usecases/discover_devices.py`
+- `sed -n '1,220p' seva/app/controller.py`
+- `sed -n '1,220p' seva/domain/util.py`
+- `sed -n '1,220p' seva/domain/layout_utils.py`
+- `sed -n '1,260p' seva/domain/plan_builder.py`
+- `sed -n '1,240p' seva/app/views/run_overview_view.py`
+- `sed -n '1,240p' seva/app/views/runs_panel_view.py`
+- `sed -n '1,240p' seva/app/views/well_grid_view.py`
+- `sed -n '1,200p' seva/app/views/view_utils.py`
+- `sed -n '1,200p' seva/usecases/start_experiment_batch.py`
+- `sed -n '1,200p' seva/usecases/cancel_group.py`
+- `sed -n '1,200p' seva/usecases/cancel_runs.py`
+- `sed -n '1,200p' seva/usecases/test_connection.py`
+- `sed -n '1,200p' seva/usecases/test_relay.py`
+- `sed -n '1,200p' seva/usecases/set_electrode_mode.py`
+- `sed -n '1,220p' seva/viewmodels/plate_vm.py`
+- `sed -n '1,220p' seva/viewmodels/runs_vm.py`
+- `sed -n '1,220p' seva/viewmodels/live_data_vm.py`
+- `sed -n '1,200p' seva/viewmodels/status_format.py`
+- `sed -n '1,220p' seva/app/views/main_window.py`
+- `sed -n '1,200p' seva/app/views/discovery_results_dialog.py`
+- `sed -n '1,220p' seva/adapters/api_errors.py`
+- `sed -n '1,260p' seva/adapters/http_client.py`
+- `sed -n '1,220p' seva/domain/errors.py`
+- `sed -n '1,260p' seva/domain/models.py`
+- `sed -n '1,260p' seva/domain/naming.py`
+- `sed -n '1,200p' seva/domain/params/cv.py`
+- `sed -n '1,200p' seva/domain/params/cdl.py`
+- `sed -n '1,200p' seva/domain/params/dc.py`
+- `sed -n '1,200p' seva/domain/params/eis.py`
+- `sed -n '1,220p' seva/domain/ports.py`
+- `sed -n '1,200p' seva/domain/validation.py`
+- `sed -n '1,200p' seva/usecases/apply_ir_correction.py`
+- `sed -n '1,200p' seva/usecases/load_device_status.py`
+- `sed -n '1,200p' seva/usecases/poll_group_status.py`
+- `sed -n '1,260p' seva/viewmodels/experiment_vm.py`
+- `sed -n '1,260p' seva/usecases/save_plate_layout.py`
+- `sed -n '1,220p' seva/usecases/load_plate_layout.py`
+- `sed -n '1,220p' seva/adapters/storage_local.py`
+- `sed -n '1,80p' seva/app/main.py`
+
+## Files reviewed (excluding init/tests/mocks)
+- `seva/viewmodels/experiment_vm.py`
+- `seva/viewmodels/settings_vm.py`
+- `seva/domain/snapshot_normalizer.py`
+- `seva/adapters/job_rest.py`
+- `seva/adapters/device_rest.py`
+- `seva/app/main.py`
+- `seva/domain/entities.py`
+- `seva/usecases/save_plate_layout.py`
+- `seva/usecases/load_plate_layout.py`
+- `seva/adapters/storage_local.py`
+- `seva/adapters/discovery_http.py`
+- `seva/utils/logging.py`
+- `seva/viewmodels/progress_vm.py`
+- `seva/usecases/run_flow_coordinator.py`
+- `seva/usecases/download_group_results.py`
+- `seva/domain/params/ac.py`
+- `seva/app/views/experiment_panel_view.py`
+- `seva/app/views/settings_dialog.py`
+- `seva/app/views/channel_activity_view.py`
+- `seva/domain/runs_registry.py`
+- `seva/domain/discovery.py`
+- `seva/app/views/data_plotter.py`
+- `seva/usecases/discover_devices.py`
+- `seva/app/controller.py`
+- `seva/domain/util.py`
+- `seva/domain/layout_utils.py`
+- `seva/domain/plan_builder.py`
+- `seva/app/views/run_overview_view.py`
+- `seva/app/views/runs_panel_view.py`
+- `seva/app/views/well_grid_view.py`
+- `seva/app/views/view_utils.py`
+- `seva/usecases/start_experiment_batch.py`
+- `seva/usecases/cancel_group.py`
+- `seva/usecases/cancel_runs.py`
+- `seva/usecases/test_connection.py`
+- `seva/usecases/test_relay.py`
+- `seva/usecases/set_electrode_mode.py`
+- `seva/viewmodels/plate_vm.py`
+- `seva/viewmodels/runs_vm.py`
+- `seva/viewmodels/live_data_vm.py`
+- `seva/viewmodels/status_format.py`
+- `seva/app/views/main_window.py`
+- `seva/app/views/discovery_results_dialog.py`
+- `seva/adapters/api_errors.py`
+- `seva/adapters/http_client.py`
+- `seva/domain/errors.py`
+- `seva/domain/models.py`
+- `seva/domain/naming.py`
+- `seva/domain/params/cv.py`
+- `seva/domain/params/cdl.py`
+- `seva/domain/params/dc.py`
+- `seva/domain/params/eis.py`
+- `seva/domain/ports.py`
+- `seva/domain/validation.py`
+- `seva/usecases/apply_ir_correction.py`
+- `seva/usecases/load_device_status.py`
+- `seva/usecases/poll_group_status.py`
+
+## Files not yet reviewed (excluding init/tests/mocks)

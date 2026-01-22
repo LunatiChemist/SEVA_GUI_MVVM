@@ -17,7 +17,7 @@ Notes:
 """
 from __future__ import annotations
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk
 from typing import Callable, Optional
 
 
@@ -67,9 +67,9 @@ class MainWindowView(tk.Tk):
         self._build_statusbar(self)
 
         # Keyboard shortcuts (lightweight, can be extended)
-        self.bind("<Control-Return>", lambda e: self._safe_call(self._on_submit))
-        self.bind("<Control-s>", lambda e: self._safe_call(self._on_save_layout))
-        self.bind("<Control-o>", lambda e: self._safe_call(self._on_load_layout))
+        self.bind("<Control-Return>", lambda e: self._on_submit and self._on_submit())
+        self.bind("<Control-s>", lambda e: self._on_save_layout and self._on_save_layout())
+        self.bind("<Control-o>", lambda e: self._on_load_layout and self._on_load_layout())
 
     # ------------------------------------------------------------------
     # Toolbar
@@ -80,26 +80,26 @@ class MainWindowView(tk.Tk):
         toolbar.columnconfigure(tuple(range(10)), weight=0)
 
         # Primary actions
-        ttk.Button(toolbar, text="Start", command=lambda: self._safe_call(self._on_submit)).grid(
+        ttk.Button(toolbar, text="Start", command=self._on_submit).grid(
             row=0, column=0, padx=(0, 6)
         )
-        ttk.Button(toolbar, text="Cancel Group", command=lambda: self._safe_call(self._on_cancel_group)).grid(
+        ttk.Button(toolbar, text="Cancel Group", command=self._on_cancel_group).grid(
             row=0, column=1, padx=6
         )
 
         # Layout presets
-        ttk.Button(toolbar, text="Save Layout", command=lambda: self._safe_call(self._on_save_layout)).grid(
+        ttk.Button(toolbar, text="Save Layout", command=self._on_save_layout).grid(
             row=0, column=2, padx=(24, 6)
         )
-        ttk.Button(toolbar, text="Load Layout", command=lambda: self._safe_call(self._on_load_layout)).grid(
+        ttk.Button(toolbar, text="Load Layout", command=self._on_load_layout).grid(
             row=0, column=3, padx=6
         )
 
         # Tools / Settings
-        ttk.Button(toolbar, text="Settings", command=lambda: self._safe_call(self._on_open_settings)).grid(
+        ttk.Button(toolbar, text="Settings", command=self._on_open_settings).grid(
             row=0, column=4, padx=(24, 6)
         )
-        ttk.Button(toolbar, text="Data Plotter", command=lambda: self._safe_call(self._on_open_data_plotter)).grid(
+        ttk.Button(toolbar, text="Data Plotter", command=self._on_open_data_plotter).grid(
             row=0, column=5, padx=6
         )
 
@@ -278,16 +278,6 @@ class MainWindowView(tk.Tk):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-    def _safe_call(self, fn: Optional[Callable[[], None]]):
-        """Safely call a callback if provided; show a friendly message otherwise."""
-        if fn is None:
-            messagebox.showinfo("Not connected", "This action is not wired yet.")
-            return
-        try:
-            fn()
-        except Exception as exc:  # UI should never crash; show error and keep running
-            messagebox.showerror("Action failed", str(exc))
-
 
 if __name__ == "__main__":
     # Minimal manual preview (no real callbacks wired). This block can be removed

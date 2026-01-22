@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Mapping ,Optional, Set, Iterable, Tuple, cast
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Iterable, Tuple, cast
 from ..domain import WellPlan, WellId, ModeName
 from ..domain.params import ModeParams, CVParams, ACParams
 from ..domain.util import normalize_mode_name
@@ -122,17 +122,7 @@ class ExperimentVM:
         """Liefere flaches Mapping für die View (inkl. rekonstruierter Flags)."""
         raw = self.well_params.get(well_id)
         if not raw:
-            # Backwards-Compat: alte flache Snapshots?
-            legacy = cast(Optional[Dict[str, str]], None)
-            if isinstance(raw, dict) and raw and all(isinstance(v, str) for v in raw.values()):
-                legacy = cast(Dict[str, str], raw)
-            if not legacy:
-                return None
-            grouped = self._group_fields_by_mode(legacy)
-            self.well_params[well_id] = grouped
-            return self._flatten_for_view(grouped)
-
-        # raw ist gruppiert (ModeName -> Dict[str,str])
+            return None
         return self._flatten_for_view(raw)
 
     def clear_params_for(self, well_id: WellId) -> None:

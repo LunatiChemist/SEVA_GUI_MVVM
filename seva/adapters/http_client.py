@@ -44,9 +44,10 @@ class RetryingSession:
         timeout: Optional[int] = None,
         stream: bool = False,
     ) -> requests.Response:
-        last_err: Optional[Exception] = None
         context = f"GET {url}"
-        for _ in range(self.cfg.retries + 1):
+        last_err: ApiTimeoutError | None = None
+        attempts = self.cfg.retries + 1
+        for _ in range(attempts):
             try:
                 return self.session.get(
                     url,
@@ -55,18 +56,8 @@ class RetryingSession:
                     timeout=timeout or self.cfg.request_timeout_s,
                     stream=stream,
                 )
-            except (req_exc.Timeout, req_exc.ConnectionError) as exc:
-                last_err = ApiTimeoutError(
-                    f"Timeout contacting {url}", context=context
-                )
-            except Exception as exc:
-                last_err = exc
-        if last_err is None:
-            raise ApiError("Unexpected request failure", context=context)
-        if isinstance(last_err, ApiError):
-            raise last_err
-        if isinstance(last_err, req_exc.RequestException):
-            raise ApiError(str(last_err), context=context) from last_err
+            except (req_exc.Timeout, req_exc.ConnectionError):
+                last_err = ApiTimeoutError(f"Timeout contacting {url}", context=context)
         raise last_err
 
     def post(
@@ -76,10 +67,11 @@ class RetryingSession:
         json_body: Optional[Dict[str, Any]] = None,
         timeout: Optional[int] = None,
     ) -> requests.Response:
-        last_err: Optional[Exception] = None
         context = f"POST {url}"
         data = None if json_body is None else json.dumps(json_body)
-        for _ in range(self.cfg.retries + 1):
+        last_err: ApiTimeoutError | None = None
+        attempts = self.cfg.retries + 1
+        for _ in range(attempts):
             try:
                 return self.session.post(
                     url,
@@ -87,18 +79,8 @@ class RetryingSession:
                     headers=self._headers(json_body=json_body is not None),
                     timeout=timeout or self.cfg.request_timeout_s,
                 )
-            except (req_exc.Timeout, req_exc.ConnectionError) as exc:
-                last_err = ApiTimeoutError(
-                    f"Timeout contacting {url}", context=context
-                )
-            except Exception as exc:
-                last_err = exc
-        if last_err is None:
-            raise ApiError("Unexpected request failure", context=context)
-        if isinstance(last_err, ApiError):
-            raise last_err
-        if isinstance(last_err, req_exc.RequestException):
-            raise ApiError(str(last_err), context=context) from last_err
+            except (req_exc.Timeout, req_exc.ConnectionError):
+                last_err = ApiTimeoutError(f"Timeout contacting {url}", context=context)
         raise last_err
 
 

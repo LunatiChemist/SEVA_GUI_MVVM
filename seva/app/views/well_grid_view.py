@@ -23,7 +23,6 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable, Dict, Iterable, Optional, Sequence, Set
 
-from .view_utils import safe_call
 
 WellId = str
 BoxId = str
@@ -78,7 +77,7 @@ class WellGridView(ttk.Frame):
         ttk.Button(
             toolbar,
             text="Reset Well Config",
-            command=lambda: self._safe(self._on_reset_selected),
+            command=self._on_reset_selected,
         ).pack(side="left")
 
         grid = ttk.Frame(self)
@@ -102,7 +101,7 @@ class WellGridView(ttk.Frame):
                 )
                 btn.grid(row=r, column=c, padx=3, pady=2, sticky="nsew")
                 btn.bind("<Button-1>", lambda e, w=wid: self._on_click(e, w))
-                btn.bind("<Double-Button-1>", lambda e, w=wid: self._safe_well(self._on_open_plot, w))
+                btn.bind("<Double-Button-1>", lambda e, w=wid: self._on_open_plot(w))
                 btn.bind("<Button-3>", lambda e, w=wid: self._context_menu(e, w))
                 self._buttons[wid] = btn
                 global_index += 1
@@ -203,40 +202,23 @@ class WellGridView(ttk.Frame):
 
     def _emit_selection(self) -> None:
         if self._on_select_wells:
-            try:
-                self._on_select_wells(set(self._selected))
-            except Exception as e:
-                print(f"WellGridView selection callback failed: {e}")
+            self._on_select_wells(set(self._selected))
 
     def _context_menu(self, event: tk.Event, well_id: WellId) -> None:
         menu = tk.Menu(self, tearoff=0)
-        menu.add_command(label="Copy Params from", command=lambda: self._safe_well(self._on_copy_params_from, well_id))
-        menu.add_command(label="Paste Params to Selection", command=lambda: self._safe(self._on_paste_params_to_selection))
+        menu.add_command(label="Copy Params from", command=lambda: self._on_copy_params_from(well_id))
+        menu.add_command(label="Paste Params to Selection", command=self._on_paste_params_to_selection)
         menu.add_separator()
-        menu.add_command(label="Enable/Disable Selection", command=lambda: self._safe(self._on_toggle_enable_selected))
-        menu.add_command(label="Reset Selection", command=lambda: self._safe(self._on_reset_selected))
+        menu.add_command(label="Enable/Disable Selection", command=self._on_toggle_enable_selected)
+        menu.add_command(label="Reset Selection", command=self._on_reset_selected)
         menu.add_separator()
-        menu.add_command(label="Open PNG", command=lambda: self._safe_well(self._on_open_plot, well_id))
+        menu.add_command(label="Open PNG", command=lambda: self._on_open_plot(well_id))
         try:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
             menu.grab_release()
 
     # ------------------------------------------------------------------
-    # Misc helpers
-    # ------------------------------------------------------------------
-    def _safe(self, fn: OnVoid) -> None:
-        safe_call(fn, on_error=lambda exc: print(f"WellGridView callback failed: {exc}"))
-
-    def _safe_well(self, fn: OnWell, well_id: WellId) -> None:
-        safe_call(
-            fn,
-            well_id,
-            on_error=lambda exc: print(
-                f"WellGridView well callback failed: {exc}"
-            ),
-        )
-
 if __name__ == "__main__":
     root = tk.Tk()
     grid = WellGridView(root, boxes=("A", "B", "C","D","E","F"))

@@ -48,7 +48,6 @@ from ..usecases.save_plate_layout import SavePlateLayout
 from ..usecases.load_plate_layout import LoadPlateLayout
 from ..domain.entities import ExperimentPlan
 from ..domain.plan_builder import build_meta
-from ..domain.layout_utils import normalize_selection
 from ..domain.util import well_id_to_box
 from ..domain.runs_registry import RunsRegistry
 from ..domain.ports import UseCaseError
@@ -687,7 +686,7 @@ class App:
                 plate_vm=self.plate_vm,
             )
             configured_wells = self.plate_vm.configured()
-            selection_list = normalize_selection(data.get("selection") or [])
+            selection_list = list(data.get("selection") or [])
             if not selection_list and configured_wells:
                 selection_list = sorted(configured_wells)
 

@@ -61,7 +61,7 @@ class SettingsVM:
 
     @results_dir.setter
     def results_dir(self, value: str) -> None:
-        self.config = replace(self.config, results_dir=self._normalize_dir(value))
+        self.config = replace(self.config, results_dir=value)
 
     @property
     def request_timeout_s(self) -> int:
@@ -69,7 +69,7 @@ class SettingsVM:
 
     @request_timeout_s.setter
     def request_timeout_s(self, value: int) -> None:
-        self.config = replace(self.config, request_timeout_s=self._normalize_int(value, self.request_timeout_s))
+        self.config = replace(self.config, request_timeout_s=value)
 
     @property
     def download_timeout_s(self) -> int:
@@ -77,7 +77,7 @@ class SettingsVM:
 
     @download_timeout_s.setter
     def download_timeout_s(self, value: int) -> None:
-        self.config = replace(self.config, download_timeout_s=self._normalize_int(value, self.download_timeout_s))
+        self.config = replace(self.config, download_timeout_s=value)
 
     @property
     def poll_interval_ms(self) -> int:
@@ -85,7 +85,7 @@ class SettingsVM:
 
     @poll_interval_ms.setter
     def poll_interval_ms(self, value: int) -> None:
-        self.config = replace(self.config, poll_interval_ms=self._normalize_int(value, self.poll_interval_ms))
+        self.config = replace(self.config, poll_interval_ms=value)
 
     @property
     def poll_backoff_max_ms(self) -> int:
@@ -93,7 +93,7 @@ class SettingsVM:
 
     @poll_backoff_max_ms.setter
     def poll_backoff_max_ms(self, value: int) -> None:
-        self.config = replace(self.config, poll_backoff_max_ms=self._normalize_int(value, self.poll_backoff_max_ms))
+        self.config = replace(self.config, poll_backoff_max_ms=value)
 
     @property
     def auto_download_on_complete(self) -> bool:
@@ -101,7 +101,7 @@ class SettingsVM:
 
     @auto_download_on_complete.setter
     def auto_download_on_complete(self, value: bool) -> None:
-        self.config = replace(self.config, auto_download_on_complete=self._normalize_bool(value))
+        self.config = replace(self.config, auto_download_on_complete=bool(value))
 
     @property
     def api_base_urls(self) -> Dict[BoxId, str]:
@@ -109,7 +109,7 @@ class SettingsVM:
 
     @api_base_urls.setter
     def api_base_urls(self, value: Mapping[BoxId, Any]) -> None:
-        self.config = replace(self.config, api_base_urls=self._normalize_box_map(value))
+        self.config = replace(self.config, api_base_urls=dict(value or {}))
 
     # ------------------------------------------------------------------
     def is_valid(self) -> bool:
@@ -117,38 +117,37 @@ class SettingsVM:
 
     def apply_dict(self, payload: Mapping[str, Any]) -> None:
         """Apply persisted settings to the view-model."""
-
         if not isinstance(payload, Mapping):
             return
 
         updates: Dict[str, Any] = {}
         for cfg_key in SettingsConfig.__annotations__.keys():
             if cfg_key in payload:
-                updates[cfg_key] = self._normalize_config_value(cfg_key, payload[cfg_key])
+                updates[cfg_key] = payload[cfg_key]
 
         if updates:
             self.config = replace(self.config, **updates)
 
         if "api_keys" in payload:
-            self.api_keys = self._normalize_box_map(payload.get("api_keys"))
+            self.api_keys = dict(payload.get("api_keys") or {})
 
         if "experiment_name" in payload:
-            self.experiment_name = self._normalize_str(payload.get("experiment_name"))
+            self.experiment_name = str(payload.get("experiment_name") or "")
 
         if "subdir" in payload:
-            self.subdir = self._normalize_str(payload.get("subdir"))
+            self.subdir = str(payload.get("subdir") or "")
 
         if "use_streaming" in payload:
-            self.use_streaming = self._normalize_bool(payload.get("use_streaming"))
+            self.use_streaming = bool(payload.get("use_streaming"))
 
         if "debug_logging" in payload:
-            self.debug_logging = self._normalize_bool(payload.get("debug_logging"))
+            self.debug_logging = bool(payload.get("debug_logging"))
 
         if "relay_ip" in payload:
-            self.relay_ip = self._normalize_str(payload.get("relay_ip"))
+            self.relay_ip = str(payload.get("relay_ip") or "")
 
         if "relay_port" in payload:
-            self.relay_port = self._normalize_int(payload.get("relay_port"), self.relay_port)
+            self.relay_port = int(payload.get("relay_port") or 0)
 
     def to_dict(self) -> dict:
         snapshot = asdict(self.config)
@@ -169,82 +168,17 @@ class SettingsVM:
         self.results_dir = path
 
     def set_debug_logging(self, enabled: bool) -> None:
-        self.debug_logging = self._normalize_bool(enabled)
+        self.debug_logging = bool(enabled)
 
     def cmd_save(self) -> None:
         if self.on_save:
             self.on_save(self.to_dict())
 
     def set_experiment_name(self, name: str) -> None:
-        self.experiment_name = self._normalize_str(name)
+        self.experiment_name = str(name or "")
 
     def set_subdir(self, value: str) -> None:
-        self.subdir = self._normalize_str(value)
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-    def _normalize_config_value(self, key: str, raw: Any) -> Any:
-        if key == "results_dir":
-            return self._normalize_dir(raw)
-        if key in {
-            "request_timeout_s",
-            "download_timeout_s",
-            "poll_interval_ms",
-            "poll_backoff_max_ms",
-        }:
-            current = getattr(self.config, key)
-            return self._normalize_int(raw, current)
-        if key == "auto_download_on_complete":
-            return self._normalize_bool(raw)
-        if key == "api_base_urls":
-            return self._normalize_box_map(raw)
-        return raw
-
-    @staticmethod
-    def _normalize_dir(value: Any) -> str:
-        text = "" if value is None else str(value)
-        normalized = text.strip() or "."
-        return normalized
-
-    @staticmethod
-    def _normalize_str(value: Any) -> str:
-        if value is None:
-            return ""
-        return str(value).strip()
-
-    @staticmethod
-    def _normalize_bool(value: Any) -> bool:
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        if isinstance(value, str):
-            return value.strip().lower() in {"1", "true", "yes", "on"}
-        return bool(value)
-
-    @staticmethod
-    def _normalize_int(value: Any, fallback: int) -> int:
-        if isinstance(value, bool):
-            return fallback
-        if isinstance(value, (int, float)):
-            return int(value)
-        if isinstance(value, str):
-            try:
-                return int(value.strip())
-            except (TypeError, ValueError):
-                return fallback
-        return fallback
-
-    @staticmethod
-    def _normalize_box_map(value: Any) -> Dict[BoxId, str]:
-        if not isinstance(value, Mapping):
-            return {}
-        normalized: Dict[BoxId, str] = {}
-        for raw_key, raw_val in value.items():
-            key = str(raw_key)
-            normalized[key] = "" if raw_val is None else str(raw_val).strip()
-        return normalized
+        self.subdir = str(value or "")
 
 
 def default_settings_payload() -> dict:

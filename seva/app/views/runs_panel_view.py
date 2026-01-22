@@ -88,10 +88,7 @@ class RunsPanelView(ttk.Frame):
                 ),
             )
         if selected and selected in self.tree.get_children(""):
-            try:
-                self.tree.selection_set(selected)
-            except Exception:
-                pass
+            self.tree.selection_set(selected)
         self._update_buttons_state()
 
     def selected_group_id(self) -> Optional[str]:
@@ -108,11 +105,8 @@ class RunsPanelView(ttk.Frame):
             self._update_buttons_state()
             return
         if group_id in self.tree.get_children(""):
-            try:
-                self.tree.selection_set(group_id)
-                self.tree.see(group_id)
-            except Exception:
-                pass
+            self.tree.selection_set(group_id)
+            self.tree.see(group_id)
         self._update_buttons_state()
 
     # ------------------------------------------------------------------
