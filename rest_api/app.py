@@ -190,6 +190,7 @@ class JobRequest (BaseModel):
     client_datetime: str = Field(..., description="Zeitstempel des Clients fuer Verzeichnis- und Dateinamen")
     run_name: Optional[str] = None
     folder_name: Optional[str] = None
+    group_id: Optional[str] = Field(default=None, description="Optionales Gruppen-Label fuer /jobs?group_id")
     make_plot: bool = True
 
 
@@ -915,7 +916,11 @@ def start_job(req: JobRequest, x_api_key: Optional[str] = Header(None)):
         run_dir.mkdir(parents=True, exist_ok=True)
         _record_run_directory(run_id, run_dir)
 
-        raw_group_id = _normalize_group_value(req.folder_name) or _normalize_group_value(req.subdir)
+        raw_group_id = (
+            _normalize_group_value(req.group_id)
+            or _normalize_group_value(req.folder_name)
+            or _normalize_group_value(req.subdir)
+        )
         storage_folder = storage_info.subdir
 
         # Für Kompatibilität: 'mode' = erster Modus, 'modes' vollständig

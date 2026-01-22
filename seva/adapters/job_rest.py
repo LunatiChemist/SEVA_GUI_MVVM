@@ -196,6 +196,7 @@ class JobRestAdapter(JobPort):
                 "make_plot": bool(meta.make_plot),
                 "experiment_name": experiment_name,
                 "subdir": subdir,
+                "group_id": group_id,
                 "client_datetime": client_dt_text,
             }
 
@@ -296,6 +297,11 @@ class JobRestAdapter(JobPort):
     def poll_group(self, run_group_id: RunGroupId) -> Dict:
         """Bulk poll run snapshots using POST /jobs/status and cached terminals."""
         box_runs: Dict[BoxId, List[str]] = self._groups.get(run_group_id, {}) or {}
+        if not box_runs:
+            recovered = self._recover_group_runs(run_group_id)
+            if recovered:
+                self._groups[run_group_id] = recovered
+                box_runs = recovered
         snapshot = {"boxes": {}, "wells": [], "activity": {}}
 
         has_runs = False
@@ -433,6 +439,37 @@ class JobRestAdapter(JobPort):
 
         snapshot["all_done"] = bool(box_runs) and has_runs and all_terminal
         return snapshot
+
+    def _recover_group_runs(self, run_group_id: RunGroupId) -> Dict[BoxId, List[str]]:
+        recovered: Dict[BoxId, List[str]] = {}
+        group_text = str(run_group_id or "").strip()
+        if not group_text:
+            return recovered
+        for box in self.box_order:
+            session = self.sessions.get(box)
+            if session is None:
+                continue
+            url = self._make_url(box, f"/jobs?group_id={group_text}")
+            resp = session.get(url, timeout=self.cfg.request_timeout_s)
+            self._ensure_ok(resp, f"jobs[{box}]")
+            payload = self._json_any(resp)
+            if not isinstance(payload, list):
+                raise RuntimeError("Invalid JSON response: expected list of jobs")
+            run_ids: List[str] = []
+            for item in payload:
+                if not isinstance(item, dict):
+                    continue
+                run_id_raw = item.get("run_id")
+                if not run_id_raw:
+                    continue
+                run_id = str(run_id_raw)
+                if run_id and run_id not in run_ids:
+                    run_ids.append(run_id)
+            if run_ids:
+                recovered[box] = run_ids
+        if recovered and self._log.isEnabledFor(logging.DEBUG):
+            self._log.debug("Recovered group %s runs=%s", run_group_id, recovered)
+        return recovered
 
     def download_group_zip(self, run_group_id: RunGroupId, target_dir: str) -> str:
         """
