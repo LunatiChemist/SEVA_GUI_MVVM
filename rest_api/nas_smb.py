@@ -8,16 +8,16 @@ from typing import Any, Dict, Optional
 
 from fastapi import HTTPException
 
-import storage  # benutzt resolve_run_directory & RUNS_ROOT-Spiegelung
+import storage  # uses resolve_run_directory & RUNS_ROOT mirroring
 
 
 @dataclass
 class SMBConfig:
-    host: str                # z.B. 192.168.1.10 oder nas.local
-    share: str               # SMB-Share-Name, z.B. "experiments"
+    host: str                # e.g. 192.168.1.10 or nas.local
+    share: str               # SMB share name, e.g. "experiments"
     username: str
-    cred_path: str           # Pfad zur Credentials-Datei (0600)
-    base_subdir: str = ""    # Unterordner innerhalb des Shares (optional)
+    cred_path: str           # Path to credentials file (0600)
+    base_subdir: str = ""    # Subfolder within the share (optional)
     mount_root: str = "/mnt/nas_box"
     retention_days: int = 14
     cifs_vers: str = "3.0"   # SMB3
@@ -26,11 +26,11 @@ class SMBConfig:
 
 class NASManager:
     """
-    KISS-SMB-Manager:
-      - setup(): Credentials schreiben, Mount prüfen, Basisordner anlegen
-      - health(): Probe-Mount durchführen
-      - enqueue_upload(): Upload-Worker per rsync in gemountetes Ziel
-      - start_background(): Health-Probe + Retention-Loop
+    KISS SMB manager:
+      - setup(): write credentials, check mount, create base folder
+      - health(): perform probe mount
+      - enqueue_upload(): upload worker via rsync to mounted target
+      - start_background(): health probe + retention loop
     """
 
     def __init__(self, runs_root: Path, config_path: Path, logger: Optional[logging.Logger] = None) -> None:
@@ -74,7 +74,7 @@ class NASManager:
     def setup(self, *, host: str, share: str, username: str, password: str,
               base_subdir: str = "", retention_days: int = 14, domain: Optional[str] = None) -> Dict[str, Any]:
         if not (host and share and username and password):
-            raise HTTPException(400, "host/share/username/password erforderlich")
+            raise HTTPException(400, "host/share/username/password required")
         cred_path = Path("/opt/box/.smbcredentials_nas")
         self._write_credentials(cred_path, username=username, password=password, domain=domain)
 
@@ -92,7 +92,7 @@ class NASManager:
         self._write_config(cfg)
 
         ok, msg = self._probe(cfg, ensure_base=True)
-        return {"ok": bool(ok), "message": msg or ("SMB mount OK" if ok else "Probe fehlgeschlagen")}
+        return {"ok": bool(ok), "message": msg or ("SMB mount OK" if ok else "Probe failed")}
 
     # ---------- Health ----------
     def health(self) -> Dict[str, Any]:
@@ -140,7 +140,7 @@ class NASManager:
             return
 
         try:
-            run_dir = storage.resolve_run_directory(run_id)  # 404 wenn unbekannt
+            run_dir = storage.resolve_run_directory(run_id)  # 404 if unknown
         except Exception as exc:
             self.log.error("Upload skipped: resolve_run_directory failed (%s): %s", run_id, exc)
             with self._upl_lock:
@@ -153,7 +153,7 @@ class NASManager:
             self._mount(cfg, mnt, read_only=False)
             dest_base = self._dest_base_path(cfg, mnt)
 
-            # Ziel: <base>/<relativ_zu_RUNS_ROOT>
+            # Target: <base>/<relative_to_RUNS_ROOT>
             try:
                 rel = run_dir.relative_to(self.runs_root).as_posix()
             except Exception:
@@ -161,7 +161,7 @@ class NASManager:
             dest = dest_base / rel
             dest.mkdir(parents=True, exist_ok=True)
 
-            # rsync innerhalb des Dateisystems (lokal -> CIFS-Mount)
+            # rsync within filesystem (local -> CIFS mount)
             rsync_cmd = [
                 "rsync", "-a", "--partial",
                 str(run_dir) + "/", str(dest) + "/",
@@ -170,7 +170,7 @@ class NASManager:
             if res.returncode != 0:
                 self._mark_failed(run_dir, f"rsync rc={res.returncode}, err={res.stderr.strip() if res.stderr else ''}")
             else:
-                # minimale Verifikation: Dateizahl vergleichen
+                # minimal verification: compare file counts
                 local_count = sum(1 for p in run_dir.rglob("*") if p.is_file())
                 remote_count = sum(1 for p in dest.rglob("*") if p.is_file())
                 if remote_count < local_count:
@@ -256,7 +256,7 @@ class NASManager:
             opts.append("ro")
         cmd = ["mount", "-t", "cifs", self._unc(cfg), str(mount_point), "-o", ",".join(opts)]
         with self._mnt_lock:
-            # Wenn bereits gemountet, erst clean unmounten
+            # If already mounted, cleanly unmount first
             if mount_point.is_mount():
                 self._umount(mount_point)
             res = self._run(cmd, check=False)
@@ -265,7 +265,7 @@ class NASManager:
 
     def _umount(self, mount_point: Path) -> None:
         if mount_point.exists():
-            # lazy unmount, falls noch offene Handles
+            # lazy unmount in case handles are still open
             self._run(["umount", "-l", str(mount_point)], check=False)
 
     # ---------- Utils ----------

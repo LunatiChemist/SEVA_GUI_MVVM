@@ -52,13 +52,13 @@ def value_or_none(value: Optional[str]) -> Optional[str]:
 def sanitize_path_segment(raw: str, field_name: str) -> str:
     trimmed = (raw or "").strip()
     if not trimmed:
-        raise HTTPException(400, f"{field_name} darf nicht leer sein")
+        raise HTTPException(400, f"{field_name} must not be empty")
     sanitized = PATH_SEGMENT_RE.sub("_", trimmed)
     sanitized = re.sub(r"_+", "_", sanitized)
     sanitized = re.sub(r"-+", "-", sanitized)
     sanitized = sanitized.strip("_-")
     if not sanitized:
-        raise HTTPException(400, f"{field_name} ist ungueltig")
+        raise HTTPException(400, f"{field_name} is invalid")
     return sanitized
 
 
@@ -72,7 +72,7 @@ def sanitize_optional_segment(value: Optional[str]) -> Optional[str]:
 def sanitize_client_datetime(raw: str) -> str:
     trimmed = (raw or "").strip()
     if not trimmed:
-        raise HTTPException(400, "client_datetime darf nicht leer sein")
+        raise HTTPException(400, "client_datetime must not be empty")
     normalized = (
         trimmed.replace(":", "-")
         .replace(" ", "_")
@@ -85,7 +85,7 @@ def sanitize_client_datetime(raw: str) -> str:
     sanitized = re.sub(r"_{2,}", "_", sanitized)
     sanitized = sanitized.strip("_-")
     if not sanitized:
-        raise HTTPException(400, "client_datetime ist ungueltig")
+        raise HTTPException(400, "client_datetime is invalid")
     return sanitized
 
 
@@ -142,12 +142,12 @@ def resolve_run_directory(run_id: str) -> pathlib.Path:
             RUN_DIRECTORIES[run_id] = fallback
         return fallback
 
-    raise HTTPException(404, "Run nicht gefunden")
+    raise HTTPException(404, "Run not found")
 
 
 def _require_root() -> pathlib.Path:
     if _RUNS_ROOT is None:
-        raise RuntimeError("RUNS_ROOT wurde noch nicht konfiguriert")
+        raise RuntimeError("RUNS_ROOT has not been configured yet")
     return _RUNS_ROOT
 
 

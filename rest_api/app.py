@@ -24,7 +24,7 @@ from pyBEEP.controller import (
     connect_to_potentiostats,  # liefert List[PotentiostatController]
     PotentiostatController,
 )
-# Optional: vorhandene Plot-Funktionen nutzen
+# Optional: use existing plot functions
 from pyBEEP.plotter import plot_cv_cycles, plot_time_series
 from progress_utils import compute_progress, estimate_planned_duration, utcnow_iso
 from validation import (
@@ -149,10 +149,10 @@ PYBEEP_VERSION = _detect_pybeep_version()
 PYTHON_VERSION = platform.python_version()
 BUILD_IDENTIFIER = _detect_build_identifier()
 
-# ---------- Geräte-Registry ----------
+# ---------- Device registry ----------
 class DeviceInfo(BaseModel):
     slot: str
-    port: str  # z.B. /dev/ttyACM0 oder ttyACM0
+    port: str  # e.g. /dev/ttyACM0 or ttyACM0
     sn: Optional[str] = None
 
 DEVICES: Dict[str, PotentiostatController] = {}   # slot -> controller
@@ -178,19 +178,19 @@ def discover_devices():
 
             DEV_META[slot] = DeviceInfo(slot=slot, port=str(port_name), sn=serial_number)
 
-# ---------- Job-Modelle ----------
+# ---------- Job models ----------
 class JobRequest (BaseModel):
-    devices: List[str] | Literal["all"] = Field(..., description='z.B. ["slot01","slot02"] oder "all"')
-    modes: List[str] = Field(..., min_length=1, description="z.B. ['CV','EIS']")
-    params_by_mode: Dict[str, Dict] = Field(default_factory=dict, description="pro Modus Parameterschema")
+    devices: List[str] | Literal["all"] = Field(..., description='e.g. ["slot01","slot02"] or "all"')
+    modes: List[str] = Field(..., min_length=1, description="e.g. ['CV','EIS']")
+    params_by_mode: Dict[str, Dict] = Field(default_factory=dict, description="per-mode parameter schema")
     tia_gain: Optional[int] = 0
     sampling_interval: Optional[float] = None
-    experiment_name: str = Field(..., description="Experimentname fuer die Ablage")
-    subdir: Optional[str] = Field(default=None, description="Optionaler Unterordner fuer die Ablage")
-    client_datetime: str = Field(..., description="Zeitstempel des Clients fuer Verzeichnis- und Dateinamen")
+    experiment_name: str = Field(..., description="Experiment name for storage")
+    subdir: Optional[str] = Field(default=None, description="Optional subfolder for storage")
+    client_datetime: str = Field(..., description="Client timestamp for directory and file names")
     run_name: Optional[str] = None
     folder_name: Optional[str] = None
-    group_id: Optional[str] = Field(default=None, description="Optionales Gruppen-Label fuer /jobs?group_id")
+    group_id: Optional[str] = Field(default=None, description="Optional group label for /jobs?group_id")
     make_plot: bool = True
 
 
@@ -225,11 +225,11 @@ class SlotStatus(BaseModel):
     started_at: Optional[str] = None
     ended_at: Optional[str] = None
     message: Optional[str] = None
-    files: List[str] = Field(default_factory=list)  # relative Pfade
+    files: List[str] = Field(default_factory=list)  # relative paths
 
 class JobStatus(BaseModel):
     run_id: str
-    # Für Abwärtskompatibilität nutzen wir 'mode' als *aktuellen* Modus
+    # For backward compatibility we use 'mode' as the *current* mode
     mode: str
     started_at: str
     status: Literal["running", "done", "failed", "cancelled"]
@@ -369,7 +369,7 @@ async def handle_request_validation(
         content={
             "code": "request.validation_error",
             "message": "Validation failed",
-            "hint": "Bitte Request-Payload und Felder pruefen.",
+            "hint": "Please check request payload and fields.",
             "detail": errors,
         },
     )
@@ -381,7 +381,7 @@ def require_key(x_api_key: Optional[str]) -> Optional[JSONResponse]:
             status_code=401,
             code="auth.invalid_api_key",
             message="Unauthorized",
-            hint="X-API-Key Header fehlt oder ist falsch.",
+            hint="X-API-Key header is missing or incorrect.",
         )
     return None
 
@@ -395,7 +395,7 @@ def version_info() -> Dict[str, str]:
         "build": BUILD_IDENTIFIER,
     }
 
-# ---------- Health / Geräte / Modi ----------
+# ---------- Health / Devices / Modes ----------
 @app.get("/health")
 def health(x_api_key: Optional[str] = Header(None)):
     if auth_error := require_key(x_api_key):
@@ -420,7 +420,7 @@ def list_devices(x_api_key: Optional[str] = Header(None)):
 def list_modes(x_api_key: Optional[str] = Header(None)):
     if auth_error := require_key(x_api_key):
         return auth_error
-    # Nimm die Modi vom ersten Gerät (alle sind identisch konfiguriert)
+    # Take modes from the first device (all are configured identically)
     with DEVICE_SCAN_LOCK:
         try:
             first = next(iter(DEVICES.values()))
@@ -428,8 +428,8 @@ def list_modes(x_api_key: Optional[str] = Header(None)):
             return http_error(
                 status_code=503,
                 code="devices.unavailable",
-                message="Keine Geraete registriert",
-                hint="Mit /admin/rescan nach neuen Geraeten suchen.",
+                message="No devices registered",
+                hint="Use /admin/rescan to look for new devices.",
             )
     return first.get_available_modes()
 
@@ -444,8 +444,8 @@ def mode_params(mode: str, x_api_key: Optional[str] = Header(None)):
             return http_error(
                 status_code=503,
                 code="devices.unavailable",
-                message="Keine Geraete registriert",
-                hint="Mit /admin/rescan nach neuen Geraeten suchen.",
+                message="No devices registered",
+                hint="Use /admin/rescan to look for new devices.",
             )
     try:
         return {k: str(v) for k, v in first.get_mode_params(mode).items()}
@@ -454,7 +454,7 @@ def mode_params(mode: str, x_api_key: Optional[str] = Header(None)):
             status_code=400,
             code="modes.parameter_error",
             message=str(e),
-            hint="Parameter entsprechend der Modus-Spezifikation pruefen.",
+            hint="Check parameters according to the mode specification.",
         )
 
 
@@ -476,7 +476,7 @@ def validate_mode_params(
             status_code=404,
             code="modes.not_found",
             message=str(exc),
-            hint="Verfuegbare Modi ueber /modes abrufen.",
+            hint="Fetch available modes via /modes.",
         )
 
 # ---------- Job Worker ----------
@@ -500,7 +500,7 @@ def _update_job_status_locked(job: Optional[JobStatus]) -> None:
     #drop transient meta once job is terminal
     JOB_META.pop(job.run_id, None)
     CANCEL_FLAGS.pop(job.run_id, None)
-    # NEU: Upload nur bei 'done' enqueuen (nicht bei failed/cancelled)
+    # NEW: enqueue upload only for 'done' (not for failed/cancelled)
     if job.status == "done":
         try:
             NAS.enqueue_upload(job.run_id)
@@ -545,7 +545,7 @@ def _run_slot_sequence(
     slot_status: SlotStatus,
     storage: RunStorageInfo,
 ):
-    """Führt die Liste 'modes' nacheinander aus. Jede Messung schreibt in eigenen Mode-Unterordner."""
+    """Runs the 'modes' list sequentially. Each measurement writes to its own mode subfolder."""
     ctrl = DEVICES[slot]
     slot_segment = _sanitize_path_segment(slot, "slot")
     cancel_event = CANCEL_FLAGS.setdefault(run_id, threading.Event())
@@ -588,7 +588,7 @@ def _run_slot_sequence(
                 error = "cancelled"
                 break
 
-            # Status: aktuellen/Rest-Modus setzen (auch 'mode' für Kompatibilität)
+            # Status: set current/remaining mode (also 'mode' for compatibility)
             with JOB_LOCK:
                 job = JOBS.get(run_id)
                 if job:
@@ -597,7 +597,7 @@ def _run_slot_sequence(
                     job.modes = list(req.modes or [])
                     job.remaining_modes = list(req.modes[idx + 1:])
 
-            # Per-Mode Ordner/Dateinamen
+            # Per-mode folders/filenames
             mode_segment = _sanitize_path_segment(mode, "mode")
             mode_dir = run_dir / "Wells" / slot_segment / mode_segment
             mode_dir.mkdir(parents=True, exist_ok=True)
@@ -606,7 +606,7 @@ def _run_slot_sequence(
 
             params = dict(req.params_by_mode.get(mode, {}) or {})
 
-            # Messung mit Abbruchfenster in Neben-Thread
+            # Measurement with abort window in background thread
             measurement_error: Optional[Exception] = None
             def _runner():
                 nonlocal measurement_error
@@ -640,7 +640,7 @@ def _run_slot_sequence(
                 error = str(measurement_error)
                 break
 
-            # Dateien einsammeln, Status fortschreiben
+            # Collect files, advance status
             csv_path = mode_dir / filename
             files_collected.extend(_eval_plot(csv_path, mode, params))
 
@@ -664,7 +664,7 @@ def _run_slot_sequence(
 
         job = JOBS.get(run_id)
         if job:
-            # Wenn letzter Slot fertig, Job terminiert + Modes-Felder zurücksetzen
+            # If last slot finished, terminate job + reset modes fields
             _update_job_status_locked(job)
             if job.status in ("done", "failed", "cancelled"):
                 job.current_mode = None
@@ -912,18 +912,18 @@ def start_job(req: JobRequest, x_api_key: Optional[str] = Header(None)):
         else:
             slots = [s for s in req.devices if s in DEVICES]
     if not slots:
-        return http_error(status_code=400, code="jobs.invalid_devices", message="Keine gueltigen devices angegeben", hint="Verwende Slots aus /devices oder 'all'.")
+        return http_error(status_code=400, code="jobs.invalid_devices", message="No valid devices specified", hint="Use slots from /devices or 'all'.")
 
     run_id = req.run_name or datetime.datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "_" + uuid.uuid4().hex[:6]
 
     with JOB_LOCK:
         if run_id in JOBS:
-            return http_error(status_code=409, code="jobs.run_id_conflict", message="run_id bereits aktiv", hint="Andere run_id waehlen oder laufenden Job abwarten.")
+            return http_error(status_code=409, code="jobs.run_id_conflict", message="run_id already active", hint="Choose another run_id or wait for the running job.")
 
     with SLOT_STATE_LOCK:
         busy = sorted(s for s in slots if s in SLOT_RUNS)
         if busy:
-            return http_error(status_code=409, code="jobs.slots_busy", message=f"Slots belegt: {', '.join(busy)}", hint="Warte bis die genannten Slots frei sind.")
+            return http_error(status_code=409, code="jobs.slots_busy", message=f"Slots busy: {', '.join(busy)}", hint="Wait until the listed slots are free.")
         for s in slots:
             SLOT_RUNS[s] = run_id
 
@@ -945,7 +945,7 @@ def start_job(req: JobRequest, x_api_key: Optional[str] = Header(None)):
         )
         storage_folder = storage_info.subdir
 
-        # Für Kompatibilität: 'mode' = erster Modus, 'modes' vollständig
+        # For compatibility: 'mode' = first mode, 'modes' full list
         first_mode = (req.modes or [""])[0]
         job = JobStatus(
             run_id=run_id,
@@ -962,7 +962,7 @@ def start_job(req: JobRequest, x_api_key: Optional[str] = Header(None)):
         with JOB_LOCK:
             JOBS[run_id] = job
             CANCEL_FLAGS[run_id] = threading.Event()
-            # Progress-Schätzung grob anhand des ersten Modus (KISS)
+            # Progress estimate based on the first mode (KISS)
             record_job_meta(run_id, first_mode, dict(req.params_by_mode.get(first_mode, {}) or {}))
             if raw_group_id:
                 JOB_GROUP_IDS[run_id] = raw_group_id
@@ -1014,7 +1014,7 @@ def cancel_job(run_id: str, x_api_key: Optional[str] = Header(None)):
                 status_code=404,
                 code="jobs.not_found",
                 message="Unbekannte run_id",
-                hint="run_id pruefen oder Liste der Jobs abrufen.",
+                hint="Check run_id or fetch the job list.",
             )
 
         event = CANCEL_FLAGS.get(run_id)
@@ -1060,7 +1060,7 @@ def job_status(run_id: str, x_api_key: Optional[str] = Header(None)):
                 status_code=404,
                 code="jobs.not_found",
                 message="Unbekannte run_id",
-                hint="run_id pruefen oder Liste der Jobs abrufen.",
+                hint="Check run_id or fetch the job list.",
             )
         return job_snapshot(job)
 
@@ -1074,8 +1074,8 @@ def list_run_files(run_id: str, x_api_key: Optional[str] = Header(None)):
         return http_error(
             status_code=404,
             code="runs.not_found",
-            message="Run nicht gefunden",
-            hint="run_id pruefen oder vorhandene Runs auflisten.",
+            message="Run not found",
+            hint="Check run_id or list existing runs.",
         )
     files = [
         path.relative_to(run_dir).as_posix()
@@ -1096,15 +1096,15 @@ def get_run_file(run_id: str, path: str, x_api_key: Optional[str] = Header(None)
         return http_error(
             status_code=404,
             code="runs.not_found",
-            message="Run nicht gefunden",
-            hint="run_id pruefen oder vorhandene Runs auflisten.",
+            message="Run not found",
+            hint="Check run_id or list existing runs.",
         )
     if not path:
         return http_error(
             status_code=404,
             code="runs.file_not_found",
-            message="Datei nicht gefunden",
-            hint="Pfad relativ zum Run-Verzeichnis angeben.",
+            message="File not found",
+            hint="Provide path relative to the run directory.",
         )
 
     run_root = run_dir.resolve()
@@ -1114,8 +1114,8 @@ def get_run_file(run_id: str, path: str, x_api_key: Optional[str] = Header(None)
         return http_error(
             status_code=404,
             code="runs.file_not_found",
-            message="Datei nicht gefunden",
-            hint="Pfad relativ zum Run-Verzeichnis angeben.",
+            message="File not found",
+            hint="Provide path relative to the run directory.",
         )
 
     try:
@@ -1124,16 +1124,16 @@ def get_run_file(run_id: str, path: str, x_api_key: Optional[str] = Header(None)
         return http_error(
             status_code=404,
             code="runs.file_not_found",
-            message="Datei nicht gefunden",
-            hint="Pfad relativ zum Run-Verzeichnis angeben.",
+            message="File not found",
+            hint="Provide path relative to the run directory.",
         )
 
     if not target_path.is_file():
         return http_error(
             status_code=404,
             code="runs.file_not_found",
-            message="Datei nicht gefunden",
-            hint="Pfad relativ zum Run-Verzeichnis angeben.",
+            message="File not found",
+            hint="Provide path relative to the run directory.",
         )
 
     rel_path = target_path.relative_to(run_root).as_posix()
@@ -1150,8 +1150,8 @@ def get_run_zip(run_id: str, x_api_key: Optional[str] = Header(None)):
         return http_error(
             status_code=404,
             code="runs.not_found",
-            message="Run nicht gefunden",
-            hint="run_id pruefen oder vorhandene Runs auflisten.",
+            message="Run not found",
+            hint="Check run_id or list existing runs.",
         )
     # ZIP im Speicher bauen
     buf = io.BytesIO()
@@ -1175,7 +1175,7 @@ class SMBSetupRequest(BaseModel):
     share: str
     username: str
     password: str
-    base_subdir: str = ""     # optionaler Unterordner innerhalb des Shares
+    base_subdir: str = ""     # optional subfolder within the share
     retention_days: int = 14
     domain: Optional[str] = None
 

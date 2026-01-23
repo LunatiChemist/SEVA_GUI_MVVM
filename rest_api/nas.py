@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import HTTPException
 
-# Wir nutzen storage-Helfer für Pfad-Auflösung
+# We use storage helpers for path resolution
 import storage
 
 
@@ -24,11 +24,11 @@ class NASConfig:
 
 class NASManager:
     """
-    KISS-Manager für:
-      - Setup (einmalig): Key erzeugen, autorisieren, Basisordner anlegen
-      - Health: SSH-Key-Login per BatchMode testen
-      - Upload: rsync mit SSH-Key, idempotent
-      - Retention: lokale Runs nach erfolgreichem Upload + Frist löschen
+    KISS manager for:
+      - Setup (one-time): generate key, authorize it, create base folder
+      - Health: test SSH key login via BatchMode
+      - Upload: rsync with SSH key, idempotent
+      - Retention: delete local runs after successful upload + retention window
     """
 
     def __init__(self, runs_root: Path, config_path: Path, logger: Optional[logging.Logger] = None) -> None:
@@ -65,27 +65,27 @@ class NASManager:
     def setup(self, *, host: str, port: int, username: str, password: str,
               remote_base_dir: str, retention_days: int = 14) -> Dict[str, Any]:
         if not host or not username or not password:
-            raise HTTPException(400, "host/username/password erforderlich")
+            raise HTTPException(400, "host/username/password required")
         if not remote_base_dir or " " in remote_base_dir:
-            raise HTTPException(400, "remote_base_dir erforderlich und ohne Leerzeichen")
+            raise HTTPException(400, "remote_base_dir required and without spaces")
 
         key_path = Path("/opt/box/.ssh/id_ed25519_nas")
         pub_path = key_path.with_suffix(".pub")
 
         if not key_path.exists():
-            # ed25519-Key erzeugen (leer passphrase)
+            # Generate ed25519 key (empty passphrase)
             self._run(["ssh-keygen", "-t", "ed25519", "-N", "", "-f", str(key_path)], check=True)
             key_path.chmod(0o600)
         if not pub_path.exists():
-            raise HTTPException(500, "Public key fehlt nach ssh-keygen")
+            raise HTTPException(500, "Public key missing after ssh-keygen")
 
         pubkey = pub_path.read_text(encoding="utf-8").strip()
 
-        # Nur für Setup: per Passwort mit Paramiko verbinden und Key autorisieren
+        # Setup-only: connect via password with Paramiko and authorize key
         try:
             import paramiko  # type: ignore
         except Exception as exc:
-            raise HTTPException(500, "Paramiko nicht installiert. Bitte: pip install paramiko") from exc
+            raise HTTPException(500, "Paramiko not installed. Please: pip install paramiko") from exc
 
         try:
             client = paramiko.SSHClient()
@@ -106,7 +106,7 @@ class NASManager:
                 rc = stdout.channel.recv_exit_status()
                 if rc != 0:
                     msg = stderr.read().decode("utf-8", errors="ignore").strip()
-                    raise HTTPException(502, f"Remote-Setup fehlgeschlagen: {cmd} -> {msg}")
+                    raise HTTPException(502, f"Remote setup failed: {cmd} -> {msg}")
 
         finally:
             try:
@@ -124,9 +124,9 @@ class NASManager:
         )
         self._write_config(cfg)
 
-        # Erste Health-Prüfung via Key-Login
+        # First health check via key login
         ok, msg = self._probe(cfg)
-        return {"ok": bool(ok), "message": msg or ("SSH key login OK" if ok else "Probe fehlgeschlagen")}
+        return {"ok": bool(ok), "message": msg or ("SSH key login OK" if ok else "Probe failed")}
 
     # ---------- Health ----------
     def health(self) -> Dict[str, Any]:
@@ -180,11 +180,11 @@ class NASManager:
                 self._uploading.discard(run_id)
             return
 
-        # Zielstruktur: <remote_base_dir>/<relative_to_runs_root>
+        # Target structure: <remote_base_dir>/<relative_to_runs_root>
         try:
             rel = run_dir.relative_to(self.runs_root).as_posix()
         except Exception:
-            # Fallback: in einen Unterordner nach run_id
+            # Fallback: into a subfolder by run_id
             rel = run_id
 
         dest = f"{cfg.remote_base_dir.rstrip('/')}/{rel}"
@@ -195,19 +195,19 @@ class NASManager:
                 self._uploading.discard(run_id)
             return
 
-        # rsync Upload (idempotent)
+        # rsync upload (idempotent)
         ssh_cmd = f"ssh -i {shlex.quote(cfg.key_path)} -o BatchMode=yes -o StrictHostKeyChecking=no -p {cfg.port}"
         rsync_cmd = [
             "rsync", "-a", "--partial", "--append-verify",
             "-e", ssh_cmd,
-            str(run_dir) + "/",  # trailing slash = Inhalt kopieren
+            str(run_dir) + "/",  # trailing slash = copy contents
             f"{cfg.username}@{cfg.host}:{dest}/",
         ]
         res = self._run(rsync_cmd, check=False)
         if res.returncode != 0:
             self._mark_failed(run_dir, reason=f"rsync rc={res.returncode}")
         else:
-            # Kleinste Verifikation: Anzahl Dateien vergleichen
+            # Minimal verification: compare file counts
             local_count = sum(1 for p in run_dir.rglob("*") if p.is_file())
             remote_cnt_cmd = [
                 "ssh", "-i", cfg.key_path, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-p", str(cfg.port),
@@ -246,7 +246,7 @@ class NASManager:
 
     # ---------- Retention ----------
     def start_background(self) -> None:
-        # Initiale Health-Probe (3 Versuche, non-blocking)
+        # Initial health probe (3 tries, non-blocking)
         threading.Thread(target=self._initial_health_probe, daemon=True, name="nas-health-probe").start()
         # Housekeeper
         threading.Thread(target=self._retention_loop, daemon=True, name="nas-retention").start()
@@ -270,14 +270,14 @@ class NASManager:
                     self._apply_retention(cfg)
             except Exception as exc:
                 self.log.warning("retention pass failed: %s", exc)
-            time.sleep(6 * 3600)  # alle 6 Stunden
+            time.sleep(6 * 3600)  # every 6 hours
 
     def _apply_retention(self, cfg: NASConfig) -> None:
         cutoff = _dt.datetime.utcnow() - _dt.timedelta(days=cfg.retention_days)
         for path in self.runs_root.rglob("*"):
             if not path.is_dir():
                 continue
-            # Nur Run-Verzeichnisse mit Upload-Marker
+            # Only run directories with upload marker
             marker = path / "UPLOAD_DONE"
             if not marker.exists():
                 continue
