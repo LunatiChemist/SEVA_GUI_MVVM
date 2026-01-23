@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, TYPE_CHECKING
+from typing import Dict, List, Optional, TYPE_CHECKING
 
 from ..domain.ports import StoragePort, UseCaseError
 
@@ -23,8 +23,8 @@ class LoadPlateLayout:
     ) -> Dict:
         try:
             data = self.storage.load_layout(name)
-            selection = self._as_list(data.get("selection"))
-            well_params_map = data.get("well_params_map") or {}
+            selection = list(data.get("selection") or [])
+            well_params_map = dict(data.get("well_params_map") or {})
             if experiment_vm is not None:
                 self._apply_to_experiment_vm(experiment_vm, selection, well_params_map)
             if plate_vm is not None:
@@ -39,28 +39,17 @@ class LoadPlateLayout:
         selection: List[str],
         well_params_map: Dict[str, Dict],
     ) -> None:
-        store = getattr(experiment_vm, "well_params", None)
-        if isinstance(store, dict):
-            store.clear()
-            for wid, snapshot in well_params_map.items():
-                store[str(wid)] = dict(snapshot)
-        elif hasattr(experiment_vm, "save_params_for"):
-            for wid, snapshot in well_params_map.items():
-                experiment_vm.save_params_for(str(wid), snapshot)  # type: ignore[arg-type]
+        experiment_vm.well_params.clear()
+        for wid, snapshot in well_params_map.items():
+            experiment_vm.well_params[str(wid)] = dict(snapshot)
 
-        if hasattr(experiment_vm, "set_selection"):
-            try:
-                experiment_vm.set_selection(set(selection))  # type: ignore[arg-type]
-            except Exception:
-                setattr(experiment_vm, "selection", set(selection))
-        else:
-            setattr(experiment_vm, "selection", set(selection))
+        experiment_vm.set_selection(set(selection))  # type: ignore[arg-type]
 
         if selection:
             first = selection[0]
             current = well_params_map.get(first)
-            if current and hasattr(experiment_vm, "fields"):
-                setattr(experiment_vm, "fields", dict(current))
+            if current:
+                experiment_vm.fields = dict(current)
 
     def _apply_to_plate_vm(
         self,
@@ -69,23 +58,7 @@ class LoadPlateLayout:
         well_params_map: Dict[str, Dict],
     ) -> None:
         configured_wells = list(well_params_map.keys())
-        if hasattr(plate_vm, "clear_all_configured"):
-            plate_vm.clear_all_configured()
-        if configured_wells and hasattr(plate_vm, "mark_configured"):
+        plate_vm.clear_all_configured()
+        if configured_wells:
             plate_vm.mark_configured(configured_wells)
-        if hasattr(plate_vm, "set_selection"):
-            plate_vm.set_selection(selection)
-        else:
-            setattr(plate_vm, "_selected", set(selection))
-
-    def _as_list(self, selection: Optional[Iterable]) -> List[str]:
-        items: List[str] = []
-        if selection is None:
-            return items
-        if isinstance(selection, str):
-            return [selection]
-        for item in selection:
-            sid = str(item)
-            if sid not in items:
-                items.append(sid)
-        return items
+        plate_vm.set_selection(selection)

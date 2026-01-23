@@ -90,7 +90,7 @@ def parse_error_payload(resp: Any) -> Any:
 
 
 def build_error_message(ctx: str, status: int, payload: Any) -> str:
-    detail = first_string(payload)
+    detail = _payload_detail(payload)
     if detail:
         return f"{ctx}: {detail} (HTTP {status})"
     return f"{ctx}: HTTP {status}"
@@ -98,32 +98,25 @@ def build_error_message(ctx: str, status: int, payload: Any) -> str:
 
 def extract_error_code(payload: Any) -> Optional[str]:
     if isinstance(payload, dict):
-        for key in ("code", "error", "error_code"):
-            value = payload.get(key)
-            if value is None:
-                continue
-            if isinstance(value, str):
-                return value
-            return str(value)
+        value = payload.get("code") or payload.get("error_code")
+        if value is None:
+            return None
+        return value if isinstance(value, str) else str(value)
     return None
 
 
 def extract_error_hint(payload: Any) -> Optional[str]:
     if isinstance(payload, dict):
-        for key in ("hint", "details", "errors", "messages"):
-            if key not in payload:
-                continue
-            text = stringify(payload[key])
-            if text:
-                return text
-    if isinstance(payload, list):
-        return stringify(payload)
+        value = payload.get("hint") or payload.get("details") or payload.get("message")
+        return _payload_detail(value)
     if isinstance(payload, str):
         return payload.strip() or None
     return None
 
 
-def first_string(payload: Any) -> Optional[str]:
+def _payload_detail(payload: Any) -> Optional[str]:
+    if payload is None:
+        return None
     if isinstance(payload, str):
         text = payload.strip()
         return text or None
@@ -132,49 +125,4 @@ def first_string(payload: Any) -> Optional[str]:
             value = payload.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip()
-            if isinstance(value, list):
-                candidate = first_string(value)
-                if candidate:
-                    return candidate
-            if isinstance(value, dict):
-                candidate = first_string(value)
-                if candidate:
-                    return candidate
-    if isinstance(payload, list):
-        for item in payload:
-            candidate = first_string(item)
-            if candidate:
-                return candidate
     return None
-
-
-def stringify(data: Any, *, limit: int = 200) -> Optional[str]:
-    if data is None:
-        return None
-    if isinstance(data, str):
-        cleaned = data.strip()
-        return cleaned[:limit] if cleaned else None
-    if isinstance(data, list):
-        parts = []
-        for item in data:
-            text = stringify(item, limit=limit)
-            if text:
-                parts.append(text)
-            if len(parts) >= 3:
-                break
-        if not parts:
-            return None
-        joined = "; ".join(parts)
-        return joined[:limit]
-    if isinstance(data, dict):
-        pairs = []
-        for key, value in list(data.items())[:4]:
-            value_text = stringify(value, limit=limit)
-            if value_text:
-                pairs.append(f"{key}={value_text}")
-        if not pairs:
-            return None
-        joined = ", ".join(pairs)
-        return joined[:limit]
-    text = str(data).strip()
-    return text[:limit] if text else None

@@ -1,12 +1,10 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Protocol, Tuple, TypedDict, Set
+from typing import Any, Dict, List, Literal, Optional, Protocol, Tuple
 
-from .entities import ExperimentPlan
+from .entities import BoxId, ExperimentPlan, WellId
 
-WellId = str
-BoxId = str
 RunGroupId = str
 
 
@@ -39,13 +37,6 @@ class JobPort(Protocol):
     def download_group_zip(
         self, run_group_id: RunGroupId, target_dir: str
     ) -> str: ...  # returns path
-    def list_busy_wells(self, box_id: BoxId) -> Set[WellId]: ...
-
-
-class ModeValidationResult(TypedDict):
-    ok: bool
-    errors: List[Dict[str, Any]]
-    warnings: List[Dict[str, Any]]
 
 
 class DevicePort(Protocol):
@@ -55,9 +46,6 @@ class DevicePort(Protocol):
     def list_devices(self, box_id: BoxId) -> List[Dict[str, Any]]: ...
     def get_modes(self, box_id: BoxId) -> List[str]: ...
     def get_mode_schema(self, box_id: BoxId, mode: str) -> Dict[str, Any]: ...
-    def validate_mode(
-        self, box_id: BoxId, mode: str, params: Dict[str, Any]
-    ) -> ModeValidationResult: ...
 
 
 class RelayPort(Protocol):

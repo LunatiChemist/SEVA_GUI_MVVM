@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from seva.domain.runs_registry import RunEntry, RunsRegistry
+from .status_format import registry_status_label
 
 
 @dataclass
@@ -59,15 +60,7 @@ class RunsVM:
         )
 
     def _format_status(self, entry: RunEntry) -> str:
-        if entry.status == "done":
-            return "Done (Downloaded)" if entry.download.done else "Done"
-        if entry.status == "cancelled":
-            return "Cancelled"
-        if entry.status == "error":
-            return "Error"
-        if entry.status == "deleted":
-            return "Deleted"
-        return "Running"
+        return registry_status_label(entry.status, downloaded=entry.download.done)
 
     def _format_progress(self, snapshot: Optional[Dict[str, Any]]) -> str:
         if not snapshot:
@@ -78,9 +71,11 @@ class RunsVM:
             return f"{int(pct)}%"
 
         runs = snapshot.get("runs") or []
-        try:
-            items = list(runs.values()) if isinstance(runs, dict) else list(runs)
-        except Exception:
+        if isinstance(runs, dict):
+            items = list(runs.values())
+        elif isinstance(runs, (list, tuple)):
+            items = list(runs)
+        else:
             items = []
         total = len(items)
         if total == 0:
@@ -97,14 +92,11 @@ class RunsVM:
     def _format_dt(self, iso_ts: str) -> str:
         if not iso_ts:
             return ""
-        try:
-            if iso_ts.endswith("Z"):
-                dt = datetime.fromisoformat(iso_ts.replace("Z", "+00:00"))
-            else:
-                dt = datetime.fromisoformat(iso_ts)
-            return dt.strftime("%Y-%m-%d %H:%M")
-        except Exception:
-            return iso_ts or ""
+        if iso_ts.endswith("Z"):
+            dt = datetime.fromisoformat(iso_ts.replace("Z", "+00:00"))
+        else:
+            dt = datetime.fromisoformat(iso_ts)
+        return dt.strftime("%Y-%m-%d %H:%M")
 
 
 __all__ = ["RunRow", "RunsVM"]

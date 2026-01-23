@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable, Dict, Optional
 
+
 BoxId = str
 
 
@@ -275,17 +276,11 @@ class SettingsDialog(tk.Toplevel):
 
     def _safe(self, fn: OnVoid) -> None:
         if fn:
-            try:
-                fn()
-            except Exception as exc:  # pragma: no cover - GUI logging only
-                print(f"SettingsDialog callback failed: {exc}")
+            fn()
 
     def _safe_box(self, fn: OnBox, box_id: BoxId) -> None:
         if fn:
-            try:
-                fn(box_id)
-            except Exception as exc:  # pragma: no cover - GUI logging only
-                print(f"SettingsDialog test connection failed for {box_id}: {exc}")
+            fn(box_id)
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ from tkinter import ttk
 from typing import Callable, Optional, Dict
 
 
+
 class ExperimentPanelView(ttk.Frame):
     OnVoid = Optional[Callable[[], None]]
     OnChange = Optional[Callable[[str, str], None]]
@@ -82,8 +83,8 @@ class ExperimentPanelView(ttk.Frame):
         tools.grid(row=0, column=0, columnspan=2, sticky="ew")
         ttk.Checkbutton(tools, text="Run DC", variable=self.dc_run_var).pack(side="left")
         ttk.Checkbutton(tools, text="Run AC", variable=self.ac_run_var).pack(side="left", padx=(8, 0))
-        ttk.Button(tools, text="⎘", width=3, command=lambda: self._safe(self._on_copy_dcac)).pack(side="right")
-        ttk.Button(tools, text="🗀", width=3, command=lambda: self._safe(self._on_paste_dcac)).pack(side="right")
+        ttk.Button(tools, text="⎘", width=3, command=self._on_copy_dcac).pack(side="right")
+        ttk.Button(tools, text="🗀", width=3, command=self._on_paste_dcac).pack(side="right")
 
         self._make_labeled_entry(dcac, "Duration (s)", "ea.duration_s", 1)
         self._make_labeled_entry(dcac, "Charge Cutoff (C)", "ea.charge_cutoff_c", 2)
@@ -150,13 +151,13 @@ class ExperimentPanelView(ttk.Frame):
             footer.columnconfigure(idx, weight=1)
         self.editing_well_var = tk.StringVar(value="–")
         ttk.Label(footer, textvariable=self.editing_well_var).grid(row=0, column=0, sticky="w")
-        ttk.Button(footer, text="Update Parameters", command=lambda: self._safe(self._on_apply_params)).grid(
+        ttk.Button(footer, text="Update Parameters", command=self._on_apply_params).grid(
             row=0, column=1, sticky="", padx=6
         )
-        ttk.Button(footer, text="End Selection", command=lambda: self._safe(self._on_end_selection)).grid(
+        ttk.Button(footer, text="End Selection", command=self._on_end_selection).grid(
             row=0, column=2, sticky="e", padx=6
         )
-        ttk.Button(footer, text="End Task", command=lambda: self._safe(self._on_end_task)).grid(
+        ttk.Button(footer, text="End Task", command=self._on_end_task).grid(
             row=0, column=3, sticky="e", padx=6
         )
 
@@ -173,12 +174,8 @@ class ExperimentPanelView(ttk.Frame):
     def _emit_electrode_mode(self) -> None:
         disp = (self._electrode_display.get() or "").strip()
         mode = "2E" if disp.startswith("2") else "3E"
-        cb = getattr(self, "_on_electrode_mode_changed", None)
-        if cb:
-            try:
-                cb(mode)
-            except Exception as e:
-                print(f"ExperimentPanelView mode callback failed: {e}")
+        if self._on_electrode_mode_changed:
+            self._on_electrode_mode_changed(mode)
 
     def _make_header_with_tools(
         self, parent: tk.Widget, *, check_var: tk.BooleanVar, check_text: str,
@@ -188,8 +185,8 @@ class ExperimentPanelView(ttk.Frame):
         left = ttk.Frame(parent); left.grid(row=row, column=0, sticky="w", padx=6, pady=4)
         ttk.Checkbutton(left, text=check_text, variable=check_var).pack(side="left")
         right = ttk.Frame(parent); right.grid(row=row, column=1, sticky="e", padx=6, pady=4)
-        ttk.Button(right, text="⎘", width=3, command=lambda: self._safe(on_copy)).pack(side="right")
-        ttk.Button(right, text="🗀", width=3, command=lambda: self._safe(on_paste)).pack(side="right")
+        ttk.Button(right, text="⎘", width=3, command=on_copy).pack(side="right")
+        ttk.Button(right, text="🗀", width=3, command=on_paste).pack(side="right")
 
     def _make_labeled_entry(self, parent: tk.Widget, label: str, field_id: str, row: int) -> None:
         ttk.Label(parent, text=label).grid(row=row, column=0, padx=6, pady=2, sticky="w")
@@ -208,24 +205,18 @@ class ExperimentPanelView(ttk.Frame):
         def _apply():
             # 1) an VM melden
             if self._on_change:
-                try:
-                    self._on_change(field_id, "1" if var.get() else "0")
-                except Exception as e:
-                    print(f"ExperimentPanelView on_change flag error ({field_id}): {e}")
+                self._on_change(field_id, "1" if var.get() else "0")
             # 2) Section toggeln
-            try:
-                if field_id == "run_cv":
-                    self._set_section_enabled("CV", bool(var.get()))
-                elif field_id == "run_dc":
-                    self._set_section_enabled("EA", bool(var.get()) or bool(self.ac_run_var.get()))
-                elif field_id == "run_ac":
-                    self._set_section_enabled("EA", bool(var.get()) or bool(self.dc_run_var.get()))
-                elif field_id == "run_eis":
-                    self._set_section_enabled("EIS", bool(var.get()))
-                elif field_id == "eval_cdl":
-                    self._set_section_enabled("CDL", bool(var.get()))
-            except Exception:
-                pass
+            if field_id == "run_cv":
+                self._set_section_enabled("CV", bool(var.get()))
+            elif field_id == "run_dc":
+                self._set_section_enabled("EA", bool(var.get()) or bool(self.ac_run_var.get()))
+            elif field_id == "run_ac":
+                self._set_section_enabled("EA", bool(var.get()) or bool(self.dc_run_var.get()))
+            elif field_id == "run_eis":
+                self._set_section_enabled("EIS", bool(var.get()))
+            elif field_id == "eval_cdl":
+                self._set_section_enabled("CDL", bool(var.get()))
 
         _apply()
         var.trace_add("write", lambda *_: _apply())
@@ -278,11 +269,3 @@ class ExperimentPanelView(ttk.Frame):
             var.set("")
         for var in self._flag_vars.values():
             var.set(False)
-
-    # --- misc ----------------------------------------------------------
-    def _safe(self, fn: Optional[Callable[[], None]]):
-        if fn:
-            try:
-                fn()
-            except Exception as e:
-                print(f"ExperimentPanelView callback failed: {e}")

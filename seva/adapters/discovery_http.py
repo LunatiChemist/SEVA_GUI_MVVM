@@ -23,11 +23,12 @@ def _normalize_candidate(x: str, default_port: int) -> str:
         return f"http://{host}:{port}"
     return f"http://{x}:{default_port}"
 
-def _expand_cidr(cidr: str) -> Iterable[str]:
-    """Expand CIDR like '192.168.0.0/24' to host strings (no broadcast/network)."""
-    net = ipaddress.ip_network(cidr, strict=False)
-    for ip in net.hosts():
-        yield str(ip)
+def _try_expand_cidr(candidate: str) -> Optional[Iterable[str]]:
+    try:
+        network = ipaddress.ip_network(candidate, strict=False)
+    except ValueError:
+        return None
+    return (str(ip) for ip in network.hosts())
 
 class HttpDiscoveryAdapter(DeviceDiscoveryPort):
     """
@@ -51,9 +52,9 @@ class HttpDiscoveryAdapter(DeviceDiscoveryPort):
             c = c.strip()
             if not c:
                 continue
-            if "/" in c and any(tag in c for tag in ("/24", "/23", "/16", "/20", "/21", "/22")):
-                # CIDR expansion (simple)
-                for host in _expand_cidr(c):
+            cidr_hosts = _try_expand_cidr(c)
+            if cidr_hosts is not None:
+                for host in cidr_hosts:
                     base_urls.append(_normalize_candidate(host, self._port))
             else:
                 base_urls.append(_normalize_candidate(c, self._port))

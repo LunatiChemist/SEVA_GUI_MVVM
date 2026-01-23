@@ -16,9 +16,7 @@ def _sanitize_component(raw: str) -> str:
     """Return a sanitized token containing only `[A-Za-z0-9_-]`, collapsing sequences."""
 
     cleaned = _SANITIZE_PATTERN.sub("_", raw.strip())
-    cleaned = re.sub(r"_+", "_", cleaned).strip("_")
-    cleaned = cleaned.strip("-")
-    return cleaned or "unnamed"
+    return cleaned.strip("_").strip("-") or "unnamed"
 
 
 def _format_client_dt(client_dt: ClientDateTime) -> str:
@@ -28,19 +26,27 @@ def _format_client_dt(client_dt: ClientDateTime) -> str:
     return localized.strftime("%Y%m%d_%H%M%S")
 
 
-def make_group_id(meta: PlanMeta) -> GroupId:
+def make_group_id_from_parts(
+    experiment: str,
+    subdir: str | None,
+    client_dt: ClientDateTime,
+) -> GroupId:
     """Compose an identifier `{Experiment[_Subdir]}__{YYYYMMDD_HHMMSS}__{rnd4}`."""
-
-    experiment_token = _sanitize_component(meta.experiment)
-    if meta.subdir:
-        subdir_token = _sanitize_component(meta.subdir)
+    experiment_token = _sanitize_component(experiment)
+    if subdir:
+        subdir_token = _sanitize_component(subdir)
         if subdir_token:
             experiment_token = f"{experiment_token}_{subdir_token}"
 
-    timestamp_token = _format_client_dt(meta.client_dt)
+    timestamp_token = _format_client_dt(client_dt)
     random_token = "".join(random.choices(_RANDOM_ALPHABET, k=4))
     identifier = f"{experiment_token}__{timestamp_token}__{random_token}"
     return GroupId(identifier)
 
 
-__all__ = ["make_group_id"]
+def make_group_id(meta: PlanMeta) -> GroupId:
+    """Compose an identifier `{Experiment[_Subdir]}__{YYYYMMDD_HHMMSS}__{rnd4}`."""
+    return make_group_id_from_parts(meta.experiment, meta.subdir, meta.client_dt)
+
+
+__all__ = ["make_group_id", "make_group_id_from_parts"]

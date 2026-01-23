@@ -42,7 +42,8 @@ class JobRestMock(JobPort):
             run_id = f"{box}-run-{uuid4().hex[:8]}"
 
             # Mirror adapter expectations by ensuring params serialize without errors.
-            well_plan.params.to_payload()
+            for params in (well_plan.params_by_mode or {}).values():
+                params.to_payload()
 
             grouped.setdefault(box, []).append(run_id)
             self._groups[group_id].setdefault(box, []).append(run_id)

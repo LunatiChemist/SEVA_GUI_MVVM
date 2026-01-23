@@ -1,9 +1,9 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Mapping ,Optional, Set, Iterable, Tuple, cast
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Iterable, Tuple, cast
 from ..domain import WellPlan, WellId, ModeName
-from ..domain.params import ModeParams, CVParams
-from ..domain.params.ac_bridge import ACParamsBridge
+from ..domain.params import ModeParams, CVParams, ACParams
+from ..domain.util import normalize_mode_name
 
 # Beibehalten zur Filterung von Formularfeldern für Copy/Paste
 _MODE_CONFIG: Dict[str, Dict[str, object]] = {
@@ -36,17 +36,9 @@ _MODE_CONFIG: Dict[str, Dict[str, object]] = {
     },
 }
 
-_RUN_FLAG_KEYS: Tuple[str, ...] = (
-    "run_cv",
-    "run_dc",
-    "run_ac",
-    "run_eis",
-    "eval_cdl",
-)
-
 _MODE_BUILDERS: Dict[str, type[ModeParams]] = {
     "CV": CVParams,
-    "AC": ACParamsBridge
+    "AC": ACParams,
     # TODO: register additional mode parameter builders when modes are implemented.
 }
 
@@ -130,17 +122,7 @@ class ExperimentVM:
         """Liefere flaches Mapping für die View (inkl. rekonstruierter Flags)."""
         raw = self.well_params.get(well_id)
         if not raw:
-            # Backwards-Compat: alte flache Snapshots?
-            legacy = cast(Optional[Dict[str, str]], None)
-            if isinstance(raw, dict) and raw and all(isinstance(v, str) for v in raw.values()):
-                legacy = cast(Dict[str, str], raw)
-            if not legacy:
-                return None
-            grouped = self._group_fields_by_mode(legacy)
-            self.well_params[well_id] = grouped
-            return self._flatten_for_view(grouped)
-
-        # raw ist gruppiert (ModeName -> Dict[str,str])
+            return None
         return self._flatten_for_view(raw)
 
     def clear_params_for(self, well_id: WellId) -> None:
@@ -177,16 +159,16 @@ class ExperimentVM:
         out: Dict[ModeName, ModeParams] = {}
 
         for mode_name, cfg in modes_raw.items():
-            builder = _MODE_BUILDERS.get(mode_name, ModeParams)
+            raw_mode = str(mode_name)
+            builder = _MODE_BUILDERS.get(raw_mode, ModeParams)
             try:
                 params = builder.from_form(cfg)  # type: ignore[arg-type]
             except (NotImplementedError, AttributeError, TypeError):
                 # Fallback: direkt mit Flags initialisieren
                 params = builder(flags=dict(cfg))  # type: ignore[arg-type]
 
-            if(mode_name=="AC"):
-                mode_name = "CA"
-            out[mode_name] = params
+            normalized_mode = normalize_mode_name(raw_mode)
+            out[normalized_mode] = params
 
         return out
 
@@ -261,23 +243,18 @@ class ExperimentVM:
             elif mode_key == "DCAC":
                 # DC separat
                 if self._is_truthy(clipboard.get("run_dc")):
-                    dc = {k: v for k, v in clipboard.items() if k.startswith("ea.")}
-                    dc.pop("ea.frequency_hz", None)  # DC braucht keine Frequenz
-                    if "control_mode" in clipboard:
-                        dc["control_mode"] = clipboard["control_mode"]
-                    if "ea.target" in clipboard:
-                        dc["ea.target"] = clipboard["ea.target"]
-                    grouped["DC"] = dc
+                    grouped["DC"] = self._extract_ea_params(
+                        clipboard,
+                        include_frequency=False,
+                    )
                 else:
                     grouped.pop("DC", None)
                 # AC separat
                 if self._is_truthy(clipboard.get("run_ac")):
-                    ac = {k: v for k, v in clipboard.items() if k.startswith("ea.")}
-                    if "control_mode" in clipboard:
-                        ac["control_mode"] = clipboard["control_mode"]
-                    if "ea.target" in clipboard:
-                        ac["ea.target"] = clipboard["ea.target"]
-                    grouped["AC"] = ac
+                    grouped["AC"] = self._extract_ea_params(
+                        clipboard,
+                        include_frequency=True,
+                    )
                 else:
                     grouped.pop("AC", None)
 
@@ -320,21 +297,12 @@ class ExperimentVM:
             grouped["CV"] = {k: v for k, v in flat.items() if k.startswith("cv.")}
 
         if run_dc:
-            dc = {k: v for k, v in flat.items() if k.startswith("ea.")}
-            dc.pop("ea.frequency_hz", None)  # DC ohne Frequenz
-            if "control_mode" in flat:
-                dc["control_mode"] = flat["control_mode"]
-            if "ea.target" in flat:
-                dc["ea.target"] = flat["ea.target"]
+            dc = self._extract_ea_params(flat, include_frequency=False)
             if dc:
                 grouped["DC"] = dc
 
         if run_ac:
-            ac = {k: v for k, v in flat.items() if k.startswith("ea.")}
-            if "control_mode" in flat:
-                ac["control_mode"] = flat["control_mode"]
-            if "ea.target" in flat:
-                ac["ea.target"] = flat["ea.target"]
+            ac = self._extract_ea_params(flat, include_frequency=True)
             if ac:
                 grouped["AC"] = ac
 
@@ -376,3 +344,18 @@ class ExperimentVM:
         flat["run_eis"]  = "1" if "EIS" in grouped else "0"
 
         return flat
+
+    @staticmethod
+    def _extract_ea_params(
+        source: Mapping[str, str],
+        *,
+        include_frequency: bool,
+    ) -> Dict[str, str]:
+        params = {k: v for k, v in source.items() if k.startswith("ea.")}
+        if not include_frequency:
+            params.pop("ea.frequency_hz", None)
+        if "control_mode" in source:
+            params["control_mode"] = source["control_mode"]
+        if "ea.target" in source:
+            params["ea.target"] = source["ea.target"]
+        return params

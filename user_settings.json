@@ -6,7 +6,7 @@
   "poll_backoff_max_ms": 5000,
   "auto_download_on_complete": true,
   "api_base_urls": {
-    "A": "http://127.0.0.1:8000",
+    "A": "http://206.87.145.70:8000",
     "B": "",
     "C": "",
     "D": ""
