@@ -216,3 +216,5 @@ __marimo__/
 .streamlit/secrets.toml
 /seva/adapters/__pycache__
 /seva/domain/__pycache__
+/seva/adapters/__pycache__
+/seva/adapters/__pycache__
