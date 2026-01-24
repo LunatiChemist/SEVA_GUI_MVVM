@@ -1,9 +1,9 @@
 # /opt/box/app.py
-import logging, os, uuid, threading, zipfile, io, pathlib, datetime, platform, subprocess
+import logging, os, uuid, threading, zipfile, io, pathlib, datetime, platform, subprocess, shutil
 from typing import Optional, Literal, Dict, List, Any
 from datetime import timezone
 import serial.tools.list_ports
-from fastapi import Body, FastAPI, HTTPException, Header, Request, Response
+from fastapi import Body, FastAPI, HTTPException, Header, Request, Response, UploadFile, File
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
@@ -1215,3 +1215,81 @@ def rescan(x_api_key: Optional[str] = Header(None)):
     discover_devices()
     with DEVICE_SCAN_LOCK:
         return {"devices": list(DEVICES.keys())}
+
+
+@app.post("/firmware/flash")
+def flash_firmware(file: UploadFile = File(...), x_api_key: Optional[str] = Header(None)):
+    if auth_error := require_key(x_api_key):
+        return auth_error
+
+    if not file or not file.filename:
+        return http_error(
+            status_code=400,
+            code="firmware.invalid_upload",
+            message="Invalid firmware upload",
+            hint="Upload a .bin firmware file.",
+        )
+
+    original_name = pathlib.Path(file.filename).name
+    if not original_name.lower().endswith(".bin"):
+        return http_error(
+            status_code=400,
+            code="firmware.invalid_upload",
+            message="Invalid firmware upload",
+            hint="Only .bin files are allowed.",
+        )
+
+    try:
+        sanitized_stem = _sanitize_path_segment(pathlib.Path(original_name).stem, "filename")
+    except HTTPException as exc:
+        return http_error(
+            status_code=400,
+            code="firmware.invalid_upload",
+            message="Invalid firmware upload",
+            hint=str(exc.detail),
+        )
+
+    firmware_dir = pathlib.Path("/opt/box/firmware")
+    firmware_dir.mkdir(parents=True, exist_ok=True)
+    target_path = firmware_dir / f"{sanitized_stem}.bin"
+
+    try:
+        with target_path.open("wb") as handle:
+            shutil.copyfileobj(file.file, handle)
+    except Exception:
+        log.exception("Failed to store firmware upload")
+        return http_error(
+            status_code=500,
+            code="firmware.store_failed",
+            message="Failed to store firmware file",
+            hint="Check storage permissions and available space.",
+        )
+
+    script_path = pathlib.Path("/opt/box/auto_flash_linux.py")
+    if not script_path.is_file():
+        return http_error(
+            status_code=500,
+            code="firmware.script_missing",
+            message="Firmware flash script missing",
+            hint=f"Expected script at {script_path}.",
+        )
+
+    result = subprocess.run(
+        ["python", script_path.name, str(target_path)],
+        cwd=str(script_path.parent),
+        capture_output=True,
+        text=True,
+    )
+    exit_code = result.returncode
+    stdout = result.stdout or ""
+    stderr = result.stderr or ""
+
+    if exit_code != 0:
+        return http_error(
+            status_code=500,
+            code="firmware.flash_failed",
+            message="Firmware flash failed",
+            hint=f"exit_code={exit_code}\nstdout={stdout}\nstderr={stderr}",
+        )
+
+    return {"ok": True, "exit_code": exit_code, "stdout": stdout, "stderr": stderr}
