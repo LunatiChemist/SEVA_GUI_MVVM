@@ -23,8 +23,10 @@ class SettingsDialog(tk.Toplevel):
         on_test_connection: OnBox = None,
         on_test_relay: OnVoid = None,
         on_browse_results_dir: OnVoid = None,
+        on_browse_firmware: OnVoid = None,
         on_discover_devices: OnVoid = None,
         on_save: OnSave = None,
+        on_flash_firmware: OnVoid = None,
         on_close: OnVoid = None,
     ) -> None:
         super().__init__(parent)
@@ -36,8 +38,10 @@ class SettingsDialog(tk.Toplevel):
         self._on_test_connection = on_test_connection
         self._on_test_relay = on_test_relay
         self._on_browse_results_dir = on_browse_results_dir
+        self._on_browse_firmware = on_browse_firmware
         self._on_discover_devices = on_discover_devices
         self._on_save = on_save
+        self._on_flash_firmware = on_flash_firmware
         self._on_close = on_close
 
         self.protocol("WM_DELETE_WINDOW", self._on_close_clicked)
@@ -56,6 +60,7 @@ class SettingsDialog(tk.Toplevel):
         self.debug_logging_var = tk.BooleanVar(value=False)
         self.relay_ip_var = tk.StringVar(value="")
         self.relay_port_var = tk.StringVar(value="0")
+        self.firmware_path_var = tk.StringVar(value="")
 
         self._build_ui()
 
@@ -147,9 +152,26 @@ class SettingsDialog(tk.Toplevel):
             row=3, column=0, columnspan=3, sticky="w", pady=(4, 0)
         )
 
+        # Firmware group
+        firmware = ttk.Labelframe(self, text="Firmware")
+        firmware.grid(row=4, column=0, sticky="ew", **pad)
+        firmware.columnconfigure(1, weight=1)
+        ttk.Label(firmware, text="Firmware image (.bin)").grid(row=0, column=0, sticky="w")
+        ttk.Entry(firmware, textvariable=self.firmware_path_var).grid(row=0, column=1, sticky="ew", padx=(0, 8))
+        ttk.Button(
+            firmware,
+            text="Browse…",
+            command=lambda: self._safe(self._on_browse_firmware),
+        ).grid(row=0, column=2, sticky="w")
+        ttk.Button(
+            firmware,
+            text="Flash Firmware",
+            command=lambda: self._safe(self._on_flash_firmware),
+        ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(6, 0))
+
         # Flags
         flags = ttk.Frame(self)
-        flags.grid(row=4, column=0, sticky="ew", **pad)
+        flags.grid(row=5, column=0, sticky="ew", **pad)
         ttk.Checkbutton(
             flags,
             text="Auto-download results on completion",
@@ -164,7 +186,7 @@ class SettingsDialog(tk.Toplevel):
 
         # Footer
         footer = ttk.Frame(self)
-        footer.grid(row=5, column=0, sticky="ew", **pad)
+        footer.grid(row=6, column=0, sticky="ew", **pad)
         footer.columnconfigure(0, weight=1)
         self._btn_save = ttk.Button(footer, text="Save", command=self._emit_save)
         self._btn_save.pack(side="right", padx=(0, 6))
@@ -187,6 +209,7 @@ class SettingsDialog(tk.Toplevel):
             "debug_logging": bool(self.debug_logging_var.get()),
             "relay_ip": self.relay_ip_var.get().strip(),
             "relay_port": self._parse_int(self.relay_port_var.get(), 0),
+            "firmware_path": self.firmware_path_var.get().strip(),
         }
         if self._on_save:
             try:
@@ -247,6 +270,9 @@ class SettingsDialog(tk.Toplevel):
         self.relay_ip_var.set(ip)
         self.relay_port_var.set(str(port))
 
+    def set_firmware_path(self, path: str) -> None:
+        self.firmware_path_var.set(path)
+
     def set_save_enabled(self, enabled: bool) -> None:
         state = tk.NORMAL if enabled else tk.DISABLED
         self._btn_save.configure(state=state)
@@ -267,12 +293,12 @@ class SettingsDialog(tk.Toplevel):
             pw = parent.winfo_width()
             ph = parent.winfo_height()
             width = 720
-            height = 520
+            height = 600
             x = px + (pw - width) // 2
             y = py + (ph - height) // 2
             return f"{width}x{height}+{x}+{y}"
         except Exception:
-            return "720x520"
+            return "720x600"
 
     def _safe(self, fn: OnVoid) -> None:
         if fn:
