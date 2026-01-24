@@ -68,3 +68,9 @@ class StreamPort(Protocol):
     """Placeholder for SSE/WebSocket streaming (not implemented yet)."""
 
     def subscribe(self, run_group_id: RunGroupId): ...
+
+
+class FirmwarePort(Protocol):
+    """Firmware flashing operations exposed by the boxes."""
+
+    def flash_firmware(self, box_id: BoxId, firmware_path: str | Path) -> Dict[str, Any]: ...
