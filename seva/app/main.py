@@ -960,13 +960,79 @@ class App:
             new_dir = os.path.normpath(selected)
             dlg.set_results_dir(new_dir)
 
+        def handle_browse_firmware() -> None:
+            if not dlg:
+                return
+            current = dlg.firmware_path_var.get().strip()
+            initial_dir = ""
+            if current:
+                expanded = os.path.expanduser(current)
+                if os.path.isdir(expanded):
+                    initial_dir = expanded
+                elif os.path.isfile(expanded):
+                    initial_dir = os.path.dirname(expanded)
+            try:
+                selected = filedialog.askopenfilename(
+                    parent=dlg,
+                    initialdir=initial_dir or None,
+                    title="Select Firmware Image",
+                    filetypes=[("Firmware Image", "*.bin"), ("All Files", "*.*")],
+                )
+            except Exception as exc:
+                self.win.show_toast(f"Could not open file picker: {exc}")
+                return
+            if not selected:
+                return
+            dlg.set_firmware_path(os.path.normpath(selected))
+
+        def handle_flash_firmware() -> None:
+            if not dlg:
+                return
+            firmware_path = dlg.firmware_path_var.get().strip()
+            if not firmware_path:
+                self.win.show_toast("Select a firmware .bin file first.")
+                return
+            if not self._ensure_adapter():
+                return
+            uc = self.controller.uc_flash_firmware
+            if uc is None:
+                self.win.show_toast("Firmware flashing is not available.")
+                return
+            box_ids = sorted(
+                box_id
+                for box_id, url in (self.settings_vm.api_base_urls or {}).items()
+                if isinstance(url, str) and url.strip()
+            )
+            try:
+                result = uc(box_ids=box_ids, firmware_path=firmware_path)
+            except Exception as exc:
+                self._toast_error(exc, context="Flash firmware")
+                return
+
+            if result.failures:
+                failed_boxes = ", ".join(sorted(result.failures.keys()))
+                self.win.show_toast(f"Firmware flash failed on {failed_boxes}.")
+                details = "\n".join(
+                    f"{box_id}: {err}" for box_id, err in result.failures.items()
+                )
+                messagebox.showerror("Firmware Flash Failed", details, parent=dlg)
+                return
+
+            flashed_boxes = ", ".join(sorted(result.successes.keys()))
+            if flashed_boxes:
+                self.win.show_toast(f"Firmware flashed on {flashed_boxes}.")
+            else:
+                self.win.show_toast("Firmware flash completed.")
+
         dlg = SettingsDialog(
             self.win,
             on_test_connection=handle_test_connection,
             on_test_relay=handle_test_relay,
             on_browse_results_dir=handle_browse_results_dir,
+            on_browse_firmware=handle_browse_firmware,
             on_discover_devices=lambda: self._on_discover_devices(dlg),
             on_save=self._on_settings_saved,
+            on_flash_firmware=handle_flash_firmware,
             on_close=lambda: None,
         )
         # Populate dialog from VM
@@ -984,6 +1050,7 @@ class App:
         dlg.set_use_streaming(self.settings_vm.use_streaming)
         dlg.set_debug_logging(self.settings_vm.debug_logging)
         dlg.set_relay_config(self.settings_vm.relay_ip, self.settings_vm.relay_port)
+        dlg.set_firmware_path(self.settings_vm.firmware_path)
         dlg.set_save_enabled(self.settings_vm.is_valid())
 
     def _on_settings_saved(self, cfg: dict) -> None:
