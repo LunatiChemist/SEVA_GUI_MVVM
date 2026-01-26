@@ -91,8 +91,13 @@ def parse_error_payload(resp: Any) -> Any:
 
 def build_error_message(ctx: str, status: int, payload: Any) -> str:
     detail = _payload_detail(payload)
+    hint = extract_error_hint(payload)
+    if detail and hint and hint != detail:
+        return f"{ctx}: {detail} (HTTP {status}) Hint: {hint}"
     if detail:
         return f"{ctx}: {detail} (HTTP {status})"
+    if hint:
+        return f"{ctx}: {hint} (HTTP {status})"
     return f"{ctx}: HTTP {status}"
 
 
