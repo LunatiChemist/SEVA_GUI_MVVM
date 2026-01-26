@@ -6,11 +6,12 @@
   "poll_backoff_max_ms": 5000,
   "auto_download_on_complete": true,
   "api_base_urls": {
-    "A": "http://206.87.145.70:8000",
-    "B": "http://206.87.145.77:8000",
+    "A": "http://206.87.145.93:8000",
+    "B": "",
     "C": "",
     "D": ""
   },
+  "firmware_path": "C:\\Users\\LunaP\\Downloads\\potentiostat_rev_C_v0.0.2 (1).bin",
   "api_keys": {
     "A": "",
     "B": "",
