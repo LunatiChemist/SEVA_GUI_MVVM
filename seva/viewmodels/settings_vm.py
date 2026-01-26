@@ -20,6 +20,7 @@ class SettingsConfig:
     poll_backoff_max_ms: int = 5000
     auto_download_on_complete: bool = True
     api_base_urls: Dict[BoxId, str] = field(default_factory=dict)
+    firmware_path: str = ""
 
 
 def _default_debug_logging() -> bool:
@@ -111,6 +112,14 @@ class SettingsVM:
     def api_base_urls(self, value: Mapping[BoxId, Any]) -> None:
         self.config = replace(self.config, api_base_urls=dict(value or {}))
 
+    @property
+    def firmware_path(self) -> str:
+        return self.config.firmware_path
+
+    @firmware_path.setter
+    def firmware_path(self, value: str) -> None:
+        self.config = replace(self.config, firmware_path=str(value or ""))
+
     # ------------------------------------------------------------------
     def is_valid(self) -> bool:
         return True
@@ -149,6 +158,9 @@ class SettingsVM:
         if "relay_port" in payload:
             self.relay_port = int(payload.get("relay_port") or 0)
 
+        if "firmware_path" in payload:
+            self.firmware_path = str(payload.get("firmware_path") or "")
+
     def to_dict(self) -> dict:
         snapshot = asdict(self.config)
         snapshot.update(
@@ -160,6 +172,7 @@ class SettingsVM:
                 "debug_logging": bool(self.debug_logging),
                 "relay_ip": self.relay_ip,
                 "relay_port": self.relay_port,
+                "firmware_path": self.firmware_path,
             }
         )
         return snapshot

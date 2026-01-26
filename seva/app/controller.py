@@ -3,9 +3,11 @@ from __future__ import annotations
 from typing import Optional
 
 from ..adapters.device_rest import DeviceRestAdapter
+from ..adapters.firmware_rest import FirmwareRestAdapter
 from ..adapters.job_rest import JobRestAdapter
 from ..usecases.cancel_group import CancelGroup
 from ..usecases.download_group_results import DownloadGroupResults
+from ..usecases.flash_firmware import FlashFirmware
 from ..usecases.poll_group_status import PollGroupStatus
 from ..usecases.start_experiment_batch import StartExperimentBatch
 from ..usecases.test_connection import TestConnection
@@ -24,12 +26,14 @@ class AppController:
         self.settings_vm = settings_vm
         self._job_adapter: Optional[JobRestAdapter] = None
         self._device_adapter: Optional[DeviceRestAdapter] = None
+        self._firmware_adapter: Optional[FirmwareRestAdapter] = None
         self.uc_start: Optional[StartExperimentBatch] = None
         self.uc_poll: Optional[PollGroupStatus] = None
         self.uc_download: Optional[DownloadGroupResults] = None
         self.uc_cancel: Optional[CancelGroup] = None
         self.uc_cancel_runs: Optional["CancelRuns"] = None
         self.uc_test_connection: Optional[TestConnection] = None
+        self.uc_flash_firmware: Optional[FlashFirmware] = None
 
     @property
     def job_adapter(self) -> Optional[JobRestAdapter]:
@@ -42,17 +46,20 @@ class AppController:
     def reset(self) -> None:
         self._job_adapter = None
         self._device_adapter = None
+        self._firmware_adapter = None
         self.uc_start = None
         self.uc_poll = None
         self.uc_download = None
         self.uc_cancel = None
         self.uc_cancel_runs = None
         self.uc_test_connection = None
+        self.uc_flash_firmware = None
 
     def ensure_ready(self) -> bool:
         if (
             self._job_adapter
             and self._device_adapter
+            and self._firmware_adapter
             and (self.uc_cancel_runs or _CancelRunsClass is None)
         ):
             return True
@@ -85,9 +92,19 @@ class AppController:
                 retries=2,
             )
 
+        if self._firmware_adapter is None:
+            self._firmware_adapter = FirmwareRestAdapter(
+                base_urls=base_urls,
+                api_keys=api_keys,
+                request_timeout_s=self.settings_vm.request_timeout_s,
+                retries=2,
+            )
+
         if self._job_adapter and self._device_adapter:
             self.uc_start = StartExperimentBatch(self._job_adapter)
             self.uc_test_connection = TestConnection(self._device_adapter)
+        if self._firmware_adapter:
+            self.uc_flash_firmware = FlashFirmware(self._firmware_adapter)
         return True
 
     def build_test_connection(
