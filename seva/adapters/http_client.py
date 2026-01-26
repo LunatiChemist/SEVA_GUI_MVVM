@@ -95,6 +95,19 @@ class RetryingSession:
         attempts = self.cfg.retries + 1
         for _ in range(attempts):
             try:
+                for value in files.values():
+                    handle = None
+                    if hasattr(value, "seek"):
+                        handle = value
+                    elif isinstance(value, tuple) and len(value) >= 2:
+                        candidate = value[1]
+                        if hasattr(candidate, "seek"):
+                            handle = candidate
+                    if handle is not None:
+                        try:
+                            handle.seek(0)
+                        except Exception:
+                            pass
                 return self.session.post(
                     url,
                     files=files,
