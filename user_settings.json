@@ -7,7 +7,7 @@
   "auto_download_on_complete": true,
   "api_base_urls": {
     "A": "http://206.87.145.70:8000",
-    "B": "",
+    "B": "http://206.87.145.77:8000",
     "C": "",
     "D": ""
   },

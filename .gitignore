@@ -218,3 +218,4 @@ __marimo__/
 /seva/domain/__pycache__
 /seva/adapters/__pycache__
 /seva/adapters/__pycache__
+user_settings.json
