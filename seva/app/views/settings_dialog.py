@@ -25,6 +25,7 @@ class SettingsDialog(tk.Toplevel):
         on_browse_results_dir: OnVoid = None,
         on_browse_firmware: OnVoid = None,
         on_discover_devices: OnVoid = None,
+        on_open_nas_setup: OnVoid = None,
         on_save: OnSave = None,
         on_flash_firmware: OnVoid = None,
         on_close: OnVoid = None,
@@ -40,6 +41,7 @@ class SettingsDialog(tk.Toplevel):
         self._on_browse_results_dir = on_browse_results_dir
         self._on_browse_firmware = on_browse_firmware
         self._on_discover_devices = on_discover_devices
+        self._on_open_nas_setup = on_open_nas_setup
         self._on_save = on_save
         self._on_flash_firmware = on_flash_firmware
         self._on_close = on_close
@@ -169,9 +171,18 @@ class SettingsDialog(tk.Toplevel):
             command=lambda: self._safe(self._on_flash_firmware),
         ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(6, 0))
 
+        # NAS group
+        nas = ttk.Labelframe(self, text="NAS")
+        nas.grid(row=5, column=0, sticky="ew", **pad)
+        ttk.Button(
+            nas,
+            text="Open NAS Setup…",
+            command=lambda: self._safe(self._on_open_nas_setup),
+        ).pack(side="left")
+
         # Flags
         flags = ttk.Frame(self)
-        flags.grid(row=5, column=0, sticky="ew", **pad)
+        flags.grid(row=6, column=0, sticky="ew", **pad)
         ttk.Checkbutton(
             flags,
             text="Auto-download results on completion",
@@ -186,7 +197,7 @@ class SettingsDialog(tk.Toplevel):
 
         # Footer
         footer = ttk.Frame(self)
-        footer.grid(row=6, column=0, sticky="ew", **pad)
+        footer.grid(row=7, column=0, sticky="ew", **pad)
         footer.columnconfigure(0, weight=1)
         self._btn_save = ttk.Button(footer, text="Save", command=self._emit_save)
         self._btn_save.pack(side="right", padx=(0, 6))
