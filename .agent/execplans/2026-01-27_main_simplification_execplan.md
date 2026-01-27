@@ -15,10 +15,10 @@ Success looks like:
 
 ## Progress
 
-- [ ] (2026-01-27 00:00Z) Review and document current responsibilities of `seva/app/main.py`, `seva/usecases/run_flow_coordinator.py`, `seva/viewmodels/experiment_vm.py`, `seva/domain/runs_registry.py`, `seva/usecases/discover_devices.py`, `seva/usecases/start_experiment_batch.py`, and `seva/usecases/download_group_results.py`.
-- [ ] (2026-01-27 00:00Z) Define target module boundaries and new or updated domain/usecase interfaces (Mode Registry, Storage Meta DTO, Run Flow UseCase, Discovery Assignment UseCase).
-- [ ] (2026-01-27 00:00Z) Implement refactors and new modules with tests and update all call sites.
-- [ ] (2026-01-27 00:00Z) Remove legacy paths and validate end-to-end behavior.
+- [x] (2026-01-27 10:44-08:00) Review and document current responsibilities of `seva/app/main.py`, `seva/usecases/run_flow_coordinator.py`, `seva/viewmodels/experiment_vm.py`, `seva/domain/runs_registry.py`, `seva/usecases/discover_devices.py`, `seva/usecases/start_experiment_batch.py`, and `seva/usecases/download_group_results.py`.
+- [x] (2026-01-27 10:44-08:00) Define target module boundaries and new or updated domain/usecase interfaces (Mode Registry, Storage Meta DTO, Run Flow UseCase, Discovery Assignment UseCase).
+- [ ] (2026-01-27 10:44-08:00) Implement refactors and new modules with tests and update all call sites.
+- [ ] (2026-01-27 10:44-08:00) Remove legacy paths and validate end-to-end behavior.
 
 ## Surprises & Discoveries
 
@@ -33,7 +33,7 @@ Success looks like:
 
 ## Outcomes & Retrospective
 
-- Pending implementation. This section will be updated after milestones complete.
+- (2026-01-27 10:44-08:00) Milestone 1 complete: added stub modules with docstrings for run flow presenter, polling scheduler, settings/discovery/download controllers, StorageMeta, BuildStorageMeta, BuildExperimentPlan, ModeRegistry, and DiscoverAndAssignDevices without changing runtime wiring.
 
 ## Context and Orientation
 
@@ -269,3 +269,4 @@ All existing adapters remain as they are; no new external dependencies are requi
 ---
 
 Plan update note: Initial plan created on 2026-01-27 with placeholders for decisions and no implementation yet.
+Plan update note: 2026-01-27 10:44-08:00 - completed milestone 1 stubs and updated Progress/Outcomes to reflect baseline mapping and interface scaffolding.
