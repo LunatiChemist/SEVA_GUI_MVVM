@@ -33,7 +33,7 @@ class DiscoveryResultsDialog(tk.Toplevel):
         self.tree = ttk.Treeview(self, columns=cols, show="headings", height=12)
         for key in cols:
             self.tree.heading(key, text=headings[key])
-            # Breiten heuristisch – der Nutzer kann später Spalten resize'n
+            # Heuristic widths - the user can resize columns later
             width = 200 if key == "base_url" else 100
             self.tree.column(key, width=width, anchor="w")
         yscroll = ttk.Scrollbar(self, orient="vertical", command=self.tree.yview)
@@ -54,10 +54,10 @@ class DiscoveryResultsDialog(tk.Toplevel):
         try:
             self.grab_set()
         except tk.TclError:
-            pass  # falls bereits ein anderer Grab aktiv ist
+            pass  # if another grab is already active
         self.focus_set()
 
-        # sanft in die Mitte des Parent-Fensters
+        # gently center over the parent window
         self._center_over_master()
 
     def _populate(self, rows: Iterable[Mapping]) -> None:
@@ -72,7 +72,7 @@ class DiscoveryResultsDialog(tk.Toplevel):
             build = item.get("build", "") or ""
             self.tree.insert("", "end", values=(base_url, box_id, devices, api_version, build))
         if not any_rows:
-            # Platzhalter-Zeile, damit der Nutzer sieht, dass nichts gefunden wurde
+            # Placeholder row so the user sees that nothing was found
             self.tree.insert("", "end", values=("—", "—", "—", "—", "—"))
 
     def _center_over_master(self):
@@ -119,12 +119,12 @@ demo_rows = [
             "api_version": "v1.1.5",
             "build": "2025-09-22",
         },
-        # Ein Eintrag mit fehlenden Feldern (testen wie dein Dialog das handhabt)
+        # An entry with missing fields (test how your dialog handles it)
         {
             "base_url": "http://10.0.0.5",
             "devices": [],
         },
-        # Du kannst auch eine leere Liste übergeben, um die Platzhalter-Zeile zu sehen:
+        # You can also pass an empty list to see the placeholder row:
         # {}
     ]
 
@@ -134,20 +134,20 @@ if __name__ == "__main__":
     root.geometry("400x120")
 
     def open_demo_dialog():
-        # Dialog modal öffnen — on_close Callback entfernt keine speziellen Sachen in diesem Demo
-        DiscoveryResultsDialog(root, demo_rows, title="Gefundene SEVA-Geräte")
+        # Open dialog modally - on_close callback removes nothing special in this demo
+        DiscoveryResultsDialog(root, demo_rows, title="Discovered SEVA Devices")
 
-    # Einfache GUI mit Button zum Öffnen des Dialogs
+    # Simple GUI with a button to open the dialog
     frame = ttk.Frame(root, padding=12)
     frame.pack(expand=True, fill="both")
 
-    lbl = ttk.Label(frame, text="Klicke auf 'Show results', um die Demo anzuzeigen.")
+    lbl = ttk.Label(frame, text="Click 'Show results' to show the demo.")
     lbl.pack(pady=(0, 8))
 
     btn = ttk.Button(frame, text="Show results", command=open_demo_dialog)
     btn.pack()
 
-    # Optional: Dialog direkt beim Start öffnen
+    # Optional: open dialog directly on start
     # open_demo_dialog()
 
     root.mainloop()

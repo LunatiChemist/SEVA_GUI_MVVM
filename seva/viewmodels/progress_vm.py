@@ -10,7 +10,7 @@ from ..domain.snapshot_normalizer import normalize_status
 from ..domain.util import well_id_to_box
 from .status_format import phase_key, phase_label
 
-# -- oben im File / neben den anderen Typalias:
+# -- top of file / next to the other type aliases:
 WellRow = Tuple[str, str, str, str, Optional[float], str, str, str]
 #            |    |    |    |     |            |    |    |
 #            well phase cur  next  progress     rem  err  subrun
@@ -97,7 +97,7 @@ class ProgressVM:
             remaining_s = int(run.remaining_s.value) if run.remaining_s is not None else None
             remaining_label = self.fmt_remaining(remaining_s)
 
-            # direkt aus Domain-RunStatus (neu in entities):
+            # direct from Domain RunStatus (new in entities):
             cur = run.current_mode or ""
             nxt = ", ".join(run.remaining_modes) if run.remaining_modes else ""
 

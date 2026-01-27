@@ -346,10 +346,10 @@ class App:
             else:
                 subprocess.check_call(["xdg-open", path])
         except Exception:
-            messagebox.showwarning("Open Folder", f"Kann Ordner nicht öffnen:\n{path}")
+            messagebox.showwarning("Open Folder", f"Could not open folder:\n{path}")
 
     def _on_runs_select(self, group_id: str) -> None:
-        # Wenn bereits aktiv, nichts neu rendern.
+        # If already active, don't re-render.
         if self.progress_vm.active_group_id == group_id:
             self.runs_vm.set_active_group(group_id)
             self._active_group_id = group_id
@@ -367,23 +367,23 @@ class App:
             return
         path = (entry.download.path or "").strip()
         if not path:
-            messagebox.showinfo("Open Folder", "Noch kein Download-Verzeichnis vorhanden.")
+            messagebox.showinfo("Open Folder", "No download directory available yet.")
             return
         self._open_path(path)
 
     def _on_runs_cancel(self, group_id: str) -> None:
         if not self._ensure_adapter() or not self.controller.uc_cancel:
-            messagebox.showinfo("Cancel Group", "Cancel use case nicht verfügbar.")
+            messagebox.showinfo("Cancel Group", "Cancel use case not available.")
             return
 
         entry = self.runs.get(group_id)
         if not entry:
-            messagebox.showinfo("Cancel Group", "Eintrag nicht gefunden.")
+            messagebox.showinfo("Cancel Group", "Entry not found.")
             return
         if entry.status not in {"running", "pending"}:
-            messagebox.showinfo("Cancel Group", "Run ist nicht mehr aktiv.")
+            messagebox.showinfo("Cancel Group", "Run is no longer active.")
             return
-        if not messagebox.askyesno("Cancel Group", f"Gruppe {group_id} wirklich abbrechen?"):
+        if not messagebox.askyesno("Cancel Group", f"Really cancel group {group_id}?"):
             return
 
         try:
@@ -392,7 +392,7 @@ class App:
             self.runs.mark_cancelled(group_id)
             self._refresh_runs_panel()
         except Exception as exc:
-            messagebox.showerror("Cancel Group", f"Abbrechen fehlgeschlagen:\n{exc}")
+            messagebox.showerror("Cancel Group", f"Cancel failed:\n{exc}")
 
     def _on_runs_delete(self, group_id: str) -> None:
         entry = self.runs.get(group_id)
@@ -401,13 +401,13 @@ class App:
 
         if entry.status in {"running", "pending"}:
             if not messagebox.askyesno(
-                "Cancel Group", f"Gruppe {group_id} läuft noch. Jetzt abbrechen?"
+                "Cancel Group", f"Group {group_id} is still running. Cancel now?"
             ):
                 return
             self._on_runs_cancel(group_id)
             return
 
-        if not messagebox.askyesno("Remove", f"Eintrag {group_id} aus der Liste entfernen?"):
+        if not messagebox.askyesno("Remove", f"Remove entry {group_id} from the list?"):
             return
 
         self._stop_polling(group_id)
@@ -691,13 +691,13 @@ class App:
             if not selection_list and configured_wells:
                 selection_list = sorted(configured_wells)
 
-            # Elektrode-Mode aus VM in View spiegeln
+            # Mirror electrode mode from VM into view
             try:
                 self.experiment.set_electrode_mode(self.experiment_vm.electrode_mode)
             except Exception:
                 pass
 
-            # Auswahl propagieren → View wird über _on_selection_changed() aktualisiert
+            # Propagate selection -> view gets updated via _on_selection_changed()
             self.plate_vm.set_selection(selection_list)
             self.wellgrid.set_configured_wells(configured_wells)
             self.wellgrid.set_selection(selection_list)
@@ -1212,7 +1212,7 @@ class App:
     # ==================================================================
     def _on_selection_changed(self, sel: Set[str]) -> None:
         """Always clear first, then (if single) set snapshot + label."""
-        # Erst View leeren, um „hängende“ Werte zu vermeiden
+        # Clear the view first to avoid stale values
         self.experiment.clear_fields()
 
         if len(sel) == 1:
@@ -1222,7 +1222,7 @@ class App:
                 self.experiment.set_editing_well(wid)
             except Exception:
                 pass
-            # Gruppierten Snapshot flatten und setzen
+            # Flatten grouped snapshot and set
             params = self.experiment_vm.get_params_for(wid)
             if params:
                 self.experiment.set_fields(params)
@@ -1234,7 +1234,7 @@ class App:
         if not selection:
             self.win.show_toast("No wells selected.")
             return
-        # Pro Well gruppiert speichern (nur aktivierte Modi)
+        # Save grouped per well (only active modes)
         for wid in selection:
             self.experiment_vm.save_params_for(wid, self.experiment_vm.fields)
         self.plate_vm.mark_configured(selection)

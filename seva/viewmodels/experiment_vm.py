@@ -5,7 +5,7 @@ from ..domain import WellPlan, WellId, ModeName
 from ..domain.params import ModeParams, CVParams, ACParams
 from ..domain.util import normalize_mode_name
 
-# Beibehalten zur Filterung von Formularfeldern für Copy/Paste
+# Keep for filtering form fields for copy/paste
 _MODE_CONFIG: Dict[str, Dict[str, object]] = {
     "CV": {
         "prefixes": ("cv.",),
@@ -13,9 +13,9 @@ _MODE_CONFIG: Dict[str, Dict[str, object]] = {
         "extra": (),
         "clipboard_attr": "clipboard_cv",
     },
-    # Gemeinsame DC/AC-Formularfelder liegen unter "ea.*".
-    # Für das Clipboard halten wir DC/AC weiterhin zusammen,
-    # beim Paste schreiben wir aber getrennte Modi ("DC" / "AC").
+    # Shared DC/AC form fields live under "ea.*".
+    # For the clipboard we still keep DC/AC together,
+    # but on paste we write separate modes ("DC" / "AC").
     "DCAC": {
         "prefixes": ("ea.",),
         "flags": ("run_dc", "run_ac"),
@@ -44,12 +44,12 @@ _MODE_BUILDERS: Dict[str, type[ModeParams]] = {
 
 @dataclass
 class ExperimentVM:
-    """Form-/Clipboard-State und per-Well-Params (gruppiert nach Modi).
+    """Form/clipboard state and per-well params (grouped by modes).
 
-    - `fields`: flacher Live-Form-Store (von der View via on_change befüllt)
-    - `well_params`: persistierte Snapshots *pro Well*, gruppiert nach Modi
-    - `clipboard_*`: flache mode-spezifische Subsets aus `fields`
-    - `build_well_params_map()`: liefert für Domain/Plan flache Snapshots zurück
+    - `fields`: flat live form store (filled by the view via on_change)
+    - `well_params`: persisted snapshots *per well*, grouped by modes
+    - `clipboard_*`: flat mode-specific subsets from `fields`
+    - `build_well_params_map()`: returns flat snapshots for domain/plan
     """
 
     # Signals (optional)
@@ -61,7 +61,7 @@ class ExperimentVM:
     editing_well: Optional[WellId] = None
     selection: Set[WellId] = field(default_factory=set)
 
-    # Persistenz: pro Well gruppierte Params (nur aktivierte Modi vorhanden)
+    # Persistence: grouped params per well (only active modes present)
     well_params: Dict[WellId, Dict[ModeName, Dict[str, str]]] = field(default_factory=dict)
 
     # Live-Form-Store (flat)
@@ -87,7 +87,7 @@ class ExperimentVM:
 
     # ---------- Copy helpers ----------
     def build_mode_snapshot_for_copy(self, mode: str) -> Dict[str, str]:
-        """Filtert den aktuellen Formular-Store `fields` auf die Felder eines Modus."""
+        """Filter the current form store `fields` to the fields of a mode."""
         mode_key = (mode or "").upper()
         config = _MODE_CONFIG.get(mode_key)
         if not config:
@@ -102,7 +102,7 @@ class ExperimentVM:
 
         snapshot = {fid: val for fid, val in self.fields.items() if _is_mode_field(fid)}
 
-        # Beim Kopieren den Zielmodus aktiv halten
+        # Keep the target mode active when copying
         for flag in flags:
             snapshot[flag] = "1"
 
@@ -110,7 +110,7 @@ class ExperimentVM:
 
     # ---------- Persistenz (gruppiert) ----------
     def save_params_for(self, well_id: WellId, params: Dict[str, str]) -> None:
-        """Persistiere *gruppierte* Params pro Well. Nur aktivierte Modi werden gespeichert."""
+        """Persist *grouped* params per well. Only active modes are saved."""
         grouped = self._group_fields_by_mode(params or {})
         if grouped:
             self.well_params[well_id] = grouped
@@ -119,7 +119,7 @@ class ExperimentVM:
             self.well_params.pop(well_id, None)
 
     def get_params_for(self, well_id: WellId) -> Optional[Dict[str, str]]:
-        """Liefere flaches Mapping für die View (inkl. rekonstruierter Flags)."""
+        """Return a flat mapping for the view (including reconstructed flags)."""
         raw = self.well_params.get(well_id)
         if not raw:
             return None
@@ -130,7 +130,7 @@ class ExperimentVM:
 
     # ---------- Plan/Domain ----------
     def build_experiment_plan(self) -> Dict:
-        """Light DTO (nicht Domain-spezifisch)."""
+        """Light DTO (not domain-specific)."""
         return {
             "electrode_mode": self.electrode_mode,
             "selection": sorted(self.selection),
@@ -151,9 +151,9 @@ class ExperimentVM:
 
     def modes_dict_for_well(self, well_id: WellId) -> Dict[ModeName, ModeParams]:
         """
-        Liefert für einen Well die typisierten Mode-Parameter.
-        Wenn ein Mode in MODE_BUILDERS registriert ist, wird dessen Klasse verwendet,
-        sonst fällt es auf die Basisklasse ModeParams zurück.
+        Return typed mode parameters for a well.
+        If a mode is registered in MODE_BUILDERS, its class is used,
+        otherwise it falls back to the base ModeParams class.
         """
         modes_raw: Mapping[ModeName, Mapping[str, Any]] = self.well_params[well_id]
         out: Dict[ModeName, ModeParams] = {}
@@ -164,7 +164,7 @@ class ExperimentVM:
             try:
                 params = builder.from_form(cfg)  # type: ignore[arg-type]
             except (NotImplementedError, AttributeError, TypeError):
-                # Fallback: direkt mit Flags initialisieren
+                # Fallback: initialize directly with flags
                 params = builder(flags=dict(cfg))  # type: ignore[arg-type]
 
             normalized_mode = normalize_mode_name(raw_mode)
@@ -284,7 +284,7 @@ class ExperimentVM:
         return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
     def _group_fields_by_mode(self, flat: Dict[str, str]) -> Dict[ModeName, Dict[str, str]]:
-        """Live-Form in gruppierten Snapshot überführen. Nur aktivierte Modi."""
+        """Convert live form into a grouped snapshot. Only active modes."""
         run_cv  = self._is_truthy(flat.get("run_cv"))
         run_dc  = self._is_truthy(flat.get("run_dc"))
         run_ac  = self._is_truthy(flat.get("run_ac"))
@@ -319,13 +319,13 @@ class ExperimentVM:
         return grouped
 
     def _flatten_for_view(self, grouped: Dict[ModeName, Dict[str, str]]) -> Dict[str, str]:
-        """Gruppierten Snapshot für die View (inkl. Checkmarks) „entpacken“."""
+        """Unpack grouped snapshot for the view (including checkmarks)."""
         flat: Dict[str, str] = {}
 
         # CV
         if "CV" in grouped:
             flat.update(grouped["CV"])
-        # DC/AC: Für die gemeinsamen ea.* Felder bevorzugen wir AC (falls vorhanden).
+        # DC/AC: For the shared ea.* fields we prefer AC (if present).
         if "AC" in grouped:
             flat.update(grouped["AC"])
         elif "DC" in grouped:
@@ -336,7 +336,7 @@ class ExperimentVM:
         if "EIS" in grouped:
             flat.update(grouped["EIS"])
 
-        # Flags für die View rekonstruieren
+        # Reconstruct flags for the view
         flat["run_cv"]   = "1" if "CV"  in grouped else "0"
         flat["run_dc"]   = "1" if "DC"  in grouped else "0"
         flat["run_ac"]   = "1" if "AC"  in grouped else "0"

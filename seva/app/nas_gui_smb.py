@@ -64,8 +64,8 @@ class NASSetupGUI(tk.Toplevel):
         self.geometry("560x480")
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
-        # API Verbindung
-        frm_api = ttk.LabelFrame(self, text="API Verbindung")
+        # API connection
+        frm_api = ttk.LabelFrame(self, text="API Connection")
         frm_api.pack(fill="x", padx=10, pady=8)
         self.var_base = tk.StringVar(value="http://10.19.2.97:8000")
         self.var_key = tk.StringVar(value="")
@@ -84,7 +84,7 @@ class NASSetupGUI(tk.Toplevel):
         frm_api.columnconfigure(1, weight=1)
 
         # NAS Setup (SMB)
-        frm_setup = ttk.LabelFrame(self, text="NAS Zugang (SMB)")
+        frm_setup = ttk.LabelFrame(self, text="NAS Access (SMB)")
         frm_setup.pack(fill="x", padx=10, pady=8)
         self.var_host = tk.StringVar(value="10.19.2.25")
         self.var_share = tk.StringVar(value="experiments")  # SMB-Share Name
@@ -176,12 +176,12 @@ class NASSetupGUI(tk.Toplevel):
     def on_upload(self):
         rid = self.var_run_id.get().strip()
         if not rid:
-            messagebox.showwarning("Hinweis", "Bitte run_id eingeben.")
+            messagebox.showwarning("Notice", "Please enter run_id.")
             return
         try:
             res = self.adapter().upload_run(rid)
             self._show(res)
-            messagebox.showinfo("Upload", "Upload enqueued (siehe Logs auf dem Pi).")
+            messagebox.showinfo("Upload", "Upload enqueued (see logs on the Pi).")
         except requests.HTTPError as e:
             self._show_resp(e.response)
         except Exception as e:
