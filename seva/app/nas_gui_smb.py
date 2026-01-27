@@ -50,11 +50,19 @@ class NASApiAdapter:
         return r.json()
 
 
-class NASSetupGUI(tk.Tk):
-    def __init__(self):
-        super().__init__()
+class NASSetupGUI(tk.Toplevel):
+    def __init__(self, master: tk.Misc | None = None):
+        root_window = None
+        if master is None:
+            root_window = tk.Tk()
+            root_window.withdraw()
+            super().__init__(root_window)
+        else:
+            super().__init__(master)
+        self._root_window = root_window
         self.title("NAS Setup (SMB/CIFS)")
         self.geometry("560x480")
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
 
         # API Verbindung
         frm_api = ttk.LabelFrame(self, text="API Verbindung")
@@ -193,6 +201,17 @@ class NASSetupGUI(tk.Tk):
     def _append(self, text: str):
         self.txt.insert("end", text + "\n")
         self.txt.see("end")
+
+    def _on_close(self):
+        try:
+            if self.winfo_exists():
+                self.destroy()
+        finally:
+            if self._root_window is not None:
+                try:
+                    self._root_window.destroy()
+                except tk.TclError:
+                    pass
 
 
 if __name__ == "__main__":
