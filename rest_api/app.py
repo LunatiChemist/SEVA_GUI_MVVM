@@ -569,7 +569,7 @@ def _run_slot_sequence(
                 files = []
         return sorted(files)
 
-    # Slot initial auf running setzen (einheitlich)
+    # Set slot to running initially (consistent)
     with JOB_LOCK:
         slot_status.status = "running"
         slot_status.started_at = slot_status.started_at or utcnow_iso()
@@ -683,7 +683,7 @@ def _run_one_slot(
     slot_status: SlotStatus,
     storage: RunStorageInfo,
 ):
-    """Ein Slot/Device abarbeiten - blockierend im Thread."""
+    """Process one slot/device - blocking in the thread."""
     ctrl = DEVICES[slot]
     slot_segment = _sanitize_path_segment(slot, "slot")
     mode_segment = _sanitize_path_segment(req.mode, "mode")
@@ -818,8 +818,8 @@ def jobs_bulk_status(req: JobStatusBulkRequest, x_api_key: Optional[str] = Heade
         return http_error(
             status_code=400,
             code="jobs.missing_run_ids",
-            message="Keine run_ids angegeben",
-            hint="run_ids Feld im Request ausfuellen.",
+            message="No run_ids provided",
+            hint="Fill in the run_ids field in the request.",
         )
     with JOB_LOCK:
         missing = [rid for rid in run_ids if rid not in JOBS]
@@ -1153,7 +1153,7 @@ def get_run_zip(run_id: str, x_api_key: Optional[str] = Header(None)):
             message="Run not found",
             hint="Check run_id or list existing runs.",
         )
-    # ZIP im Speicher bauen
+    # Build ZIP in memory
     buf = io.BytesIO()
     file_count = 0
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:

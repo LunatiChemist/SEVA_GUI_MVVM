@@ -106,7 +106,7 @@ class ExperimentPanelView(ttk.Frame):
         self.target_combo = ttk.Combobox(dcac, textvariable=self.target_var)
         self.target_combo.grid(row=6, column=1, padx=6, pady=4, sticky="ew")
 
-        # control_mode & ea.target als "normale" Felder registrieren
+        # Register control_mode & ea.target as "normal" fields
         self._vars["control_mode"] = self.control_mode_var
         self.control_mode_var.trace_add("write",
             lambda *_: self._on_change and self._on_change("control_mode", self.control_mode_var.get()))
@@ -138,7 +138,7 @@ class ExperimentPanelView(ttk.Frame):
         self._make_labeled_entry(eis, "Spacing (log/lin)", "eis.spacing", 4)
         self._register_flag("run_eis", self.eis_run_var)
 
-        # Sektionen initial toggeln
+        # Toggle sections initially
         self._set_section_enabled("CV",  bool(self.cv_run_var.get()))
         self._set_section_enabled("EA",  bool(self.dc_run_var.get()) or bool(self.ac_run_var.get()))
         self._set_section_enabled("EIS", bool(self.eis_run_var.get()))
@@ -199,14 +199,14 @@ class ExperimentPanelView(ttk.Frame):
         var.trace_add("write", _on_var_changed)
 
     def _register_flag(self, field_id: str, var: tk.BooleanVar) -> None:
-        # <- BUGFIX: Flag registrieren, damit clear_fields()/set_fields() greifen
+        # <- BUGFIX: register flag so clear_fields()/set_fields() apply
         self._flag_vars[field_id] = var
 
         def _apply():
-            # 1) an VM melden
+            # 1) notify VM
             if self._on_change:
                 self._on_change(field_id, "1" if var.get() else "0")
-            # 2) Section toggeln
+            # 2) toggle section
             if field_id == "run_cv":
                 self._set_section_enabled("CV", bool(var.get()))
             elif field_id == "run_dc":
@@ -251,7 +251,7 @@ class ExperimentPanelView(ttk.Frame):
     def set_fields(self, mapping: Dict[str, str]) -> None:
         if not mapping:
             return
-        # Textfelder
+        # Text fields
         for fid, var in self._vars.items():
             if fid in mapping:
                 val = mapping.get(fid)
