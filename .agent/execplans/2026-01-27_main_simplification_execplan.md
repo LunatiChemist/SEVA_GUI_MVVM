@@ -17,23 +17,29 @@ Success looks like:
 
 - [x] (2026-01-27 10:44-08:00) Review and document current responsibilities of `seva/app/main.py`, `seva/usecases/run_flow_coordinator.py`, `seva/viewmodels/experiment_vm.py`, `seva/domain/runs_registry.py`, `seva/usecases/discover_devices.py`, `seva/usecases/start_experiment_batch.py`, and `seva/usecases/download_group_results.py`.
 - [x] (2026-01-27 10:44-08:00) Define target module boundaries and new or updated domain/usecase interfaces (Mode Registry, Storage Meta DTO, Run Flow UseCase, Discovery Assignment UseCase).
-- [ ] (2026-01-27 10:44-08:00) Implement refactors and new modules with tests and update all call sites.
+- [ ] (2026-01-27 11:03-08:00) Implement refactors and new modules with tests and update all call sites (completed: run flow presenter + polling scheduler extraction and main.py delegation; remaining: storage meta/plan builder/mode registry/error mapping/discovery/registry typing/tests).
 - [ ] (2026-01-27 10:44-08:00) Remove legacy paths and validate end-to-end behavior.
 
 ## Surprises & Discoveries
 
-- Observation: None yet.
-  Evidence: Plan created before implementation.
+- Observation: Baseline mapping did not surface unexpected runtime behavior.
+  Evidence: Initial pass focused on moving run flow logic without changing behavior.
+- Observation: Validation commands are not runnable in this environment yet (pytest missing, UI launch fails on missing pandas).
+  Evidence: `pytest` not found; `python -m seva.app.main` fails on ModuleNotFoundError for pandas.
 
 ## Decision Log
 
 - Decision: Treat UI (`seva/app/main.py`) as wiring only, moving orchestration into UseCases and Coordinators.
   Rationale: Align with MVVM + Hexagonal guardrails and reduce mental load.
   Date/Author: 2026-01-27 / Codex
+- Decision: Extract run flow and polling logic into `seva/app/run_flow_presenter.py` and `seva/app/polling_scheduler.py`, keeping UI notifications inside the presenter for now.
+  Rationale: Reduce `main.py` control flow while preserving current UI behavior during refactor.
+  Date/Author: 2026-01-27 / Codex
 
 ## Outcomes & Retrospective
 
 - (2026-01-27 10:44-08:00) Milestone 1 complete: added stub modules with docstrings for run flow presenter, polling scheduler, settings/discovery/download controllers, StorageMeta, BuildStorageMeta, BuildExperimentPlan, ModeRegistry, and DiscoverAndAssignDevices without changing runtime wiring.
+- (2026-01-27 11:03-08:00) Milestone 2 partial: run flow orchestration moved into `RunFlowPresenter` with `PollingScheduler`, and `main.py` delegates start/cancel/polling and runs panel actions.
 
 ## Context and Orientation
 
@@ -253,6 +259,16 @@ Examples of expected outputs:
 
 These transcripts should be updated as the plan is executed.
 
+Validation evidence (current environment):
+
+    $ pytest
+    pytest : Die Benennung "pytest" wurde nicht als Name eines Cmdlet, einer Funktion, einer Skriptdatei oder eines
+    ausführbaren Programms erkannt. Überprüfen Sie die Schreibweise des Namens, oder ob der Pfad korrekt ist (sofern
+    enthalten), und wiederholen Sie den Vorgang.
+
+    $ python -m seva.app.main
+    ModuleNotFoundError: No module named 'pandas'
+
 ## Interfaces and Dependencies
 
 New or updated interfaces to implement (names may be adjusted if the repo uses different conventions):
@@ -270,3 +286,4 @@ All existing adapters remain as they are; no new external dependencies are requi
 
 Plan update note: Initial plan created on 2026-01-27 with placeholders for decisions and no implementation yet.
 Plan update note: 2026-01-27 10:44-08:00 - completed milestone 1 stubs and updated Progress/Outcomes to reflect baseline mapping and interface scaffolding.
+Plan update note: 2026-01-27 11:03-08:00 - documented run flow extraction progress, validation evidence, and decisions for milestone 2.
