@@ -6,9 +6,12 @@ import time
 from dataclasses import asdict, dataclass, field
 import logging
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, TYPE_CHECKING
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, TYPE_CHECKING
 
-from seva.domain.entities import GroupSnapshot
+from seva.domain.entities import ClientDateTime, GroupId, GroupSnapshot, PlanMeta
+from seva.domain.naming import make_group_id_from_parts
+from seva.domain.storage_meta import StorageMeta
+from seva.domain.time_utils import parse_client_datetime
 
 if TYPE_CHECKING:  # pragma: no cover - type checking helper
     from seva.usecases.run_flow_coordinator import (
@@ -35,10 +38,11 @@ class RunEntry:
     boxes: List[str]
     runs_by_box: Dict[str, List[str]]
     created_at: str
-    plan_meta: Dict[str, Any]
-    storage_meta: Dict[str, str]
+    plan_meta: PlanMeta
+    storage_meta: StorageMeta
     status: str = "running"
     download: DownloadInfo = field(default_factory=DownloadInfo)
+    last_error: Optional[str] = None
     last_snapshot: Optional[Dict[str, Any]] = None
 
 
@@ -69,7 +73,7 @@ class RunsRegistry:
         self._hooks_factory: Optional[Callable[[str], "FlowHooks"]] = None
         self._coordinator_factory: Optional[
             Callable[
-                [str, Dict[str, Any], Dict[str, str], "FlowHooks"],
+                [str, PlanMeta, StorageMeta, "FlowHooks"],
                 "RunFlowCoordinator",
             ]
         ] = None
@@ -85,7 +89,7 @@ class RunsRegistry:
         hooks_factory: Optional[Callable[[str], "FlowHooks"]] = None,
         coordinator_factory: Optional[
             Callable[
-                [str, Dict[str, Any], Dict[str, str], "FlowHooks"],
+                [str, PlanMeta, StorageMeta, "FlowHooks"],
                 "RunFlowCoordinator",
             ]
         ] = None,
@@ -169,8 +173,8 @@ class RunsRegistry:
         name: Optional[str],
         boxes: Iterable[str],
         runs_by_box: Dict[str, Iterable[str]],
-        plan_meta: Dict[str, Any],
-        storage_meta: Dict[str, str],
+        plan_meta: PlanMeta,
+        storage_meta: StorageMeta,
         created_at_iso: Optional[str] = None,
     ) -> None:
         created = created_at_iso or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -180,8 +184,8 @@ class RunsRegistry:
             boxes=[str(box) for box in boxes],
             runs_by_box={str(box): [str(run) for run in runs] for box, runs in runs_by_box.items()},
             created_at=created,
-            plan_meta=dict(plan_meta or {}),
-            storage_meta=dict(storage_meta or {}),
+            plan_meta=plan_meta,
+            storage_meta=storage_meta,
             status="running",
         )
         self._entries[group_id] = entry
@@ -216,7 +220,7 @@ class RunsRegistry:
             return
         entry.status = "error"
         if message:
-            entry.plan_meta.setdefault("last_error", str(message))
+            entry.last_error = str(message)
         self.unregister_runtime(group_id)
         self._persist()
 
@@ -273,6 +277,20 @@ class RunsRegistry:
         for payload in entries:
             try:
                 download_payload = payload.get("download") or {}
+                plan_payload = dict(payload.get("plan_meta") or {})
+                if "experiment" not in plan_payload and payload.get("name"):
+                    plan_payload["experiment"] = payload.get("name")
+                if "group_id" not in plan_payload and payload.get("group_id"):
+                    plan_payload["group_id"] = payload.get("group_id")
+                plan_meta = self._parse_plan_meta(plan_payload)
+
+                storage_payload = dict(payload.get("storage_meta") or {})
+                if "experiment" not in storage_payload:
+                    storage_payload["experiment"] = plan_meta.experiment
+                if "client_datetime" not in storage_payload:
+                    storage_payload["client_datetime"] = plan_meta.client_dt.value.isoformat()
+                storage_meta = self._parse_storage_meta(storage_payload)
+
                 entry = RunEntry(
                     group_id=payload["group_id"],
                     name=payload.get("name"),
@@ -282,13 +300,14 @@ class RunsRegistry:
                         for box, runs in (payload.get("runs_by_box") or {}).items()
                     },
                     created_at=payload.get("created_at") or "",
-                    plan_meta=dict(payload.get("plan_meta") or {}),
-                    storage_meta=dict(payload.get("storage_meta") or {}),
+                    plan_meta=plan_meta,
+                    storage_meta=storage_meta,
                     status=payload.get("status") or "running",
                     download=DownloadInfo(
                         done=bool(download_payload.get("done")),
                         path=download_payload.get("path"),
                     ),
+                    last_error=payload.get("last_error"),
                     last_snapshot=payload.get("last_snapshot"),
                 )
             except Exception:
@@ -304,6 +323,73 @@ class RunsRegistry:
     # ------------------------------------------------------------------ #
     # Internal utilities
     # ------------------------------------------------------------------ #
+    @staticmethod
+    def _serialize_plan_meta(meta: PlanMeta) -> Dict[str, Any]:
+        return {
+            "experiment": meta.experiment,
+            "subdir": meta.subdir or "",
+            "client_datetime": meta.client_dt.value.isoformat(),
+            "group_id": str(meta.group_id),
+            "make_plot": meta.make_plot,
+            "tia_gain": meta.tia_gain,
+            "sampling_interval": meta.sampling_interval,
+        }
+
+    @staticmethod
+    def _parse_plan_meta(payload: Mapping[str, Any]) -> PlanMeta:
+        if not isinstance(payload, Mapping):
+            raise ValueError("Plan meta payload must be a mapping.")
+        experiment_source = (
+            payload.get("experiment")
+            or payload.get("experiment_name")
+            or payload.get("name")
+            or payload.get("group_id")
+            or "unknown"
+        )
+        experiment = str(experiment_source).strip() or "unknown"
+
+        subdir_raw = payload.get("subdir")
+        subdir = str(subdir_raw).strip() if subdir_raw is not None else None
+        if subdir == "":
+            subdir = None
+
+        client_raw = (
+            payload.get("client_datetime")
+            or payload.get("client_dt")
+            or payload.get("client_datetime_iso")
+        )
+        client_dt = parse_client_datetime(client_raw)
+        client_value = ClientDateTime(client_dt)
+
+        group_raw = payload.get("group_id") or payload.get("run_group_id")
+        if group_raw:
+            group_id = GroupId(str(group_raw))
+        else:
+            group_id = make_group_id_from_parts(experiment, subdir, client_value)
+
+        make_plot = payload.get("make_plot")
+        make_plot = bool(make_plot) if make_plot is not None else None
+        tia_gain = payload.get("tia_gain")
+        sampling_interval = payload.get("sampling_interval")
+
+        return PlanMeta(
+            experiment=experiment,
+            subdir=subdir,
+            client_dt=client_value,
+            group_id=group_id,
+            make_plot=make_plot,
+            tia_gain=tia_gain,
+            sampling_interval=sampling_interval,
+        )
+
+    @staticmethod
+    def _serialize_storage_meta(meta: StorageMeta) -> Dict[str, Any]:
+        return meta.to_payload()
+
+    @staticmethod
+    def _parse_storage_meta(payload: Mapping[str, Any]) -> StorageMeta:
+        return StorageMeta.from_payload(payload)
+
     def _serialize_snapshot(self, snapshot: Any) -> Optional[Dict[str, Any]]:
         if snapshot is None:
             return None
@@ -341,11 +427,19 @@ class RunsRegistry:
         payload = {
             "entries": [
                 {
-                    **asdict(entry),
+                    "group_id": entry.group_id,
+                    "name": entry.name,
                     "boxes": list(entry.boxes),
                     "runs_by_box": {
                         box: list(runs) for box, runs in entry.runs_by_box.items()
                     },
+                    "created_at": entry.created_at,
+                    "plan_meta": self._serialize_plan_meta(entry.plan_meta),
+                    "storage_meta": self._serialize_storage_meta(entry.storage_meta),
+                    "status": entry.status,
+                    "download": asdict(entry.download),
+                    "last_error": entry.last_error,
+                    "last_snapshot": entry.last_snapshot,
                 }
                 for entry in self._entries.values()
             ]

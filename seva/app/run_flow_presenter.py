@@ -10,14 +10,14 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 from tkinter import messagebox
 
-from seva.domain.entities import ExperimentPlan
+from seva.domain.entities import PlanMeta
 from seva.domain.ports import UseCaseError
 from seva.domain.util import well_id_to_box
 from seva.domain.runs_registry import RunsRegistry
-from seva.domain.plan_builder import build_meta
+from seva.domain.storage_meta import StorageMeta
 from seva.usecases.run_flow_coordinator import (
     FlowHooks,
     FlowTick,
@@ -25,6 +25,13 @@ from seva.usecases.run_flow_coordinator import (
     RunFlowCoordinator,
 )
 from seva.usecases.start_experiment_batch import StartBatchResult
+from seva.usecases.build_experiment_plan import (
+    BuildExperimentPlan,
+    ExperimentPlanRequest,
+    ModeSnapshot,
+    WellSnapshot,
+)
+from seva.usecases.build_storage_meta import BuildStorageMeta
 from seva.viewmodels.experiment_vm import ExperimentVM
 from seva.viewmodels.plate_vm import PlateVM
 from seva.viewmodels.progress_vm import ProgressVM
@@ -62,6 +69,8 @@ class RunFlowPresenter:
         runs_panel,
         ensure_adapter,
         toast_error,
+        build_plan: BuildExperimentPlan,
+        build_storage_meta: BuildStorageMeta,
     ) -> None:
         self._log = logging.getLogger(__name__)
         self.win = win
@@ -76,11 +85,12 @@ class RunFlowPresenter:
         self.runs_panel = runs_panel
         self._ensure_adapter = ensure_adapter
         self._toast_error = toast_error
+        self._build_plan = build_plan
+        self._build_storage_meta = build_storage_meta
 
         self._sessions: Dict[str, FlowSession] = {}
         self._active_group_id: Optional[str] = None
-        self._group_storage_meta: Dict[str, Dict[str, str]] = {}
-        self._last_plan_inputs: Optional[Dict[str, Any]] = None
+        self._group_storage_meta: Dict[str, StorageMeta] = {}
         self._last_download_dir: Optional[str] = None
 
         self._scheduler = PollingScheduler(win.after, win.after_cancel)
@@ -96,7 +106,7 @@ class RunFlowPresenter:
     def last_download_dir(self) -> Optional[str]:
         return self._last_download_dir
 
-    def group_storage_meta_for(self, group_id: str) -> Optional[Dict[str, str]]:
+    def group_storage_meta_for(self, group_id: str) -> Optional[StorageMeta]:
         return self._group_storage_meta.get(group_id)
 
     def record_download_dir(self, path: str) -> None:
@@ -143,8 +153,8 @@ class RunFlowPresenter:
     def _coordinator_factory_for_group(
         self,
         group_id: str,
-        plan_meta: Dict[str, Any],
-        storage_meta: Dict[str, str],
+        plan_meta: PlanMeta,
+        storage_meta: StorageMeta,
         hooks: FlowHooks,
     ) -> RunFlowCoordinator:
         """Factory callback passed to RunsRegistry for re-attachments."""
@@ -167,7 +177,7 @@ class RunFlowPresenter:
         """Register a runtime session both locally and in the registry."""
         self.runs.register_runtime(group_id, coordinator, context)
         self._sessions[group_id] = FlowSession(coordinator=coordinator, context=context)
-        self._group_storage_meta.setdefault(group_id, dict(context.storage_meta))
+        self._group_storage_meta.setdefault(group_id, context.storage_meta)
         if not self._active_group_id:
             self._set_active_group(group_id)
         self._refresh_runs_panel()
@@ -294,7 +304,9 @@ class RunFlowPresenter:
 
             selection = self.plate_vm.get_selection()
             self.experiment_vm.set_selection(selection)
-            plan = self._build_domain_plan()
+            plan_request = self._build_plan_request(configured)
+            plan = self._build_plan(plan_request)
+            storage_meta = self._build_storage_meta(plan.meta, self.settings_vm)
             boxes = sorted(
                 {
                     box
@@ -324,7 +336,7 @@ class RunFlowPresenter:
             )
 
             try:
-                ctx = coordinator.start(plan)
+                ctx = coordinator.start(plan, storage_meta)
             except UseCaseError as exc:
                 if getattr(exc, "code", "") == "SLOT_BUSY":
                     meta = getattr(exc, "meta", None) or {}
@@ -352,42 +364,25 @@ class RunFlowPresenter:
                 coordinator.stop_polling()
                 return
 
-            group_id = str(start_result.run_group_id)
+            group_id = str(ctx.group)
             subruns = start_result.per_box_runs
-            meta = plan.meta
-            storage_inputs = self._last_plan_inputs or {}
-            normalized_storage = {
-                "experiment": meta.experiment,
-                "subdir": meta.subdir or "",
-                "client_datetime": self._format_client_datetime_for_storage(meta.client_dt.value),
-                "results_dir": str(
-                    storage_inputs.get("results_dir") or self.settings_vm.results_dir or ""
-                ).strip()
-                or self.settings_vm.results_dir,
-            }
-            self._group_storage_meta[group_id] = normalized_storage
+            meta = ctx.meta
+            self._group_storage_meta[group_id] = storage_meta
             self._log.info(
                 "Start response: group=%s wells=%d boxes=%s",
                 group_id,
-                len(start_result.started_wells),
+                len(plan.wells),
                 sorted(subruns.keys()),
             )
             self._log.debug("Start run map: %s", subruns)
 
-            ctx.storage_meta.update(normalized_storage)
-            plan_meta_payload = {
-                "experiment": meta.experiment,
-                "subdir": meta.subdir or "",
-                "client_datetime": meta.client_dt.value.isoformat(),
-                "group_id": group_id,
-            }
             self.runs.add(
                 group_id=group_id,
                 name=meta.experiment,
                 boxes=sorted(subruns.keys()),
                 runs_by_box=subruns,
-                plan_meta=plan_meta_payload,
-                storage_meta=normalized_storage,
+                plan_meta=meta,
+                storage_meta=storage_meta,
             )
             self._refresh_runs_panel()
 
@@ -574,94 +569,32 @@ class RunFlowPresenter:
     # ------------------------------------------------------------------
     # Plan building
     # ------------------------------------------------------------------
-    def _build_domain_plan(self) -> ExperimentPlan:
-        """Build a domain ExperimentPlan from the current view-model state."""
-        configured = self.plate_vm.configured()
-        if not configured:
-            raise RuntimeError("No configured wells to start.")
-
-        well_plan_list = self.experiment_vm.build_well_plan_map(configured)
-        if not well_plan_list:
-            raise RuntimeError("No saved parameters found for configured wells.")
-
-        inputs = self._collect_plan_inputs()
-        meta = build_meta(
-            experiment=inputs["experiment"],
-            subdir=inputs["subdir"],
-            client_dt_local=inputs["client_dt"],
-        )
-        self._last_plan_inputs = inputs
-
-        return ExperimentPlan(
-            meta=meta,
-            wells=well_plan_list,
-        )
-
-    def _collect_plan_inputs(self) -> Dict[str, Any]:
-        """Gather experiment metadata and filesystem settings for plan construction."""
-        experiment_name = (self.settings_vm.experiment_name or "").strip()
-        if not experiment_name:
-            raise RuntimeError("Experiment name must be set in Settings.")
-
-        subdir_raw = (self.settings_vm.subdir or "").strip()
-        subdir = subdir_raw or None
-
-        override_dt = ""
+    def _build_plan_request(self, configured) -> ExperimentPlanRequest:
+        wells = tuple(str(well) for well in configured)
+        experiment_name = getattr(self.settings_vm, "experiment_name", "") or ""
+        subdir = getattr(self.settings_vm, "subdir", None)
+        override = ""
         if hasattr(self.experiment_vm, "fields"):
-            override_dt = str(self.experiment_vm.fields.get("storage.client_datetime") or "")
-        client_dt = self._parse_client_datetime_override(override_dt)
+            override = str(self.experiment_vm.fields.get("storage.client_datetime") or "")
 
-        results_dir = str(self.settings_vm.results_dir or "").strip() or "."
+        well_snapshots = []
+        source_params = getattr(self.experiment_vm, "well_params", {}) or {}
+        for well_id, modes in source_params.items():
+            mode_snapshots = tuple(
+                ModeSnapshot(name=str(mode), params=dict(params))
+                for mode, params in modes.items()
+            )
+            well_snapshots.append(
+                WellSnapshot(well_id=str(well_id), modes=mode_snapshots)
+            )
 
-        return {
-            "experiment": experiment_name,
-            "subdir": subdir,
-            "client_dt": client_dt,
-            "results_dir": results_dir,
-        }
-
-    def _parse_client_datetime_override(self, value: str) -> datetime:
-        """Interpret stored client datetime overrides, falling back to the current time."""
-        text = str(value or "").strip()
-        if not text:
-            return datetime.now().astimezone().replace(microsecond=0)
-
-        normalized = text.replace(" ", "T")
-        if normalized.endswith("Z"):
-            normalized = normalized[:-1] + "+00:00"
-        if "T" in normalized:
-            date_part, time_part = normalized.split("T", 1)
-            if ":" not in time_part:
-                time_part = time_part.replace("-", ":")
-            normalized = f"{date_part}T{time_part}"
-
-        parsed = None
-        try:
-            parsed = datetime.fromisoformat(normalized)
-        except ValueError:
-            pass
-
-        if parsed is None:
-            for fmt in ("%Y-%m-%d_%H-%M-%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H-%M-%S"):
-                try:
-                    parsed = datetime.strptime(text, fmt)
-                    break
-                except ValueError:
-                    continue
-
-        if parsed is None:
-            return datetime.now().astimezone().replace(microsecond=0)
-
-        if parsed.tzinfo is None or parsed.tzinfo.utcoffset(parsed) is None:
-            local_zone = datetime.now().astimezone().tzinfo
-            parsed = parsed.replace(tzinfo=local_zone)
-
-        return parsed.astimezone().replace(microsecond=0)
-
-    @staticmethod
-    def _format_client_datetime_for_storage(dt: datetime) -> str:
-        """Return a filesystem-safe representation of the client datetime."""
-        return dt.astimezone().strftime("%Y-%m-%d_%H-%M-%S")
+        return ExperimentPlanRequest(
+            experiment_name=experiment_name,
+            subdir=subdir,
+            client_datetime_override=override,
+            wells=wells,
+            well_snapshots=tuple(well_snapshots),
+        )
 
     # ------------------------------------------------------------------
     # Download toast helpers
@@ -676,9 +609,9 @@ class RunFlowPresenter:
                 meta = entry.storage_meta
         if meta:
             parts = [
-                str(meta.get("experiment") or "").strip(),
-                str(meta.get("subdir") or "").strip(),
-                str(meta.get("client_datetime") or "").strip(),
+                meta.experiment.strip(),
+                (meta.subdir or "").strip(),
+                meta.client_datetime_label(),
             ]
             descriptor = "/".join([p for p in parts if p])
         target = f"{descriptor} -> {short_path}" if descriptor else short_path

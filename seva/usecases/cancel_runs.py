@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, List, Set
 
 from ..domain.ports import JobPort
+from ..usecases.error_mapping import map_api_error
 
 
 @dataclass
@@ -24,4 +25,11 @@ class CancelRuns:
             if not run_id_str or run_id_str in seen:
                 continue
             seen.add(run_id_str)
-            self.job_port.cancel_run(box_id, run_id_str)
+            try:
+                self.job_port.cancel_run(box_id, run_id_str)
+            except Exception as exc:
+                raise map_api_error(
+                    exc,
+                    default_code="CANCEL_RUN_FAILED",
+                    default_message="Cancel run failed.",
+                ) from exc

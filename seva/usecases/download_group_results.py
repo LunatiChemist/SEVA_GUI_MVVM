@@ -9,6 +9,8 @@ from typing import Dict, Iterable, Mapping, Optional, Tuple
 
 from ..domain.mapping import normalize_slot_registry, resolve_well_id
 from ..domain.ports import JobPort, RunGroupId, UseCaseError
+from ..usecases.error_mapping import map_api_error
+from ..domain.storage_meta import StorageMeta
 
 
 CleanupMode = str
@@ -22,7 +24,7 @@ class DownloadGroupResults:
         self,
         run_group_id: RunGroupId,
         target_dir: str,
-        storage_meta: Optional[Mapping[str, str]] = None,
+        storage_meta: Optional[StorageMeta] = None,
         *,
         cleanup: CleanupMode = "keep",
     ) -> str:
@@ -33,13 +35,17 @@ class DownloadGroupResults:
         (<results>/<experiment>/<subdir?>/<client_datetime>).
         """
         storage = self._validate_storage_meta(storage_meta)
-        results_root = os.path.abspath(storage.get("results_dir") or target_dir or ".")
+        results_root = os.path.abspath(storage.results_dir or target_dir or ".")
         os.makedirs(results_root, exist_ok=True)
 
         try:
             zip_root = self.job_port.download_group_zip(run_group_id, results_root)
         except Exception as exc:
-            raise UseCaseError("DOWNLOAD_FAILED", str(exc)) from exc
+            raise map_api_error(
+                exc,
+                default_code="DOWNLOAD_FAILED",
+                default_message="Download failed.",
+            ) from exc
 
         zip_root = os.path.abspath(zip_root)
         if not os.path.isdir(zip_root):
@@ -73,29 +79,32 @@ class DownloadGroupResults:
 
     @staticmethod
     def _validate_storage_meta(
-        storage_meta: Optional[Mapping[str, str]]
-    ) -> Mapping[str, str]:
+        storage_meta: Optional[StorageMeta]
+    ) -> StorageMeta:
         if not storage_meta:
             raise UseCaseError(
                 "MISSING_STORAGE_META",
                 "No storage metadata available for the requested group.",
             )
-        required = ("experiment", "client_datetime")
-        missing = [key for key in required if not (storage_meta.get(key) or "").strip()]
-        if missing:
+        if not storage_meta.experiment.strip():
             raise UseCaseError(
                 "INVALID_STORAGE_META",
-                f"Storage metadata missing: {', '.join(missing)}.",
+                "Storage metadata missing experiment.",
+            )
+        if storage_meta.client_datetime is None:
+            raise UseCaseError(
+                "INVALID_STORAGE_META",
+                "Storage metadata missing client datetime.",
             )
         return storage_meta
 
     @staticmethod
     def _build_extraction_root(
-        results_root: str, storage: Mapping[str, str]
+        results_root: str, storage: StorageMeta
     ) -> str:
-        experiment = storage.get("experiment") or ""
-        subdir = storage.get("subdir") or ""
-        client_dt = storage.get("client_datetime") or ""
+        experiment = storage.experiment or ""
+        subdir = storage.subdir or ""
+        client_dt = storage.client_datetime_label()
         parts = [results_root, experiment]
         if subdir:
             parts.append(subdir)
