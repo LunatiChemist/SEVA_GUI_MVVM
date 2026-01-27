@@ -1289,7 +1289,7 @@ def flash_firmware(file: UploadFile = File(...), x_api_key: Optional[str] = Head
             status_code=500,
             code="firmware.flash_failed",
             message="Firmware flash failed",
-            hint=f"exit_code={exit_code}\nstdout={stdout}\nstderr={stderr}",
+            hint=f"Try increasing the Request timeout (s)\nexit_code={exit_code}\nstdout={stdout}\nstderr={stderr}",
         )
 
     return {"ok": True, "exit_code": exit_code, "stdout": stdout, "stderr": stderr}

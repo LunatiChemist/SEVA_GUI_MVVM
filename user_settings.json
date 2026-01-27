@@ -1,6 +1,6 @@
 {
   "results_dir": "C:\\Users\\LunaP\\OneDrive - UBC\\Dokumente\\Chemistry\\Potentiostats\\GUI Testing\\LDP",
-  "request_timeout_s": 10,
+  "request_timeout_s": 60,
   "download_timeout_s": 60,
   "poll_interval_ms": 750,
   "poll_backoff_max_ms": 5000,

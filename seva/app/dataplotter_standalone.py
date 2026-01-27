@@ -464,12 +464,6 @@ def DataProcessingGUI(master=None):
         )
         ir_correct_button.pack(pady=(20, 0), padx=20, side=tk.RIGHT)
 
-        # Get Peaks button (kept from original; still optional)
-        # get_peaks_button = tk.Button(button_frame, text="Get Peaks", bg='white',
-        #                              command=lambda: get_peaks(df_in, path_label.full_path, col1, col2))
-        get_peaks_button = tk.Button(button_frame, text="Get Peaks", bg='white')
-        get_peaks_button.pack(pady=(20, 0), padx=20, side=tk.RIGHT)
-
         save_csv_button = tk.Button(
             button_frame, text="Save .csv", bg='white',
             command=lambda: data_to_CSV(path_label.full_path)
