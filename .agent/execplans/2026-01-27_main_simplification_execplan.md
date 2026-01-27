@@ -17,8 +17,15 @@ Success looks like:
 
 - [x] (2026-01-27 10:44-08:00) Review and document current responsibilities of `seva/app/main.py`, `seva/usecases/run_flow_coordinator.py`, `seva/viewmodels/experiment_vm.py`, `seva/domain/runs_registry.py`, `seva/usecases/discover_devices.py`, `seva/usecases/start_experiment_batch.py`, and `seva/usecases/download_group_results.py`.
 - [x] (2026-01-27 10:44-08:00) Define target module boundaries and new or updated domain/usecase interfaces (Mode Registry, Storage Meta DTO, Run Flow UseCase, Discovery Assignment UseCase).
-- [ ] (2026-01-27 11:03-08:00) Implement refactors and new modules with tests and update all call sites (completed: run flow presenter + polling scheduler extraction and main.py delegation; remaining: storage meta/plan builder/mode registry/error mapping/discovery/registry typing/tests).
-- [ ] (2026-01-27 10:44-08:00) Remove legacy paths and validate end-to-end behavior.
+- [x] (2026-01-27 11:47-08:00) Implement StorageMeta + BuildStorageMeta, BuildExperimentPlan, and update run flow/download/registry to use typed storage metadata with plan building out of ExperimentVM.
+- [x] (2026-01-27 11:47-08:00) Implement ModeRegistry and migrate ExperimentVM copy/paste rules and UI labels to the centralized registry.
+- [x] (2026-01-27 11:47-08:00) Add usecase-level API error mapping and simplify UI error formatting.
+- [x] (2026-01-27 11:47-08:00) Introduce DiscoverAndAssignDevices use case and DiscoveryController wiring for settings discovery flow.
+- [x] (2026-01-27 11:47-08:00) Remove unused StartBatchResult.started_wells and update logging to rely on plan wells.
+- [x] (2026-01-27 11:47-08:00) Add tests for BuildExperimentPlan, BuildStorageMeta, ModeRegistry, and DiscoverAndAssignDevices.
+- [x] (2026-01-27 11:47-08:00) Move settings and download flows into SettingsController and DownloadController.
+- [x] (2026-01-27 11:47-08:00) Document registry migration notes and loader fallbacks.
+- [ ] (2026-01-27 11:47-08:00) Remove legacy paths and validate end-to-end behavior (legacy handlers removed; validation blocked by missing pytest/pandas).
 
 ## Surprises & Discoveries
 
@@ -35,11 +42,34 @@ Success looks like:
 - Decision: Extract run flow and polling logic into `seva/app/run_flow_presenter.py` and `seva/app/polling_scheduler.py`, keeping UI notifications inside the presenter for now.
   Rationale: Reduce `main.py` control flow while preserving current UI behavior during refactor.
   Date/Author: 2026-01-27 / Codex
+- Decision: Move plan/storage metadata into typed `PlanMeta`/`StorageMeta` in the registry with explicit serialization helpers and BuildExperimentPlan/BuildStorageMeta use cases.
+  Rationale: Enforce domain typing above adapters and centralize validation.
+  Date/Author: 2026-01-27 / Codex
+- Decision: Introduce `map_api_error` in use cases and simplify UI error formatting to display UseCaseError messages only.
+  Rationale: Align with unified error policy and move user messaging into UseCases.
+  Date/Author: 2026-01-27 / Codex
+- Decision: Centralize mode rules and labels in `ModeRegistry` and migrate copy/paste filtering to it.
+  Rationale: Satisfy the single registry guardrail and remove VM-local mode config.
+  Date/Author: 2026-01-27 / Codex
+- Decision: Move discovery assignment logic into `DiscoverAndAssignDevices` and delegate UI work to `DiscoveryController`.
+  Rationale: Keep UI thin and place orchestration in UseCases/controllers.
+  Date/Author: 2026-01-27 / Codex
+- Decision: Remove `StartBatchResult.started_wells` and rely on the plan wells count in logging.
+  Rationale: The field was never populated and added no value.
+  Date/Author: 2026-01-27 / Codex
+- Decision: Move settings and download handlers into SettingsController and DownloadController with main delegating callbacks.
+  Rationale: Reduce main.py complexity and align with controller-based wiring.
+  Date/Author: 2026-01-27 / Codex
 
 ## Outcomes & Retrospective
 
 - (2026-01-27 10:44-08:00) Milestone 1 complete: added stub modules with docstrings for run flow presenter, polling scheduler, settings/discovery/download controllers, StorageMeta, BuildStorageMeta, BuildExperimentPlan, ModeRegistry, and DiscoverAndAssignDevices without changing runtime wiring.
 - (2026-01-27 11:03-08:00) Milestone 2 partial: run flow orchestration moved into `RunFlowPresenter` with `PollingScheduler`, and `main.py` delegates start/cancel/polling and runs panel actions.
+- (2026-01-27 11:47-08:00) Milestone 3 complete: BuildExperimentPlan/BuildStorageMeta integrated, StorageMeta typed across run flow/download/registry, and ExperimentVM no longer builds domain plans.
+- (2026-01-27 11:47-08:00) Milestone 4 complete: ModeRegistry centralized copy/paste rules and UI labels; UI error mapping now relies on usecase-level error messages.
+- (2026-01-27 11:47-08:00) Milestone 5 partial: discovery assignment moved to DiscoverAndAssignDevices + DiscoveryController; remaining settings/download controllers and tests still pending.
+- (2026-01-27 11:47-08:00) Added tests for BuildExperimentPlan, BuildStorageMeta, ModeRegistry, and DiscoverAndAssignDevices (pytest not available in current environment).
+- (2026-01-27 11:47-08:00) Settings and download flows moved into SettingsController and DownloadController, reducing main.py handlers to delegation.
 
 ## Context and Orientation
 
@@ -245,6 +275,7 @@ All steps are designed to be repeatable. If a step fails, revert the last commit
 If registry metadata changes break existing stored data, provide a documented recovery path:
 - Back up `~/.seva/runs_registry.json`.
 - Run a one-time migration script (to be added if needed), or delete the file to reset the registry.
+The registry loader now attempts to parse legacy `client_datetime` formats and backfills missing experiment/group values; entries that still fail parsing are skipped with a warning.
 
 ## Artifacts and Notes
 
@@ -260,6 +291,16 @@ Examples of expected outputs:
 These transcripts should be updated as the plan is executed.
 
 Validation evidence (current environment):
+
+    $ pytest
+    pytest : Die Benennung "pytest" wurde nicht als Name eines Cmdlet, einer Funktion, einer Skriptdatei oder eines
+    ausführbaren Programms erkannt. Überprüfen Sie die Schreibweise des Namens, oder ob der Pfad korrekt ist (sofern
+    enthalten), und wiederholen Sie den Vorgang.
+
+    $ python -m seva.app.main
+    ModuleNotFoundError: No module named 'pandas'
+
+Validation evidence (2026-01-27 11:47-08:00 repeat):
 
     $ pytest
     pytest : Die Benennung "pytest" wurde nicht als Name eines Cmdlet, einer Funktion, einer Skriptdatei oder eines
@@ -287,3 +328,6 @@ All existing adapters remain as they are; no new external dependencies are requi
 Plan update note: Initial plan created on 2026-01-27 with placeholders for decisions and no implementation yet.
 Plan update note: 2026-01-27 10:44-08:00 - completed milestone 1 stubs and updated Progress/Outcomes to reflect baseline mapping and interface scaffolding.
 Plan update note: 2026-01-27 11:03-08:00 - documented run flow extraction progress, validation evidence, and decisions for milestone 2.
+Plan update note: 2026-01-27 11:47-08:00 - documented storage/meta refactors, ModeRegistry/error mapping/discovery updates, and repeated validation evidence.
+Plan update note: 2026-01-27 11:47-08:00 - added tests and recorded StartBatchResult cleanup in Progress/Decision Log.
+Plan update note: 2026-01-27 11:47-08:00 - moved settings/download handlers into controllers and updated Progress/Decision Log.
