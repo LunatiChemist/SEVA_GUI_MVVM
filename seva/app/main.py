@@ -21,7 +21,8 @@ from .views.experiment_panel_view import ExperimentPanelView
 from .views.run_overview_view import RunOverviewView
 from .views.channel_activity_view import ChannelActivityView
 from .views.settings_dialog import SettingsDialog
-from .views.data_plotter import DataPlotter
+from .dataplotter_standalone import DataProcessingGUI
+from .nas_gui_smb import NASSetupGUI
 from .views.discovery_results_dialog import DiscoveryResultsDialog
 from .views.runs_panel_view import RunsPanelView
 
@@ -1024,6 +1025,9 @@ class App:
             else:
                 self.win.show_toast("Firmware flash completed.")
 
+        def handle_open_nas_setup() -> None:
+            NASSetupGUI(self.win)
+
         dlg = SettingsDialog(
             self.win,
             on_test_connection=handle_test_connection,
@@ -1031,6 +1035,7 @@ class App:
             on_browse_results_dir=handle_browse_results_dir,
             on_browse_firmware=handle_browse_firmware,
             on_discover_devices=lambda: self._on_discover_devices(dlg),
+            on_open_nas_setup=handle_open_nas_setup,
             on_save=self._on_settings_saved,
             on_flash_firmware=handle_flash_firmware,
             on_close=lambda: None,
@@ -1104,26 +1109,7 @@ class App:
         self.win.show_toast("Settings saved.")
 
     def _on_open_plotter(self) -> None:
-        dp = DataPlotter(
-            self.win,
-            on_fetch_data=lambda: self.win.show_toast("Fetch (not wired)"),
-            on_axes_changed=lambda x, y: self.win.show_toast(f"Axes: {x}/{y}"),
-            on_section_changed=lambda s: self.win.show_toast(f"Section: {s}"),
-            on_apply_ir=lambda rs: self.win.show_toast(f"Apply IR Rs={rs}"),
-            on_reset_ir=lambda: self.win.show_toast("Reset IR"),
-            on_export_csv=lambda: self.win.show_toast("Export CSV (not wired)"),
-            on_export_png=lambda: self.win.show_toast("Export PNG (not wired)"),
-            on_open_plot=lambda wid: self._open_plot_for_well(wid),
-            on_open_results_folder=lambda wid: self.win.show_toast(
-                f"Open folder for {wid}"
-            ),
-            on_toggle_include=lambda wid, inc: self.win.show_toast(
-                f"{'Include' if inc else 'Exclude'} {wid}"
-            ),
-            on_close=lambda: None,
-        )
-        selection_summary = ", ".join(sorted(self.plate_vm.get_selection())) or "-"
-        dp.set_run_info(self._active_group_id or "-", selection_summary)
+        DataProcessingGUI(self.win)
 
     def _on_download_group_results(self) -> None:
         group_id = self._active_group_id
