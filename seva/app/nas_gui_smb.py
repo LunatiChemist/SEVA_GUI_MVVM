@@ -61,8 +61,13 @@ class NASSetupGUI(tk.Toplevel):
             super().__init__(master)
         self._root_window = root_window
         self.title("NAS Setup (SMB/CIFS)")
-        self.geometry("560x480")
+        self.geometry("560x520")
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        if master is not None:
+            self.transient(master)
+        self.lift()
+        self.focus_force()
+        self.grab_set()
 
         # API connection
         frm_api = ttk.LabelFrame(self, text="API Connection")
@@ -132,12 +137,12 @@ class NASSetupGUI(tk.Toplevel):
         ttk.Entry(frm_upload, textvariable=self.var_run_id, width=30).grid(
             row=0, column=1, sticky="w", padx=5, pady=4
         )
-        ttk.Button(frm_upload, text="Upload enqueuen", command=self.on_upload).grid(
+        ttk.Button(frm_upload, text="enqueue Upload", command=self.on_upload).grid(
             row=0, column=2, padx=5, pady=4
         )
 
         # Ausgabe
-        frm_out = ttk.LabelFrame(self, text="Antwort")
+        frm_out = ttk.LabelFrame(self, text="Server Response")
         frm_out.pack(fill="both", expand=True, padx=10, pady=8)
         self.txt = tk.Text(frm_out, height=10)
         self.txt.pack(fill="both", expand=True, padx=5, pady=5)

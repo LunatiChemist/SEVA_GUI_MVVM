@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List
 
 from seva.domain.ports import BoxId, DevicePort, UseCaseError
+from seva.usecases.error_mapping import map_api_error
 
 
 @dataclass
@@ -15,7 +16,11 @@ class TestConnection:
             health = self.device_port.health(box_id)
             devices = self.device_port.list_devices(box_id)
         except Exception as exc:
-            raise UseCaseError("TEST_CONNECTION_FAILED", str(exc))
+            raise map_api_error(
+                exc,
+                default_code="TEST_CONNECTION_FAILED",
+                default_message="Connection test failed.",
+            )
 
         health_map = dict(health or {})
         device_list: List[Dict[str, Any]] = list(devices or [])

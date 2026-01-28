@@ -5,6 +5,7 @@ from typing import Any, Dict, Mapping
 from seva.domain.entities import GroupId, GroupSnapshot
 
 from seva.domain.ports import JobPort, RunGroupId, UseCaseError
+from seva.usecases.error_mapping import map_api_error
 from seva.domain.snapshot_normalizer import normalize_status
 
 
@@ -17,7 +18,11 @@ class PollGroupStatus:
         try:
             raw_snapshot = self.job_port.poll_group(run_group_id)
         except Exception as exc:  # pragma: no cover - defensive guard
-            raise UseCaseError("POLL_FAILED", str(exc)) from exc
+            raise map_api_error(
+                exc,
+                default_code="POLL_FAILED",
+                default_message="Polling failed.",
+            ) from exc
 
         desired_group = str(run_group_id).strip()
 

@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from typing import Dict, List
 
 from seva.domain.entities import ExperimentPlan
-from seva.domain.ports import BoxId, JobPort, RunGroupId, UseCaseError, WellId
+from seva.domain.ports import BoxId, JobPort, RunGroupId, UseCaseError
+from seva.usecases.error_mapping import map_api_error
 
 
 @dataclass
@@ -13,7 +14,6 @@ class StartBatchResult:
 
     run_group_id: RunGroupId | None
     per_box_runs: Dict[BoxId, List[str]]
-    started_wells: List[WellId]
 
 
 @dataclass
@@ -28,10 +28,13 @@ class StartExperimentBatch:
         except UseCaseError:
             raise
         except Exception as exc:
-            raise UseCaseError("START_FAILED", str(exc)) from exc
+            raise map_api_error(
+                exc,
+                default_code="START_FAILED",
+                default_message="Start failed.",
+            ) from exc
 
         return StartBatchResult(
             run_group_id=run_group_id,
             per_box_runs=per_box_runs,
-            started_wells=[]
         )
