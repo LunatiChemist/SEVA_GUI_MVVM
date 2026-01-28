@@ -303,13 +303,13 @@ class SettingsDialog(tk.Toplevel):
             py = parent.winfo_rooty()
             pw = parent.winfo_width()
             ph = parent.winfo_height()
-            width = 720
-            height = 600
+            width = 600
+            height = 650
             x = px + (pw - width) // 2
             y = py + (ph - height) // 2
             return f"{width}x{height}+{x}+{y}"
         except Exception:
-            return "720x600"
+            return "600x650"
 
     def _safe(self, fn: OnVoid) -> None:
         if fn:
