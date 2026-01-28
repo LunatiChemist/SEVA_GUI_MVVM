@@ -51,10 +51,10 @@ class GroupContext:
     """Identifier of the active run group."""
     meta: PlanMeta
     """Plan metadata captured when the run was prepared."""
-    run_index: GroupRunIndex = field(default_factory=dict)
-    """Mapping from well identifiers to backend run identifiers."""
     storage_meta: StorageMeta
     """Plan-level storage metadata used for downloads."""
+    run_index: GroupRunIndex = field(default_factory=dict)
+    """Mapping from well identifiers to backend run identifiers."""
 
 
 @dataclass

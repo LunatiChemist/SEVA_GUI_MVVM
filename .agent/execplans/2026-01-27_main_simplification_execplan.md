@@ -26,6 +26,7 @@ Success looks like:
 - [x] (2026-01-27 11:47-08:00) Move settings and download flows into SettingsController and DownloadController.
 - [x] (2026-01-27 11:47-08:00) Document registry migration notes and loader fallbacks.
 - [ ] (2026-01-27 11:47-08:00) Remove legacy paths and validate end-to-end behavior (legacy handlers removed; validation blocked by missing pytest/pandas).
+- [x] (2026-01-28 09:12-08:00) Fix GroupContext dataclass field ordering to resolve startup TypeError on non-default fields.
 
 ## Surprises & Discoveries
 
@@ -33,6 +34,8 @@ Success looks like:
   Evidence: Initial pass focused on moving run flow logic without changing behavior.
 - Observation: Validation commands are not runnable in this environment yet (pytest missing, UI launch fails on missing pandas).
   Evidence: `pytest` not found; `python -m seva.app.main` fails on ModuleNotFoundError for pandas.
+- Observation: App startup failed due to dataclass field ordering in GroupContext.
+  Evidence: `TypeError: non-default argument 'storage_meta' follows default argument 'run_index'`.
 
 ## Decision Log
 
@@ -60,6 +63,9 @@ Success looks like:
 - Decision: Move settings and download handlers into SettingsController and DownloadController with main delegating callbacks.
   Rationale: Reduce main.py complexity and align with controller-based wiring.
   Date/Author: 2026-01-27 / Codex
+- Decision: Reorder GroupContext fields so non-default values precede defaults.
+  Rationale: Required by dataclasses to avoid startup TypeError.
+  Date/Author: 2026-01-28 / Codex
 
 ## Outcomes & Retrospective
 
@@ -70,6 +76,7 @@ Success looks like:
 - (2026-01-27 11:47-08:00) Milestone 5 partial: discovery assignment moved to DiscoverAndAssignDevices + DiscoveryController; remaining settings/download controllers and tests still pending.
 - (2026-01-27 11:47-08:00) Added tests for BuildExperimentPlan, BuildStorageMeta, ModeRegistry, and DiscoverAndAssignDevices (pytest not available in current environment).
 - (2026-01-27 11:47-08:00) Settings and download flows moved into SettingsController and DownloadController, reducing main.py handlers to delegation.
+- (2026-01-28 09:12-08:00) Fixed GroupContext dataclass ordering to allow run flow coordinator import without TypeError.
 
 ## Context and Orientation
 
@@ -331,3 +338,4 @@ Plan update note: 2026-01-27 11:03-08:00 - documented run flow extraction progre
 Plan update note: 2026-01-27 11:47-08:00 - documented storage/meta refactors, ModeRegistry/error mapping/discovery updates, and repeated validation evidence.
 Plan update note: 2026-01-27 11:47-08:00 - added tests and recorded StartBatchResult cleanup in Progress/Decision Log.
 Plan update note: 2026-01-27 11:47-08:00 - moved settings/download handlers into controllers and updated Progress/Decision Log.
+Plan update note: 2026-01-28 09:12-08:00 - documented GroupContext dataclass ordering fix after startup TypeError.
