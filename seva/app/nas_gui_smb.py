@@ -63,6 +63,11 @@ class NASSetupGUI(tk.Toplevel):
         self.title("NAS Setup (SMB/CIFS)")
         self.geometry("560x520")
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        if master is not None:
+            self.transient(master)
+        self.lift()
+        self.focus_force()
+        self.grab_set()
 
         # API connection
         frm_api = ttk.LabelFrame(self, text="API Connection")
