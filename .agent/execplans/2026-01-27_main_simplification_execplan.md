@@ -27,6 +27,7 @@ Success looks like:
 - [x] (2026-01-27 11:47-08:00) Document registry migration notes and loader fallbacks.
 - [ ] (2026-01-27 11:47-08:00) Remove legacy paths and validate end-to-end behavior (legacy handlers removed; validation blocked by missing pytest/pandas).
 - [x] (2026-01-28 09:12-08:00) Fix GroupContext dataclass field ordering to resolve startup TypeError on non-default fields.
+- [x] (2026-01-28 09:20-08:00) Restore run flow polling helper methods for baseline/backoff and snapshot diffing.
 
 ## Surprises & Discoveries
 
@@ -36,6 +37,8 @@ Success looks like:
   Evidence: `pytest` not found; `python -m seva.app.main` fails on ModuleNotFoundError for pandas.
 - Observation: App startup failed due to dataclass field ordering in GroupContext.
   Evidence: `TypeError: non-default argument 'storage_meta' follows default argument 'run_index'`.
+- Observation: RunFlowCoordinator lost polling helper methods after refactor.
+  Evidence: `AttributeError: 'RunFlowCoordinator' object has no attribute '_baseline_poll_interval'`.
 
 ## Decision Log
 
@@ -66,6 +69,9 @@ Success looks like:
 - Decision: Reorder GroupContext fields so non-default values precede defaults.
   Rationale: Required by dataclasses to avoid startup TypeError.
   Date/Author: 2026-01-28 / Codex
+- Decision: Reintroduce polling helper methods from the prior coordinator implementation.
+  Rationale: Required for start/poll flow and backoff behavior.
+  Date/Author: 2026-01-28 / Codex
 
 ## Outcomes & Retrospective
 
@@ -77,6 +83,7 @@ Success looks like:
 - (2026-01-27 11:47-08:00) Added tests for BuildExperimentPlan, BuildStorageMeta, ModeRegistry, and DiscoverAndAssignDevices (pytest not available in current environment).
 - (2026-01-27 11:47-08:00) Settings and download flows moved into SettingsController and DownloadController, reducing main.py handlers to delegation.
 - (2026-01-28 09:12-08:00) Fixed GroupContext dataclass ordering to allow run flow coordinator import without TypeError.
+- (2026-01-28 09:20-08:00) Restored poll interval/backoff and snapshot diff helpers in RunFlowCoordinator.
 
 ## Context and Orientation
 
@@ -317,6 +324,16 @@ Validation evidence (2026-01-27 11:47-08:00 repeat):
     $ python -m seva.app.main
     ModuleNotFoundError: No module named 'pandas'
 
+Validation evidence (2026-01-28 09:23-08:00):
+
+    $ pytest
+    pytest : Die Benennung "pytest" wurde nicht als Name eines Cmdlet, einer Funktion, einer Skriptdatei oder eines
+    ausführbaren Programms erkannt. Überprüfen Sie die Schreibweise des Namens, oder ob der Pfad korrekt ist (sofern
+    enthalten), und wiederholen Sie den Vorgang.
+
+    $ python -m seva.app.main
+    ModuleNotFoundError: No module named 'pandas'
+
 ## Interfaces and Dependencies
 
 New or updated interfaces to implement (names may be adjusted if the repo uses different conventions):
@@ -339,3 +356,4 @@ Plan update note: 2026-01-27 11:47-08:00 - documented storage/meta refactors, Mo
 Plan update note: 2026-01-27 11:47-08:00 - added tests and recorded StartBatchResult cleanup in Progress/Decision Log.
 Plan update note: 2026-01-27 11:47-08:00 - moved settings/download handlers into controllers and updated Progress/Decision Log.
 Plan update note: 2026-01-28 09:12-08:00 - documented GroupContext dataclass ordering fix after startup TypeError.
+Plan update note: 2026-01-28 09:20-08:00 - restored run flow polling helper methods after AttributeError.
