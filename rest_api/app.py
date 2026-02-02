@@ -11,6 +11,14 @@ from pydantic import BaseModel, Field
 from contextlib import asynccontextmanager
 import shlex  
 import nas_smb as nas  
+import asyncio
+import json
+import math
+import random
+import time
+from dataclasses import dataclass, asdict
+from fastapi import Query
+from fastapi.responses import StreamingResponse
 
 try:
     from importlib import metadata as importlib_metadata
@@ -1293,3 +1301,104 @@ def flash_firmware(file: UploadFile = File(...), x_api_key: Optional[str] = Head
         )
 
     return {"ok": True, "exit_code": exit_code, "stdout": stdout, "stderr": stderr}
+
+# ---------- SEE Stream (Endpoint there) ----------
+
+DEVICE_IDS = list(range(1, 11))
+
+@dataclass
+class TemperatureSample:
+    device_id: int
+    ts: str          # ISO 8601
+    temp_c: float
+    seq: int
+
+class LatestResponse(BaseModel):
+    samples: List[TemperatureSample]
+
+class MockPotentiostatSource:
+    """
+    Mockt 10 Geräte: Sinus + Drift + Noise + Dropouts.
+    """
+    def __init__(self, device_ids: List[int]) -> None:
+        self.device_ids = device_ids
+        self._seq_by_dev: Dict[int, int] = {d: 0 for d in device_ids}
+        self._base_by_dev: Dict[int, float] = {d: 25.0 + d * 0.3 for d in device_ids}
+        self._t0 = time.time()
+
+    def _now_iso(self) -> str:
+        return datetime.datetime.now(timezone.utc).isoformat()
+
+    def generate_one(self, device_id: int) -> Optional[TemperatureSample]:
+        # simulating Dropouts
+        if random.random() < 0.01:
+            return None
+
+        t = time.time() - self._t0
+        base = self._base_by_dev[device_id]
+
+        # langsame Welle + kleines Rauschen + minimale Drift
+        temp = base + 0.8 * math.sin(t / 15.0 + device_id) + random.gauss(0, 0.03)
+        self._base_by_dev[device_id] += random.gauss(0, 0.0005)
+
+        self._seq_by_dev[device_id] += 1
+        return TemperatureSample(
+            device_id=device_id,
+            ts=self._now_iso(),
+            temp_c=round(temp, 3),
+            seq=self._seq_by_dev[device_id],
+        )
+
+source = MockPotentiostatSource(DEVICE_IDS)
+
+# In-Memory latest cache
+latest_by_dev: Dict[int, TemperatureSample] = {}
+
+@app.get("/api/telemetry/temperature/latest")
+def get_latest():
+    for d in DEVICE_IDS:
+        if d not in latest_by_dev:
+            s = source.generate_one(d)
+            if s:
+                latest_by_dev[d] = s
+    return {"samples": [asdict(latest_by_dev[d]) for d in DEVICE_IDS if d in latest_by_dev]}
+
+def sse_format(event: str, data_obj, event_id: Optional[str] = None) -> str:
+    msg = ""
+    if event_id is not None:
+        msg += f"id: {event_id}\n"
+    msg += f"event: {event}\n"
+    msg += "data: " + json.dumps(data_obj, separators=(",", ":")) + "\n\n"
+    return msg
+
+@app.get("/api/telemetry/temperature/stream")
+async def temperature_stream(rate_hz: float = Query(2.0, ge=0.2, le=20.0)):
+    interval = 1.0 / rate_hz
+
+    async def gen():
+        last_ping = time.time()
+
+        # optional initial burst
+        for d in DEVICE_IDS:
+            s = source.generate_one(d)
+            if s:
+                latest_by_dev[d] = s
+                yield sse_format("temp", asdict(s), event_id=f"{d}:{s.seq}")
+
+        while True:
+            start = time.time()
+
+            for d in DEVICE_IDS:
+                s = source.generate_one(d)
+                if s:
+                    latest_by_dev[d] = s
+                    yield sse_format("temp", asdict(s), event_id=f"{d}:{s.seq}")
+
+            if time.time() - last_ping >= 15:
+                last_ping = time.time()
+                yield sse_format("ping", {"ts": datetime.datetime.now(timezone.utc).isoformat()})
+
+            elapsed = time.time() - start
+            await asyncio.sleep(max(0.0, interval - elapsed))
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
