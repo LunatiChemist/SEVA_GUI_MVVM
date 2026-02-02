@@ -221,7 +221,7 @@ def _build_run_storage_info(req: JobRequest) -> RunStorageInfo:
 
 class SlotStatus(BaseModel):
     slot: str
-    status: Literal["queued", "running", "done", "failed", "cancelled"]
+    status: Literal["idle", "queued", "running", "done", "failed", "cancelled"]
     started_at: Optional[str] = None
     ended_at: Optional[str] = None
     message: Optional[str] = None
@@ -415,6 +415,37 @@ def list_devices(x_api_key: Optional[str] = Header(None)):
             "slots": slots,
             "count": len(slots),
         }
+
+@app.get("/devices/status", response_model=List[SlotStatus])
+def list_device_status(x_api_key: Optional[str] = Header(None)) -> List[SlotStatus]:
+    if auth_error := require_key(x_api_key):
+        return auth_error
+    with DEVICE_SCAN_LOCK:
+        slots = sorted(DEV_META.keys())
+
+    with SLOT_STATE_LOCK:
+        slot_runs = {slot: SLOT_RUNS.get(slot) for slot in slots}
+
+    results: List[SlotStatus] = []
+    with JOB_LOCK:
+        for slot in slots:
+            run_id = slot_runs.get(slot)
+            if not run_id:
+                results.append(SlotStatus(slot=slot, status="idle"))
+                continue
+            job = JOBS.get(run_id)
+            if not job:
+                results.append(SlotStatus(slot=slot, status="idle"))
+                continue
+            slot_status = next(
+                (entry for entry in job.slots if entry.slot == slot),
+                None,
+            )
+            if slot_status:
+                results.append(slot_status.model_copy(deep=True))
+            else:
+                results.append(SlotStatus(slot=slot, status="idle"))
+    return results
 
 @app.get("/modes")
 def list_modes(x_api_key: Optional[str] = Header(None)):

@@ -8,6 +8,7 @@ from ..adapters.job_rest import JobRestAdapter
 from ..usecases.cancel_group import CancelGroup
 from ..usecases.download_group_results import DownloadGroupResults
 from ..usecases.flash_firmware import FlashFirmware
+from ..usecases.poll_device_status import PollDeviceStatus
 from ..usecases.poll_group_status import PollGroupStatus
 from ..usecases.start_experiment_batch import StartExperimentBatch
 from ..usecases.test_connection import TestConnection
@@ -32,6 +33,7 @@ class AppController:
         self.uc_download: Optional[DownloadGroupResults] = None
         self.uc_cancel: Optional[CancelGroup] = None
         self.uc_cancel_runs: Optional["CancelRuns"] = None
+        self.uc_poll_device_status: Optional[PollDeviceStatus] = None
         self.uc_test_connection: Optional[TestConnection] = None
         self.uc_flash_firmware: Optional[FlashFirmware] = None
 
@@ -52,6 +54,7 @@ class AppController:
         self.uc_download = None
         self.uc_cancel = None
         self.uc_cancel_runs = None
+        self.uc_poll_device_status = None
         self.uc_test_connection = None
         self.uc_flash_firmware = None
 
@@ -103,6 +106,7 @@ class AppController:
         if self._job_adapter and self._device_adapter:
             self.uc_start = StartExperimentBatch(self._job_adapter)
             self.uc_test_connection = TestConnection(self._device_adapter)
+            self.uc_poll_device_status = PollDeviceStatus(self._device_adapter)
         if self._firmware_adapter:
             self.uc_flash_firmware = FlashFirmware(self._firmware_adapter)
         return True

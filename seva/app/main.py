@@ -221,6 +221,7 @@ class App:
         self.runs_panel.on_delete = self.run_flow.on_runs_delete
         self.run_flow.refresh_runs_panel()
         self.run_flow.configure_runs_registry(Path.home() / ".seva" / "runs_registry.json")
+        self.run_flow.start_activity_polling()
 
         # ---- Initial UI state (demo-ish) ----
         self._seed_demo_state()
