@@ -75,6 +75,9 @@ class ExperimentVM:
     def clear_params_for(self, well_id: WellId) -> None:
         self.well_params.pop(well_id, None)
 
+    def clear_all_params(self) -> None:
+        self.well_params.clear()
+
     # ---------- Commands ----------
     def cmd_copy_mode(
         self,

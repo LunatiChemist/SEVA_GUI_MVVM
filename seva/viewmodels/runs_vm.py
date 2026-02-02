@@ -70,6 +70,18 @@ class RunsVM:
         if isinstance(pct, (int, float)):
             return f"{int(pct)}%"
 
+        progress_values: List[float] = []
+        boxes = snapshot.get("boxes")
+        if isinstance(boxes, dict):
+            for meta in boxes.values():
+                if not isinstance(meta, dict):
+                    continue
+                value = meta.get("progress")
+                if value is None:
+                    value = meta.get("progress_pct") or meta.get("percent")
+                if isinstance(value, (int, float)):
+                    progress_values.append(float(value))
+
         runs = snapshot.get("runs") or []
         if isinstance(runs, dict):
             items = list(runs.values())
@@ -77,6 +89,20 @@ class RunsVM:
             items = list(runs)
         else:
             items = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            value = item.get("progress")
+            if value is None:
+                value = item.get("progress_pct") or item.get("percent")
+            if isinstance(value, (int, float)):
+                progress_values.append(float(value))
+
+        if progress_values:
+            avg = sum(progress_values) / len(progress_values)
+            return f"{int(avg)}%"
+
+        items = items
         total = len(items)
         if total == 0:
             return "-"

@@ -47,6 +47,7 @@ class WellGridView(ttk.Frame):
         on_copy_params_from: OnWell = None,
         on_paste_params_to_selection: OnVoid = None,
         on_reset_selected: OnVoid = None,
+        on_reset_all: OnVoid = None,
         on_open_plot: OnWell = None,
     ) -> None:
         super().__init__(parent)
@@ -58,6 +59,7 @@ class WellGridView(ttk.Frame):
         self._on_copy_params_from = on_copy_params_from
         self._on_paste_params_to_selection = on_paste_params_to_selection
         self._on_reset_selected = on_reset_selected
+        self._on_reset_all = on_reset_all
         self._on_open_plot = on_open_plot
 
         # State
@@ -79,6 +81,11 @@ class WellGridView(ttk.Frame):
             text="Reset Well Config",
             command=self._on_reset_selected,
         ).pack(side="left")
+        ttk.Button(
+            toolbar,
+            text="Reset all Wells",
+            command=self._on_reset_all,
+        ).pack(side="left", padx=(6, 0))
 
         grid = ttk.Frame(self)
         grid.pack(fill="both", expand=True)

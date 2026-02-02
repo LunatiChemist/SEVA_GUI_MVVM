@@ -540,6 +540,8 @@ class RunFlowPresenter:
 
     def _on_group_snapshot(self, group_id: str, snapshot) -> None:
         self.runs.update_snapshot(group_id, snapshot)
+        if snapshot:
+            self.progress_vm.apply_activity_snapshot(snapshot)
         if snapshot and group_id == self._active_group_id:
             self.progress_vm.apply_snapshot(snapshot)
         self._refresh_runs_panel()
@@ -643,6 +645,8 @@ class RunFlowPresenter:
         self.win.set_run_group_id(group_id or "")
         self.runs_vm.set_active_group(group_id)
         self.progress_vm.set_active_group(group_id, self.runs)
+        if self.runs_panel and group_id:
+            self.runs_panel.select_group(group_id)
         self._refresh_runs_panel()
 
 

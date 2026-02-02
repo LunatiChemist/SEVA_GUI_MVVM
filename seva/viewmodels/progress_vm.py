@@ -76,6 +76,14 @@ class ProgressVM:
 
         if self.on_update_run_overview:
             self.on_update_run_overview(dto)
+
+    def apply_activity_snapshot(self, snapshot: GroupSnapshot) -> None:
+        """Update only the channel activity matrix from a snapshot."""
+        if not isinstance(snapshot, GroupSnapshot):
+            raise TypeError("ProgressVM.apply_activity_snapshot requires a GroupSnapshot.")
+
+        activity_map = self._build_activity_map(snapshot)
+        self.updated_at_label = self._current_time_label()
         if self.on_update_channel_activity:
             self.on_update_channel_activity(activity_map)
 

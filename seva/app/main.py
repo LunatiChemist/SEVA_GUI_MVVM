@@ -104,6 +104,7 @@ class App:
             on_paste_params_to_selection=self.plate_vm.cmd_paste_to_selection,
             on_toggle_enable_selected=self.plate_vm.cmd_toggle_enable_selection,
             on_reset_selected=self._on_reset_well_config,
+            on_reset_all=self._on_reset_all_wells,
             on_open_plot=lambda wid: self._open_plot_for_well(wid),
         )
         self.wellgrid.pack(fill="both", expand=True)
@@ -488,6 +489,19 @@ class App:
         self._on_selection_changed(selection)
         self.win.show_toast("Well config reset.")
 
+    def _on_reset_all_wells(self) -> None:
+        configured = self.plate_vm.configured()
+        if not configured and not self.plate_vm.get_selection():
+            self.win.show_toast("No wells to reset.")
+            return
+
+        self.experiment_vm.clear_all_params()
+        self.plate_vm.clear_all_configured()
+        self.plate_vm.set_selection([])
+        self.wellgrid.clear_all_configured()
+        self.wellgrid.set_selection([])
+        self.win.show_toast("All wells reset.")
+
     def _mode_label(self, mode: str) -> str:
         return self.experiment_vm.mode_registry.label_for(mode)
 
@@ -564,7 +578,6 @@ class App:
                 sub_run_id=sub,
             )
         self.run_overview.set_well_rows(dto.get("wells", []) or [])
-        self._apply_channel_activity(dto.get("activity", {}) or {})
 
     def _apply_channel_activity(self, mapping: Dict[str, str]) -> None:
         self.activity.set_activity(mapping)
