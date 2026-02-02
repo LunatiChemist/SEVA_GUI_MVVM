@@ -15,6 +15,128 @@ matplotlib.use("TkAgg")
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
+"""
+client.py — Tkinter GUI client for Potentiostat temperature telemetry (SSE)
+
+Overview
+--------
+This module implements a desktop GUI client that visualizes temperature telemetry
+for multiple devices. It connects to a backend HTTP API, loads the latest known
+temperature samples once on startup, and then subscribes to a Server-Sent Events
+(SSE) stream to receive live updates.
+
+The GUI provides:
+- A table showing the latest temperature and timestamp per device
+- A live-updating matplotlib line plot showing the recent temperature history
+  for each device (sliding window / bounded buffer)
+- A selectable update rate (Hz) that triggers a stream reconnect
+
+Key Concepts / Architecture
+---------------------------
+The application is split into two main parts:
+
+1) App (Tkinter main thread)
+   - Owns the UI widgets (table, combobox, matplotlib canvas)
+   - Maintains per-device state:
+       * latest: last received sample per device
+       * series: deque of recent (time, temperature) points per device
+   - Periodically polls a thread-safe Queue using Tkinter's `after()` to
+     integrate new samples into the UI (non-blocking GUI).
+
+2) SSEClient (background thread)
+   - Opens a streaming HTTP connection to the SSE endpoint
+   - Parses SSE lines (event/data blocks) with a minimal custom parser
+   - Emits parsed JSON payloads into a Queue for the GUI thread
+   - Supports reconnect on demand (e.g., when update rate changes)
+   - Stops cleanly when the global stop_event is set
+
+Data Flow
+---------
+Startup:
+    App -> GET /api/telemetry/temperature/latest
+        -> applies each sample to table + plot buffers
+
+Live updates:
+    SSEClient -> GET /api/telemetry/temperature/stream?rate_hz=<rate>
+        -> receives SSE events (event: temp + data: {...})
+        -> json.loads(...) -> Queue.put(sample_dict)
+
+    App (every ~50ms) -> drains Queue
+        -> applies each sample
+        -> redraws plot if anything changed
+
+Backend API Expectations
+------------------------
+Base URL:
+    API_BASE = "http://127.0.0.1:8000"
+
+Endpoints used:
+1) Latest samples (one-shot):
+    GET {API_BASE}/api/telemetry/temperature/latest
+
+   Expected JSON shape:
+       {
+         "samples": [
+           {"device_id": 1, "temp_c": 23.456, "ts": "2026-01-30T12:34:56Z"},
+           ...
+         ]
+       }
+
+2) SSE stream (continuous):
+    GET {API_BASE}/api/telemetry/temperature/stream?rate_hz=<float>
+    Accept: text/event-stream
+
+   Expected SSE event blocks (simplified):
+       event: temp
+       data: {"device_id": 1, "temp_c": 23.456, "ts": "..."}
+
+       event: temp
+       data: {...}
+
+The client currently ignores SSE "id:" fields.
+
+Device Handling
+---------------
+- DEVICE_IDS defines which devices are shown (default 1..10).
+- For each device, a bounded deque holds the last N points (default 300).
+- Time on the plot is shown as "relative seconds since the first point in that
+  device's deque" to keep axes stable even if absolute timestamps differ.
+
+Threading Notes / Safety
+------------------------
+- Tkinter UI updates must happen on the main thread. The SSEClient thread never
+  touches widgets directly; it only writes parsed samples to `out_queue`.
+- The GUI thread periodically polls `self.q` using `after(50, ...)` to update UI.
+- Changing the rate triggers `SSEClient.reconnect()`, which breaks the current
+  stream loop and reconnects using the updated parameter.
+
+Configuration
+-------------
+- API_BASE: backend server URL
+- DEVICE_IDS: list of device IDs displayed in table/plot
+- rate_hz_var: update frequency (Hz per device) passed to the stream endpoint
+- deque(maxlen=300): plot history length
+
+Common Failure Modes / Troubleshooting
+--------------------------------------
+- If the table/plot stays empty:
+    * backend not running or wrong API_BASE
+    * SSE endpoint not returning `event: temp` blocks or invalid JSON
+- If reconnect seems delayed:
+    * reconnect waits until the streaming loop sees the reconnect flag while
+      iterating lines; network stalls may delay processing.
+- If timestamps look odd:
+    * the plot uses local `time.time()` for x-axis, while the table displays
+      the backend-provided `ts`.
+
+Run
+---
+    python client.py
+
+This starts the Tkinter GUI window and begins streaming immediately.
+"""
+
+
 
 API_BASE = "http://127.0.0.1:8000"  # oder IP
 
@@ -113,7 +235,7 @@ class App(tk.Tk):
         top.pack(fill="x", padx=10, pady=10)
 
         ttk.Label(top, text="Update-Rate (Hz pro Gerät):").pack(side="left")
-        rate = ttk.Combobox(top, textvariable=self.rate_hz_var, values=["0.2","1", "2", "5", "10"], width=5, state="readonly")
+        rate = ttk.Combobox(top, textvariable=self.rate_hz_var, values=["0.2","1", "2", "5", "10", "20"], width=5, state="readonly")
         rate.pack(side="left", padx=6)
 
         def on_rate_change(*_):
@@ -139,8 +261,8 @@ class App(tk.Tk):
         # Plot
         fig = Figure(figsize=(9, 4), dpi=100)
         self.ax = fig.add_subplot(111)
-        self.ax.set_title("Temperaturverlauf (letzte Punkte)")
-        self.ax.set_xlabel("Zeit (relativ)")
+        self.ax.set_title("Temperature")
+        self.ax.set_xlabel("Time (relative)")
         self.ax.set_ylabel("°C")
 
         self.lines = {}
