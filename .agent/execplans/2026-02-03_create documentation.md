@@ -8,13 +8,16 @@ This plan must be maintained in accordance with `/workspace/SEVA_GUI_MVVM/.agent
 
 The goal is to create thorough, up-to-date English comments and docstrings across **all code** in `seva/` and `rest_api/` so that a newcomer can understand what each class/method does, how it depends on other components, and how the full workflow behaves from a GUI “Start” click to the API. We will also add a `docs/` area that narrates the architecture and key workflows, and we will update `README.md` so it reflects the current system and documentation. After completion, a reader should be able to trace the “Start” workflow end-to-end with clearly documented steps and dependencies, and developers should have consistent docstring style and updated inline comments.
 
+**Documentation depth:** Use **Deep‑Dive** detail (Option C) throughout. In addition, **every file** in `seva/` and `rest_api/` must include a **large, detailed module‑level docstring** describing purpose, responsibilities, dependencies, and how the file fits into the overall workflow. These module docstrings may be long.
+
 ## Progress
 
 - [ ] (YYYY-MM-DD HH:MMZ) Inventory and map all relevant modules in `seva/` and `rest_api/`, including the GUI → ViewModel → UseCase → Adapter → API path.
 - [ ] (YYYY-MM-DD HH:MMZ) Choose the predominant docstring style (most common in repository) and normalize existing docstrings/comments to that style.
+- [ ] (YYYY-MM-DD HH:MMZ) Add/normalize **module‑level docstrings** for every file in `seva/` and `rest_api/`, with deep‑dive detail.
 - [ ] (YYYY-MM-DD HH:MMZ) Update and expand docstrings/comments in the GUI “Start” workflow path with detailed dependency and flow explanations.
-- [ ] (YYYY-MM-DD HH:MMZ) Document remaining modules in `seva/` with consistent docstrings/comments and dependency notes.
-- [ ] (YYYY-MM-DD HH:MMZ) Document modules in `rest_api/` with consistent docstrings/comments and dependency notes.
+- [ ] (YYYY-MM-DD HH:MMZ) Document remaining modules in `seva/` with consistent deep‑dive docstrings/comments and dependency notes.
+- [ ] (YYYY-MM-DD HH:MMZ) Document modules in `rest_api/` with consistent deep‑dive docstrings/comments and dependency notes.
 - [ ] (YYYY-MM-DD HH:MMZ) Create `docs/` overview(s) covering architecture and key flows; include explicit references to important modules and entry points.
 - [ ] (YYYY-MM-DD HH:MMZ) Update `README.md` to reflect current architecture, workflow, and documentation entry points.
 - [ ] (YYYY-MM-DD HH:MMZ) Run validations and update this plan’s living sections accordingly.
@@ -28,6 +31,10 @@ The goal is to create thorough, up-to-date English comments and docstrings acros
 
 - Decision: Use the most common docstring convention found in `seva/` and `rest_api/`.
   Rationale: Aligns with existing style while standardizing across the codebase.
+  Date/Author: (to be filled)
+
+- Decision: Apply Deep‑Dive (Option C) detail everywhere and add large module‑level docstrings to every file.
+  Rationale: Maximizes clarity and ensures full contextual documentation for future readers.
   Date/Author: (to be filled)
 
 ## Outcomes & Retrospective
@@ -59,33 +66,42 @@ The most critical user path is: GUI “Start” click → View/ViewModel → Use
    - Decide and record the convention in `Decision Log`.
    - Define a short internal guideline to apply consistently (parameters, returns, raised exceptions).
 
-3. **Deep Documentation for the “Start” Workflow**
-   - For each class/method in the workflow path, add/normalize:
+3. **Module‑Level Docstrings (All Files)**
+   - Add a large, detailed module docstring at the top of every `seva/` and `rest_api/` file.
+   - Each module docstring must include:
+     - Purpose and responsibilities.
+     - How it fits into MVVM/Hexagonal layers.
+     - Dependencies on other modules/layers.
+     - Key public classes/functions and how they are used.
+     - Relation to the GUI “Start” flow (if applicable).
+
+4. **Deep Documentation for the “Start” Workflow**
+   - For each class/method in the workflow path, add/normalize deep‑dive docstrings:
      - Purpose and responsibility.
      - Key dependencies (other classes/modules/services).
      - Inputs/outputs and side effects.
      - Exceptions and error handling behavior.
-   - Ensure comments clarify orchestration vs. adapter responsibilities (no domain logic in Views/VMs).
+     - Workflow position (GUI → VM → UseCase → Adapter → API).
 
-4. **Full Coverage of `seva/`**
-   - Iterate modules and add docstrings/comments following the chosen convention.
+5. **Full Coverage of `seva/`**
+   - Iterate modules and add deep‑dive docstrings/comments following the chosen convention.
    - Update stale comments to reflect current behavior.
    - Add dependency notes where classes call other layers.
 
-5. **Full Coverage of `rest_api/`**
+6. **Full Coverage of `rest_api/`**
    - Document API endpoints, request/response types, and dependency flow.
    - Make sure adapters and server status usage are described clearly.
 
-6. **Create `docs/`**
+7. **Create `docs/`**
    - Add a repository-level documentation structure (e.g., `docs/architecture.md`, `docs/workflows/start-flow.md`).
    - Include a readable narrative of the MVVM + Hexagonal structure and the end-to-end “Start” path.
    - Reference specific modules and functions by path and name.
 
-7. **Update `README.md`**
+8. **Update `README.md`**
    - Add a concise system overview, setup/run pointers (as available), and a “Documentation” section linking to `docs/`.
    - Include a short summary of the “Start” workflow with a reference to the detailed docs.
 
-8. **Validation and Consistency Pass**
+9. **Validation and Consistency Pass**
    - Run tests or checks if available (or do a light lint pass).
    - Validate docstring formatting (spot-check for consistency).
    - Update this ExecPlan sections accordingly.
@@ -117,10 +133,11 @@ All commands are run from `/workspace/SEVA_GUI_MVVM`.
        rg -n '"""' seva rest_api
    - Expected: enough examples to decide on a dominant style.
 
-4. **Apply docstring/comment updates**
+4. **Apply docstring/comment updates (including module‑level docstrings)**
    - Edit files sequentially from the “Start” flow outward.
    - Ensure each docstring includes purpose, parameters, returns, and exceptions.
    - Add inline comments where control flow or orchestration is non-obvious.
+   - Add long, detailed module‑level docstrings for every file.
 
 5. **Create docs**
    - Add `docs/architecture.md` and `docs/workflows/start-flow.md`.
@@ -139,7 +156,8 @@ All commands are run from `/workspace/SEVA_GUI_MVVM`.
 Acceptance is met when:
 
 - The “Start” workflow is fully traceable in code comments/docstrings from GUI to API.
-- All classes/methods in `seva/` and `rest_api/` have docstrings following the chosen convention.
+- **Every file** in `seva/` and `rest_api/` has a **large, detailed module‑level docstring**.
+- All classes/methods in `seva/` and `rest_api/` have docstrings following the chosen convention with deep‑dive detail.
 - `docs/` contains readable, accurate architecture and workflow documentation.
 - `README.md` is updated to reflect current system and docs.
 - Tests run with no regressions, or failures are documented with explanation.
