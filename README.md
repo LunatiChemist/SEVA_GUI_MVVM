@@ -95,38 +95,6 @@ The API exposes health, devices, modes, validation, jobs, and file download endp
 ### Naming & paths (short)
 The GUI creates a group id from (Experiment[__Subdir]__ClientDatetime__rnd4) and passes it to the server. The Pi stores runs under a sanitized folder hierarchy; the GUI mirrors this when 
 
-## Roadmap: What’s next (prioritized)
-
-1) **Multi‑Box discovery (High)**  
-   Network scan + `/health` + `/devices` per IP, then map **BoxID → A/B/C/D** in the GUI and persist the mapping.
-
-2) **Orchestrator & Run Queue (High)**  
-   A thin client‑side queue to coordinate starts per box/slot, avoid over‑subscription, and provide a predictable order of runs.
-
-3) **Better Data Plotter (Low)**  
-   Fast read‑only plotting directly from the extracted results hierarchy; later add analysis overlays.
-
-4) **NAS storage & access (Medium)**  
-   Pi writes directly to an SMB/NFS target; optionally a “mirror”/FTP fallback for non‑NAS setups.
-
-5) **Server‑side progress & metrics (Very Low)**  
-   Expand progress model and optionally expose `/metrics` for Prometheus‑style scraping. 
-
-6) **Mode extensions (Postponed, but structure‑ready)**  
-   Add robust validation & normalization for **AC/DC/EIS/CDL** beyond placeholders. 
-
-7) **Live monitoring (Very Low)**  
-   SSE/WebSocket streaming (a Stream Port exists as a placeholder in the domain).
-
-8) **Codebase quality & maintainability (Very High)**  
-   We will:  
-   - **Improve clarity**: shorter classes, focused responsibilities, docstrings at the **top** of methods.  
-   - **Streamline flows**: push repeated logic into **UseCases** or utilities; avoid duplication.  
-   - **Remove over‑engineering**: eliminate redundant safety nets/fallbacks.  
-   - **Reduce over‑parameterization**: prefer cohesive domain helpers; trust validated inputs.  
-   - **Harmonize structure**: clearer data flow across VM → UseCase → Adapter; remove legacy branches.  
-   - **Keep extensibility**: patterns that make adding features (High→Medium priority items) **easy**.
-
 ---
 
 ## Development
