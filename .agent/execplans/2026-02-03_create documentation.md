@@ -1,4 +1,4 @@
-# Document and Comment End-to-End Workflow (GUI “Start” → API), with Repository-Wide Docs
+# Document and Comment End-to-End Workflow (GUI “Start” → API), with Repository-Wide Docs and README Update
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
@@ -6,7 +6,7 @@ This plan must be maintained in accordance with `/workspace/SEVA_GUI_MVVM/.agent
 
 ## Purpose / Big Picture
 
-The goal is to create thorough, up-to-date English comments and docstrings across **all code** in `seva/` and `rest_api/` so that a newcomer can understand what each class/method does, how it depends on other components, and how the full workflow behaves from a GUI “Start” click to the API. We will also add a `docs/` area that narrates the architecture and key workflows. After completion, a reader should be able to trace the “Start” workflow end-to-end with clearly documented steps and dependencies, and developers should have consistent docstring style and updated inline comments.
+The goal is to create thorough, up-to-date English comments and docstrings across **all code** in `seva/` and `rest_api/` so that a newcomer can understand what each class/method does, how it depends on other components, and how the full workflow behaves from a GUI “Start” click to the API. We will also add a `docs/` area that narrates the architecture and key workflows, and we will update `README.md` so it reflects the current system and documentation. After completion, a reader should be able to trace the “Start” workflow end-to-end with clearly documented steps and dependencies, and developers should have consistent docstring style and updated inline comments.
 
 ## Progress
 
@@ -16,6 +16,7 @@ The goal is to create thorough, up-to-date English comments and docstrings acros
 - [ ] (YYYY-MM-DD HH:MMZ) Document remaining modules in `seva/` with consistent docstrings/comments and dependency notes.
 - [ ] (YYYY-MM-DD HH:MMZ) Document modules in `rest_api/` with consistent docstrings/comments and dependency notes.
 - [ ] (YYYY-MM-DD HH:MMZ) Create `docs/` overview(s) covering architecture and key flows; include explicit references to important modules and entry points.
+- [ ] (YYYY-MM-DD HH:MMZ) Update `README.md` to reflect current architecture, workflow, and documentation entry points.
 - [ ] (YYYY-MM-DD HH:MMZ) Run validations and update this plan’s living sections accordingly.
 
 ## Surprises & Discoveries
@@ -35,7 +36,7 @@ The goal is to create thorough, up-to-date English comments and docstrings acros
 
 ## Context and Orientation
 
-The scope is strictly the directories `seva/` and `rest_api/`. The code follows MVVM + Hexagonal boundaries:
+The scope is strictly the directories `seva/` and `rest_api/`, plus documentation updates in `docs/` and `README.md`. The code follows MVVM + Hexagonal boundaries:
 
 - **Views** handle UI rendering only.
 - **ViewModels** hold UI state/commands, no I/O.
@@ -43,7 +44,7 @@ The scope is strictly the directories `seva/` and `rest_api/`. The code follows 
 - **Adapters** implement external interactions.
 We must not introduce logic that violates these boundaries while commenting. We must not pass raw dicts through upper layers; comments should reflect domain types and DTO usage.
 
-The most critical user path is: GUI “Start” click → View/ViewModel → UseCase → Adapter → API. We must explicitly identify each hop and document it.
+The most critical user path is: GUI “Start” click → View/ViewModel → UseCase → Adapter → API. We must explicitly identify each hop and document it. The README must be updated to reflect these paths and point to the new documentation.
 
 ## Plan of Work
 
@@ -80,7 +81,11 @@ The most critical user path is: GUI “Start” click → View/ViewModel → Use
    - Include a readable narrative of the MVVM + Hexagonal structure and the end-to-end “Start” path.
    - Reference specific modules and functions by path and name.
 
-7. **Validation and Consistency Pass**
+7. **Update `README.md`**
+   - Add a concise system overview, setup/run pointers (as available), and a “Documentation” section linking to `docs/`.
+   - Include a short summary of the “Start” workflow with a reference to the detailed docs.
+
+8. **Validation and Consistency Pass**
    - Run tests or checks if available (or do a light lint pass).
    - Validate docstring formatting (spot-check for consistency).
    - Update this ExecPlan sections accordingly.
@@ -121,7 +126,10 @@ All commands are run from `/workspace/SEVA_GUI_MVVM`.
    - Add `docs/architecture.md` and `docs/workflows/start-flow.md`.
    - Describe architecture and the “Start” flow in prose with references to module paths.
 
-6. **Run validations**
+6. **Update README**
+   - Edit `README.md` to include overview, pointers, and documentation links.
+
+7. **Run validations**
    - Run:
        pytest
    - Expected: existing test suite passes (or document failures in Surprises).
@@ -133,6 +141,7 @@ Acceptance is met when:
 - The “Start” workflow is fully traceable in code comments/docstrings from GUI to API.
 - All classes/methods in `seva/` and `rest_api/` have docstrings following the chosen convention.
 - `docs/` contains readable, accurate architecture and workflow documentation.
+- `README.md` is updated to reflect current system and docs.
 - Tests run with no regressions, or failures are documented with explanation.
 
 ## Idempotence and Recovery
