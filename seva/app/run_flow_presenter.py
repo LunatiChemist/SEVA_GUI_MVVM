@@ -10,7 +10,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 from tkinter import messagebox
 
 from seva.domain.entities import PlanMeta
@@ -94,6 +94,8 @@ class RunFlowPresenter:
         self._last_download_dir: Optional[str] = None
 
         self._scheduler = PollingScheduler(win.after, win.after_cancel)
+        self._activity_delay_ms: int = 2000
+        self._activity_signature: Optional[Tuple[Tuple[str, str], ...]] = None
 
     # ------------------------------------------------------------------
     # Public properties
@@ -203,6 +205,7 @@ class RunFlowPresenter:
 
     def stop_all_polling(self) -> None:
         self._stop_polling()
+        self._stop_activity_polling()
 
     def _open_path(self, path: str) -> None:
         if not path:
@@ -470,6 +473,45 @@ class RunFlowPresenter:
             self._active_group_id = next(iter(self._sessions), None)
             self.win.set_run_group_id(self._active_group_id or "")
 
+    def start_activity_polling(self) -> None:
+        self._activity_delay_ms = 2000
+        self._activity_signature = None
+        self._schedule_activity_poll(self._activity_delay_ms)
+
+    def _stop_activity_polling(self) -> None:
+        self._scheduler.cancel("activity")
+
+    def _schedule_activity_poll(self, delay_ms: int) -> None:
+        delay = max(1, int(delay_ms))
+        self._scheduler.schedule("activity", delay, self._on_activity_poll_tick)
+
+    def _on_activity_poll_tick(self) -> None:
+        if not self.controller.ensure_ready() or not self.controller.uc_poll_device_status:
+            self._activity_delay_ms = 10000
+            self._schedule_activity_poll(self._activity_delay_ms)
+            return
+
+        boxes = [
+            str(box)
+            for box, url in (self.settings_vm.api_base_urls or {}).items()
+            if isinstance(url, str) and url.strip()
+        ]
+        if not boxes:
+            self._activity_delay_ms = 10000
+            self._schedule_activity_poll(self._activity_delay_ms)
+            return
+
+        snapshot = self.controller.uc_poll_device_status(sorted(boxes))
+        signature = tuple(sorted((entry.well_id, entry.status) for entry in snapshot.entries))
+        if signature == self._activity_signature:
+            self._activity_delay_ms = min(10000, self._activity_delay_ms + 2000)
+        else:
+            self._activity_delay_ms = 2000
+            self._activity_signature = signature
+
+        self.progress_vm.apply_device_activity(snapshot)
+        self._schedule_activity_poll(self._activity_delay_ms)
+
     def _schedule_poll(self, group_id: str, delay_ms: int) -> None:
         """Schedule the next poll tick for a given group."""
         session = self._sessions.get(group_id)
@@ -643,6 +685,8 @@ class RunFlowPresenter:
         self.win.set_run_group_id(group_id or "")
         self.runs_vm.set_active_group(group_id)
         self.progress_vm.set_active_group(group_id, self.runs)
+        if self.runs_panel and group_id:
+            self.runs_panel.select_group(group_id)
         self._refresh_runs_panel()
 
 

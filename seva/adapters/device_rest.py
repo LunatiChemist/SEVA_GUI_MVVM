@@ -59,6 +59,15 @@ class DeviceRestAdapter(DevicePort):
         data = self._json_any(resp)
         return [dict(entry) for entry in extract_device_entries(data)]
 
+    def list_device_status(self, box_id: BoxId) -> List[Dict[str, Any]]:
+        url = self._make_url(box_id, "/devices/status")
+        resp = self._session(box_id).get(url)
+        self._ensure_ok(resp, f"devices/status[{box_id}]")
+        data = self._json_any(resp)
+        if not isinstance(data, list):
+            raise RuntimeError(f"devices/status[{box_id}]: expected list response")
+        return [dict(entry) for entry in data if isinstance(entry, dict)]
+
     def get_modes(self, box_id: BoxId) -> List[str]:
         cached = self._mode_list_cache.get(box_id)
         if cached is not None:

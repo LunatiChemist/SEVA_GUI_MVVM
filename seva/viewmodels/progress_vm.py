@@ -9,6 +9,7 @@ from ..domain.runs_registry import RunsRegistry
 from ..domain.snapshot_normalizer import normalize_status
 from ..domain.util import well_id_to_box
 from .status_format import phase_key, phase_label
+from ..domain.device_activity import DeviceActivitySnapshot
 
 # -- top of file / next to the other type aliases:
 WellRow = Tuple[str, str, str, str, Optional[float], str, str, str]
@@ -76,6 +77,25 @@ class ProgressVM:
 
         if self.on_update_run_overview:
             self.on_update_run_overview(dto)
+
+    def apply_activity_snapshot(self, snapshot: GroupSnapshot) -> None:
+        """Update only the channel activity matrix from a snapshot."""
+        if not isinstance(snapshot, GroupSnapshot):
+            raise TypeError("ProgressVM.apply_activity_snapshot requires a GroupSnapshot.")
+
+        activity_map = self._build_activity_map(snapshot)
+        self.updated_at_label = self._current_time_label()
+        if self.on_update_channel_activity:
+            self.on_update_channel_activity(activity_map)
+
+    def apply_device_activity(self, snapshot: DeviceActivitySnapshot) -> None:
+        if not isinstance(snapshot, DeviceActivitySnapshot):
+            raise TypeError("ProgressVM.apply_device_activity requires a DeviceActivitySnapshot.")
+
+        activity_map: ActivityMap = {
+            entry.well_id: entry.status for entry in snapshot.entries
+        }
+        self.updated_at_label = self._current_time_label()
         if self.on_update_channel_activity:
             self.on_update_channel_activity(activity_map)
 
