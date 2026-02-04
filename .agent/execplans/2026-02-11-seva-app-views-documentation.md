@@ -17,17 +17,17 @@ Success is observable when:
 
 ## Progress
 
-- [ ] (2026-02-11 00:00Z) Map UI entrypoints and controller flows to viewmodels/usecases.
+- [x] (2026-02-04 18:15Z) Mapped UI entrypoints and controller flows to viewmodels/usecases by tracing `seva/app/main.py`, `seva/app/run_flow_presenter.py`, and controller callbacks.
 - [ ] (2026-02-11 00:00Z) Add/expand module docstrings for each file in `seva/app` and `seva/app/views`.
 - [ ] (2026-02-11 00:00Z) Add/expand class/function docstrings with call-chain and error cases.
 - [ ] (2026-02-11 00:00Z) Add inline comments for complex UI layout and event handling.
-- [ ] (2026-02-11 00:00Z) Update `docs/workflows_seva.md` with UI entrypoints and view-model bindings.
+- [x] (2026-02-04 18:19Z) Updated `docs/workflows_seva.md` with UI entrypoints and view-model/usecase handoffs.
 - [ ] (2026-02-11 00:00Z) Final consistency pass for Google style and completeness.
 
 ## Surprises & Discoveries
 
-- Observation: None yet.
-  Evidence: Plan initialization only.
+- Observation: The app wiring fans out across toolbar callbacks, per-panel callbacks, and settings-dialog callbacks; documenting by event source is clearer than documenting per class.
+  Evidence: New `UI Entrypoints and Handoffs` section in `docs/workflows_seva.md` groups actions by user trigger.
 
 ## Decision Log
 
@@ -37,7 +37,7 @@ Success is observable when:
 
 ## Outcomes & Retrospective
 
-- Status: Not started. This section will be updated after milestones and completion.
+- Milestone update (2026-02-04): UI entrypoint mapping is now documented in `docs/workflows_seva.md`; remaining work is docstring/comment normalization in `seva/app` and `seva/app/views`.
 
 ## Context and Orientation
 
@@ -131,4 +131,4 @@ No new dependencies are introduced. Interfaces to highlight include:
 
 ---
 
-Change note: Initial plan created to cover the app and view subsystem in deep detail.
+Change note (2026-02-04): Completed the entrypoint-mapping milestone and updated workflow documentation with explicit callback-to-usecase handoffs.
