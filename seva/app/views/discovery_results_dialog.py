@@ -75,7 +75,11 @@ class DiscoveryResultsDialog(tk.Toplevel):
         self._center_over_master()
 
     def _populate(self, rows: Iterable[Mapping]) -> None:
-        """Render discovery rows into the treeview."""
+        """Render discovery rows into the treeview.
+
+        Args:
+            rows: Iterable of discovery result mappings.
+        """
         self.tree.delete(*self.tree.get_children())
         any_rows = False
         for item in rows:
@@ -151,6 +155,7 @@ if __name__ == "__main__":
     root.geometry("400x120")
 
     def open_demo_dialog():
+        """Open dialog with bundled demo rows for manual preview."""
         # Open dialog modally - on_close callback removes nothing special in this demo
         DiscoveryResultsDialog(root, demo_rows, title="Discovered SEVA Devices")
 

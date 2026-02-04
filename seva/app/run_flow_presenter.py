@@ -130,25 +130,39 @@ class RunFlowPresenter:
     # ------------------------------------------------------------------
     @property
     def active_group_id(self) -> Optional[str]:
+        """Return currently active run-group id, if any."""
         return self._active_group_id
 
     @property
     def last_download_dir(self) -> Optional[str]:
+        """Return most recent downloaded results directory, if available."""
         return self._last_download_dir
 
     def group_storage_meta_for(self, group_id: str) -> Optional[StorageMeta]:
-        """Return cached storage metadata for a run group."""
+        """Return cached storage metadata for a run group.
+
+        Args:
+            group_id: Run-group identifier.
+        """
         return self._group_storage_meta.get(group_id)
 
     def record_download_dir(self, path: str) -> None:
-        """Remember the most recent download directory for quick-open actions."""
+        """Remember the most recent download directory for quick-open actions.
+
+        Args:
+            path: Download directory path.
+        """
         self._last_download_dir = path
 
     # ------------------------------------------------------------------
     # Registry wiring
     # ------------------------------------------------------------------
     def configure_runs_registry(self, store_path: Path) -> None:
-        """Configure the runs registry and re-attach persisted groups."""
+        """Configure the runs registry and re-attach persisted groups.
+
+        Args:
+            store_path: JSON path used by ``RunsRegistry`` persistence.
+        """
         self.runs.configure(
             store_path=store_path,
             hooks_factory=self._build_flow_hooks_for_group,
@@ -174,7 +188,11 @@ class RunFlowPresenter:
         self._refresh_runs_panel()
 
     def _build_flow_hooks_for_group(self, group_id: str) -> FlowHooks:
-        """Create FlowHooks bound to a specific run group."""
+        """Create FlowHooks bound to a specific run group.
+
+        Args:
+            group_id: Group id used to bind callbacks.
+        """
         return FlowHooks(
             on_started=lambda ctx: self._on_group_started(group_id, ctx),
             on_snapshot=lambda snapshot: self._on_group_snapshot(group_id, snapshot),
@@ -189,7 +207,14 @@ class RunFlowPresenter:
         storage_meta: StorageMeta,
         hooks: FlowHooks,
     ) -> RunFlowCoordinator:
-        """Factory callback passed to RunsRegistry for re-attachments."""
+        """Create a coordinator for persisted-group reattachment.
+
+        Args:
+            group_id: Group id being reattached.
+            plan_meta: Persisted plan metadata for the group.
+            storage_meta: Persisted storage metadata.
+            hooks: Hook callbacks bound by the registry.
+        """
         if not self._ensure_adapter():
             raise RuntimeError("Adapters not configured for coordinator factory.")
         coordinator = RunFlowCoordinator(
@@ -206,7 +231,13 @@ class RunFlowPresenter:
     def _register_session(
         self, group_id: str, coordinator: RunFlowCoordinator, context: GroupContext
     ) -> None:
-        """Register a runtime session both locally and in the registry."""
+        """Register a runtime session both locally and in the registry.
+
+        Args:
+            group_id: Group id key.
+            coordinator: Active coordinator for group lifecycle.
+            context: Start/attach context associated with the group.
+        """
         self.runs.register_runtime(group_id, coordinator, context)
         self._sessions[group_id] = FlowSession(coordinator=coordinator, context=context)
         self._group_storage_meta.setdefault(group_id, context.storage_meta)
@@ -233,7 +264,12 @@ class RunFlowPresenter:
         self._refresh_runs_panel()
 
     def build_download_toast(self, group_id: str, path: str) -> str:
-        """Public wrapper returning standardized download toast text."""
+        """Public wrapper returning standardized download toast text.
+
+        Args:
+            group_id: Run-group id.
+            path: Download output path.
+        """
         return self._build_download_toast(group_id, path)
 
     def stop_all_polling(self) -> None:
@@ -242,6 +278,11 @@ class RunFlowPresenter:
         self._stop_activity_polling()
 
     def _open_path(self, path: str) -> None:
+        """Open a folder path with platform-default file explorer.
+
+        Args:
+            path: Filesystem path to open.
+        """
         if not path:
             return
         try:
@@ -255,7 +296,11 @@ class RunFlowPresenter:
             messagebox.showwarning("Open Folder", f"Could not open folder:\n{path}")
 
     def on_runs_select(self, group_id: str) -> None:
-        """Handle user selection change in the runs panel."""
+        """Handle user selection change in the runs panel.
+
+        Args:
+            group_id: Selected run-group id.
+        """
         if self.progress_vm.active_group_id == group_id:
             self.runs_vm.set_active_group(group_id)
             self._active_group_id = group_id
@@ -268,7 +313,11 @@ class RunFlowPresenter:
         self.win.set_run_group_id(group_id)
 
     def on_runs_open_folder(self, group_id: str) -> None:
-        """Open downloaded results folder for a selected group if available."""
+        """Open downloaded results folder for a selected group if available.
+
+        Args:
+            group_id: Selected run-group id.
+        """
         entry = self.runs.get(group_id)
         if not entry:
             return
@@ -279,7 +328,11 @@ class RunFlowPresenter:
         self._open_path(path)
 
     def on_runs_cancel(self, group_id: str) -> None:
-        """Prompt then cancel a selected run group."""
+        """Prompt then cancel a selected run group.
+
+        Args:
+            group_id: Selected run-group id.
+        """
         if not self._ensure_adapter() or not self.controller.uc_cancel:
             messagebox.showinfo("Cancel Group", "Cancel use case not available.")
             return
@@ -303,7 +356,11 @@ class RunFlowPresenter:
             messagebox.showerror("Cancel Group", f"Cancel failed:\n{exc}")
 
     def on_runs_delete(self, group_id: str) -> None:
-        """Remove a run entry, optionally canceling first if still active."""
+        """Remove a run entry, optionally canceling first if still active.
+
+        Args:
+            group_id: Selected run-group id.
+        """
         entry = self.runs.get(group_id)
         if not entry:
             return
@@ -493,7 +550,11 @@ class RunFlowPresenter:
     # Polling helpers
     # ------------------------------------------------------------------
     def _stop_polling(self, group_id: Optional[str] = None) -> None:
-        """Cancel scheduled polls and stop coordinators."""
+        """Cancel scheduled polls and stop coordinators.
+
+        Args:
+            group_id: Optional single group id; when ``None`` all are stopped.
+        """
         if group_id is None:
             for gid in list(self._sessions.keys()):
                 self._stop_polling(gid)
@@ -524,6 +585,11 @@ class RunFlowPresenter:
         self._scheduler.cancel("activity")
 
     def _schedule_activity_poll(self, delay_ms: int) -> None:
+        """Schedule next device-activity poll tick.
+
+        Args:
+            delay_ms: Delay in milliseconds for next tick.
+        """
         delay = max(1, int(delay_ms))
         self._scheduler.schedule("activity", delay, self._on_activity_poll_tick)
 
@@ -556,7 +622,12 @@ class RunFlowPresenter:
         self._schedule_activity_poll(self._activity_delay_ms)
 
     def _schedule_poll(self, group_id: str, delay_ms: int) -> None:
-        """Schedule the next poll tick for a given group."""
+        """Schedule the next poll tick for a given group.
+
+        Args:
+            group_id: Group id whose polling should continue.
+            delay_ms: Delay in milliseconds before next poll.
+        """
         session = self._sessions.get(group_id)
         if not session:
             return
@@ -564,7 +635,11 @@ class RunFlowPresenter:
         self._scheduler.schedule(group_id, delay, lambda gid=group_id: self._on_poll_tick(gid))
 
     def _on_poll_tick(self, group_id: str) -> None:
-        """Cooperative poll tick executed on the Tkinter thread."""
+        """Cooperative poll tick executed on the Tkinter thread.
+
+        Args:
+            group_id: Group id currently being polled.
+        """
         session = self._sessions.get(group_id)
         if not session:
             return
@@ -611,7 +686,11 @@ class RunFlowPresenter:
             self._finalize_session(group_id)
 
     def _finalize_session(self, group_id: str) -> None:
-        """Clean up local bookkeeping once a run no longer needs polling."""
+        """Clean up local bookkeeping once a run no longer needs polling.
+
+        Args:
+            group_id: Group id whose session should be finalized.
+        """
         self._sessions.pop(group_id, None)
         self._scheduler.cancel(group_id)
         self.runs.unregister_runtime(group_id)
@@ -621,15 +700,33 @@ class RunFlowPresenter:
         self._refresh_runs_panel()
 
     def _on_group_started(self, group_id: str, ctx: GroupContext) -> None:
+        """Handle group-start event emitted by coordinator hooks.
+
+        Args:
+            group_id: Group id that started.
+            ctx: Coordinator start context.
+        """
         self._log.debug("Coordinator acknowledged start for group %s", ctx.group)
 
     def _on_group_snapshot(self, group_id: str, snapshot) -> None:
+        """Handle snapshot event emitted by coordinator hooks.
+
+        Args:
+            group_id: Group id that produced the snapshot.
+            snapshot: Latest group snapshot DTO/domain object.
+        """
         self.runs.update_snapshot(group_id, snapshot)
         if snapshot and group_id == self._active_group_id:
             self.progress_vm.apply_snapshot(snapshot)
         self._refresh_runs_panel()
 
     def _on_group_completed(self, group_id: str, path: Optional[Path]) -> None:
+        """Handle group-completion event emitted by coordinator hooks.
+
+        Args:
+            group_id: Completed group id.
+            path: Optional download output path.
+        """
         download_path = os.path.abspath(str(path)) if path else None
         self.runs.mark_done(group_id, download_path)
         if download_path:
@@ -642,6 +739,12 @@ class RunFlowPresenter:
             self.progress_vm.set_active_group(group_id, self.runs)
 
     def _on_group_error(self, group_id: str, message: str) -> None:
+        """Handle polling-error event emitted by coordinator hooks.
+
+        Args:
+            group_id: Group id that failed.
+            message: Error message text from polling pipeline.
+        """
         text = message.strip() if isinstance(message, str) else ""
         if text:
             self._log.error("Polling error for %s: %s", group_id, text)
@@ -655,6 +758,11 @@ class RunFlowPresenter:
     # Plan building
     # ------------------------------------------------------------------
     def _build_plan_request(self, configured) -> ExperimentPlanRequest:
+        """Build typed plan request from current VM state.
+
+        Args:
+            configured: Iterable of configured well ids.
+        """
         wells = tuple(str(well) for well in configured)
         experiment_name = getattr(self.settings_vm, "experiment_name", "") or ""
         subdir = getattr(self.settings_vm, "subdir", None)
@@ -685,6 +793,12 @@ class RunFlowPresenter:
     # Download toast helpers
     # ------------------------------------------------------------------
     def _build_download_toast(self, group_id: str, path: str) -> str:
+        """Build user-facing toast text for completed downloads.
+
+        Args:
+            group_id: Group id associated with the download.
+            path: Filesystem download path.
+        """
         short_path = self._shorten_download_path(path)
         descriptor = ""
         meta = self._group_storage_meta.get(group_id) if group_id else None
@@ -706,6 +820,12 @@ class RunFlowPresenter:
 
     @staticmethod
     def _shorten_download_path(path: str, max_len: int = 60) -> str:
+        """Truncate long paths for compact toast rendering.
+
+        Args:
+            path: Path string to shorten.
+            max_len: Maximum output length.
+        """
         normalized = os.path.normpath(path)
         if len(normalized) <= max_len:
             return normalized
@@ -714,6 +834,7 @@ class RunFlowPresenter:
 
     @staticmethod
     def _can_open_results_folder() -> bool:
+        """Return whether this runtime can open directories directly."""
         if sys.platform.startswith("win"):
             return hasattr(os, "startfile")
         if sys.platform == "darwin":
@@ -724,6 +845,11 @@ class RunFlowPresenter:
     # Active group helpers
     # ------------------------------------------------------------------
     def _set_active_group(self, group_id: Optional[str]) -> None:
+        """Synchronize active-group selection across win and viewmodels.
+
+        Args:
+            group_id: Group id to activate, or ``None``.
+        """
         self._active_group_id = group_id
         self.win.set_run_group_id(group_id or "")
         self.runs_vm.set_active_group(group_id)

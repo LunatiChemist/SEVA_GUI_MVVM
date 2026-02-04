@@ -116,7 +116,11 @@ class RunsPanelView(ttk.Frame):
         return selection[0]
 
     def select_group(self, group_id: Optional[str]) -> None:
-        """Programmatically select a group row if available."""
+        """Programmatically select a group row if available.
+
+        Args:
+            group_id: Group id to select, or ``None`` to clear selection.
+        """
         for item in self.tree.selection():
             self.tree.selection_remove(item)
         if not group_id:
@@ -131,7 +135,11 @@ class RunsPanelView(ttk.Frame):
     # Internal helpers
     # ------------------------------------------------------------------
     def _on_select_changed(self, _event=None) -> None:
-        """Forward selection changes to external callback and update buttons."""
+        """Forward selection changes to external callback and update buttons.
+
+        Args:
+            _event: Tk selection-changed event.
+        """
         group_id = self.selected_group_id()
         self._update_buttons_state()
         if group_id and self.on_select:
@@ -145,16 +153,19 @@ class RunsPanelView(ttk.Frame):
             button.configure(state=state)
 
     def _on_open_click(self) -> None:
+        """Emit open callback for current selection."""
         group_id = self.selected_group_id()
         if group_id and self.on_open:
             self.on_open(group_id)
 
     def _on_cancel_click(self) -> None:
+        """Emit cancel callback for current selection."""
         group_id = self.selected_group_id()
         if group_id and self.on_cancel:
             self.on_cancel(group_id)
 
     def _on_delete_click(self) -> None:
+        """Emit delete callback for current selection."""
         group_id = self.selected_group_id()
         if group_id and self.on_delete:
             self.on_delete(group_id)

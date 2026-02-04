@@ -18,10 +18,17 @@ class NASApiAdapter:
         Members are consumed by controllers, presenters, or Tk views.
     """
     def __init__(self, base_url: str, api_key: str) -> None:
+        """Store API connection settings.
+
+        Args:
+            base_url: REST API base URL.
+            api_key: Optional API key sent in ``X-API-Key`` header.
+        """
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
 
     def _headers(self):
+        """Return request headers for authenticated NAS API calls."""
         return {"X-API-Key": self.api_key} if self.api_key else {}
 
     def setup(
@@ -34,6 +41,17 @@ class NASApiAdapter:
         retention_days: int,
         domain: str | None,
     ):
+        """Call NAS setup endpoint with SMB credentials and retention settings.
+
+        Args:
+            host: SMB host or IP.
+            share: SMB share name.
+            username: SMB username.
+            password: SMB password.
+            base_subdir: Optional upload subdirectory.
+            retention_days: Retention period in days.
+            domain: Optional SMB domain.
+        """
         url = f"{self.base_url}/nas/setup"
         payload = {
             "host": host,
@@ -49,12 +67,18 @@ class NASApiAdapter:
         return r.json()
 
     def health(self):
+        """Call NAS health endpoint and return parsed JSON payload."""
         url = f"{self.base_url}/nas/health"
         r = requests.get(url, headers=self._headers(), timeout=10)
         r.raise_for_status()
         return r.json()
 
     def upload_run(self, run_id: str):
+        """Enqueue upload for a single run id.
+
+        Args:
+            run_id: Run identifier to upload.
+        """
         url = f"{self.base_url}/runs/{run_id}/upload"
         r = requests.post(url, headers=self._headers(), timeout=10)
         r.raise_for_status()
@@ -68,6 +92,11 @@ class NASSetupGUI(tk.Toplevel):
         Members are consumed by controllers, presenters, or Tk views.
     """
     def __init__(self, master: tk.Misc | None = None):
+        """Build standalone NAS setup window.
+
+        Args:
+            master: Optional parent window for transient/modal behavior.
+        """
         root_window = None
         if master is None:
             root_window = tk.Tk()
@@ -164,9 +193,11 @@ class NASSetupGUI(tk.Toplevel):
         self.txt.pack(fill="both", expand=True, padx=5, pady=5)
 
     def adapter(self) -> NASApiAdapter:
+        """Return API adapter built from current connection inputs."""
         return NASApiAdapter(self.var_base.get().strip(), self.var_key.get().strip())
 
     def on_setup(self):
+        """Submit NAS setup values to backend and display response."""
         try:
             res = self.adapter().setup(
                 host=self.var_host.get().strip(),
@@ -186,6 +217,7 @@ class NASSetupGUI(tk.Toplevel):
             self._append(str(e))
 
     def on_health(self):
+        """Query NAS health endpoint and show response payload."""
         try:
             res = self.adapter().health()
             self._show(res)
@@ -195,6 +227,7 @@ class NASSetupGUI(tk.Toplevel):
             self._append(str(e))
 
     def on_upload(self):
+        """Enqueue upload for run id entered in the form."""
         rid = self.var_run_id.get().strip()
         if not rid:
             messagebox.showwarning("Notice", "Please enter run_id.")
@@ -210,20 +243,36 @@ class NASSetupGUI(tk.Toplevel):
 
     # Hilfen
     def _show(self, obj):
+        """Render JSON object in response text area.
+
+        Args:
+            obj: JSON-serializable response object.
+        """
         self.txt.delete("1.0", "end")
         self.txt.insert("end", json.dumps(obj, indent=2, ensure_ascii=False))
 
     def _show_resp(self, resp):
+        """Render HTTP response payload, falling back to plain text.
+
+        Args:
+            resp: ``requests.Response`` object.
+        """
         try:
             self._show(resp.json())
         except Exception:
             self._append(resp.text)
 
     def _append(self, text: str):
+        """Append plain text line to response text area.
+
+        Args:
+            text: Message line to append.
+        """
         self.txt.insert("end", text + "\n")
         self.txt.see("end")
 
     def _on_close(self):
+        """Close dialog and clean up hidden root when self-created."""
         try:
             if self.winfo_exists():
                 self.destroy()

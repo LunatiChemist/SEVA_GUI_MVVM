@@ -75,7 +75,11 @@ class PollingScheduler:
             self.cancel(group_id)
 
     def handle_for(self, group_id: str) -> Optional[PollHandle]:
-        """Return the current handle for a channel, if scheduled."""
+        """Return the current handle for a channel, if scheduled.
+
+        Args:
+            group_id: Poll channel key to query.
+        """
         return self._handles.get(group_id)
 
 

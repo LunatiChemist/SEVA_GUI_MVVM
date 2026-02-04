@@ -85,7 +85,11 @@ class MainWindowView(tk.Tk):
     # Toolbar
     # ------------------------------------------------------------------
     def _build_toolbar(self, parent: tk.Widget) -> None:
-        """Build the top toolbar and wire button callbacks."""
+        """Build the top toolbar and wire button callbacks.
+
+        Args:
+            parent: Root container hosting the toolbar row.
+        """
         toolbar = ttk.Frame(parent)
         toolbar.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
         toolbar.columnconfigure(tuple(range(10)), weight=0)
@@ -118,7 +122,11 @@ class MainWindowView(tk.Tk):
     # Main Area (split: left WellGrid, right Notebook)
     # ------------------------------------------------------------------
     def _build_main_area(self, parent: tk.Widget) -> None:
-        """Build split layout with well-grid host and notebook tabs."""
+        """Build split layout with well-grid host and notebook tabs.
+
+        Args:
+            parent: Root container hosting the main area row.
+        """
         # Static container (no scrollbar for now)
         content = ttk.Frame(parent)
         content.grid(row=1, column=0, sticky="nsew", padx=8, pady=4)
@@ -153,6 +161,10 @@ class MainWindowView(tk.Tk):
     def _make_scroll_host(self, parent: tk.Widget):
         """
         Create a scrollable host frame using Canvas + inner Frame pattern.
+        
+        Args:
+            parent: Container that receives the scroll host.
+
         Returns (outer, inner):
         - outer: frame to grid in the layout (contains canvas + scrollbars)
         - inner: content frame where children (WellGridView) are packed/gridded
@@ -174,14 +186,29 @@ class MainWindowView(tk.Tk):
         canvas.create_window((0, 0), window=inner, anchor="nw")
 
         def _on_configure(event):
+            """Update scroll region when canvas size changes.
+
+            Args:
+                event: Tk configure event from canvas.
+            """
             bbox = canvas.bbox("all")
             if bbox:
                 canvas.configure(scrollregion=bbox)
 
         def _on_inner_configure(event):
+            """Update scroll region when inner frame content changes.
+
+            Args:
+                event: Tk configure event from inner frame.
+            """
             canvas.configure(scrollregion=canvas.bbox("all"))
 
         def _on_mousewheel(event):
+            """Scroll canvas vertically on mouse wheel movement.
+
+            Args:
+                event: Tk mouse wheel event.
+            """
             delta = -1 * (event.delta // 120) if event.delta else 0
             canvas.yview_scroll(delta, "units")
 
@@ -195,7 +222,11 @@ class MainWindowView(tk.Tk):
     # StatusBar
     # ------------------------------------------------------------------
     def _build_statusbar(self, parent: tk.Widget) -> None:
-        """Build statusbar with run-id, relay indicators, and toast label."""
+        """Build statusbar with run-id, relay indicators, and toast label.
+
+        Args:
+            parent: Root container hosting the status row.
+        """
         status = ttk.Frame(parent)
         status.grid(row=2, column=0, sticky="ew", padx=8, pady=(4, 8))
         status.columnconfigure(1, weight=1)
@@ -216,7 +247,11 @@ class MainWindowView(tk.Tk):
     # Public API (called by VMs/presenters)
     # ------------------------------------------------------------------
     def set_status_message(self, text: str) -> None:
-        """Update the short status message shown in the status bar."""
+        """Update the short status message shown in the status bar.
+
+        Args:
+            text: Message text to render.
+        """
         self.status_message_var.set(text)
 
     def set_run_group_id(self, run_id: Optional[str]) -> None:
@@ -230,6 +265,9 @@ class MainWindowView(tk.Tk):
     def mount_wellgrid(self, view: tk.Widget) -> None:
         """Mount the WellGridView into the left scroll host.
 
+        Args:
+            view: Grid widget created by caller.
+
         Usage: create your WellGridView with parent=self.wellgrid_host.
         """
         # The host returns a frame; children can be gridded/packed by the caller.
@@ -237,7 +275,12 @@ class MainWindowView(tk.Tk):
         pass
 
     def set_relay_status(self, box_id: str, status: str) -> None:
-        """Update relay reachability indicator for one box."""
+        """Update relay reachability indicator for one box.
+
+        Args:
+            box_id: Box identifier.
+            status: Status label text (for example ``OK`` or ``Fail``).
+        """
         # Create label lazily
         if box_id not in self._relay_labels:
             lbl = ttk.Label(self._relay_area, text=f"{box_id}: ?")
@@ -249,11 +292,20 @@ class MainWindowView(tk.Tk):
         lbl.configure(text=text)
 
     def show_toast(self, message: str, level: str = "info") -> None:
-        """Show lightweight feedback in the statusbar."""
+        """Show lightweight feedback in the statusbar.
+
+        Args:
+            message: Message text.
+            level: Reserved level token for future styling.
+        """
         self.status_message_var.set(message)
 
     def mount_experiment_panel(self, view: tk.Widget) -> None:
-        """Replace placeholder with the real ExperimentPanel view."""
+        """Replace placeholder with the real ExperimentPanel view.
+
+        Args:
+            view: View widget to mount into experiment tab.
+        """
         for child in list(self.tab_experiment.winfo_children()):
             if child is view:
                 continue
@@ -265,7 +317,11 @@ class MainWindowView(tk.Tk):
             view.pack(fill="both", expand=True)
 
     def mount_run_overview(self, view: tk.Widget) -> None:
-        """Replace placeholder with the real RunOverview view."""
+        """Replace placeholder with the real RunOverview view.
+
+        Args:
+            view: View widget to mount into run-overview tab.
+        """
         for child in list(self.tab_run_overview.winfo_children()):
             if child is view:
                 continue
@@ -276,7 +332,11 @@ class MainWindowView(tk.Tk):
             view.pack(fill="both", expand=True)
 
     def mount_channel_activity(self, view: tk.Widget) -> None:
-        """Replace placeholder with the real ChannelActivity view."""
+        """Replace placeholder with the real ChannelActivity view.
+
+        Args:
+            view: View widget to mount into channel-activity tab.
+        """
         for child in list(self.tab_channel_activity.winfo_children()):
             if child is view:
                 continue

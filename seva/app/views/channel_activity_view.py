@@ -56,7 +56,11 @@ class ChannelActivityView(ttk.Frame):
 
     # ------------------------------------------------------------------
     def _on_canvas_configure(self, event):
-        """Keep inner matrix width aligned to visible canvas width."""
+        """Keep inner matrix width aligned to visible canvas width.
+
+        Args:
+            event: Tk configure event from the canvas.
+        """
         # Ensure the inner frame matches canvas width for nicer horizontal behavior
         bbox = self._canvas.bbox(self._inner_id)
         if bbox:
@@ -86,7 +90,11 @@ class ChannelActivityView(ttk.Frame):
 
     # ------------------------------------------------------------------
     def set_boxes(self, boxes: Iterable[BoxId]) -> None:
-        """Replace visible box set and rebuild matrix widgets."""
+        """Replace visible box set and rebuild matrix widgets.
+
+        Args:
+            boxes: Ordered iterable of box ids to render.
+        """
         self._boxes = list(boxes)
         self._build_matrix()
 
@@ -103,13 +111,22 @@ class ChannelActivityView(ttk.Frame):
             cell.configure(bg=self._status_to_color(status))
 
     def set_updated_at(self, text: str) -> None:
-        """Update the timestamp label shown above the matrix."""
+        """Update the timestamp label shown above the matrix.
+
+        Args:
+            text: Timestamp text, usually ``HH:MM:SS``.
+        """
         label = (text or "").strip() or "--:--:--"
         self._updated_var.set(f"Updated at {label}")
 
     # ------------------------------------------------------------------
     @staticmethod
     def _status_to_color(status: str) -> str:
+        """Map status token to cell background color.
+
+        Args:
+            status: Status token (for example ``Running`` or ``Error``).
+        """
         mapping = {
             "Idle": "white",
             "Queued": "#e0f7fa",

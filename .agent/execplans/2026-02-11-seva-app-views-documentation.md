@@ -18,11 +18,11 @@ Success is observable when:
 ## Progress
 
 - [x] (2026-02-04 18:15Z) Mapped UI entrypoints and controller flows to viewmodels/usecases by tracing `seva/app/main.py`, `seva/app/run_flow_presenter.py`, and controller callbacks.
-- [ ] (2026-02-04 18:41Z) Add/expand module docstrings for each file in `seva/app` and `seva/app/views` (completed: updated controller/presenter + key view modules; remaining: normalize remaining ancillary modules).
-- [ ] (2026-02-04 18:41Z) Add/expand class/function docstrings with call-chain and error cases (completed: public APIs in controller/presenter + major views; remaining: deep helper methods and standalone tooling views).
-- [ ] (2026-02-04 18:41Z) Add inline comments for complex UI layout and event handling (completed: added comments in well-id indexing/layout-sensitive sections; remaining: sweep all view helpers for consistency).
+- [x] (2026-02-04 01:09Z) Added/expanded module docstrings across all files in `seva/app` and `seva/app/views`, including ancillary controller/utility modules.
+- [x] (2026-02-04 01:09Z) Added/expanded class/function docstrings with parameter-focused Google-style sections across app/view classes and helper functions.
+- [x] (2026-02-04 01:09Z) Added inline comments and explanatory docstrings for complex UI/event sections (selection behavior, nested Tk callbacks, layout-sensitive helpers).
 - [x] (2026-02-04 18:19Z) Updated `docs/workflows_seva.md` with UI entrypoints and view-model/usecase handoffs.
-- [ ] (2026-02-04 18:41Z) Final consistency pass for Google style and completeness.
+- [x] (2026-02-04 01:09Z) Final consistency pass completed (AST docstring check + compile + test run).
 
 ## Surprises & Discoveries
 
@@ -30,6 +30,8 @@ Success is observable when:
   Evidence: New `UI Entrypoints and Handoffs` section in `docs/workflows_seva.md` groups actions by user trigger.
 - Observation: `RunOverviewView` wired a "Copy" button to `_copy_to_clipboard`, but the helper did not exist.
   Evidence: Added `_copy_to_clipboard()` in `seva/app/views/run_overview_view.py` to match existing button command.
+- Observation: `dataplotter_standalone.py` had mixed legacy comments/docstrings and required careful cleanup to avoid syntax regressions while adding Google-style content.
+  Evidence: `python -m compileall -q seva/app` succeeds after docstring normalization.
 
 ## Decision Log
 
@@ -39,11 +41,15 @@ Success is observable when:
 - Decision: Prioritize entrypoint-facing and public API docstrings first, then sweep helper methods.
   Rationale: This delivers usable onboarding value quickly while keeping the plan incremental and testable.
   Date/Author: 2026-02-04 / Agent
+- Decision: Use an AST-based docstring audit as final gate for function/method coverage.
+  Rationale: It gives deterministic evidence that documentation expectations are met across all `seva/app` modules.
+  Date/Author: 2026-02-04 / Agent
 
 ## Outcomes & Retrospective
 
 - Milestone update (2026-02-04): UI entrypoint mapping is now documented in `docs/workflows_seva.md`; remaining work is docstring/comment normalization in `seva/app` and `seva/app/views`.
 - Milestone update (2026-02-04): Expanded docstrings in controllers/presenter and major views; test suite remains green after changes.
+- Completion update (2026-02-04): Completed documentation sweep for `seva/app` + `seva/app/views`, including helper functions and nested Tk callbacks; validation checks pass.
 
 ## Context and Orientation
 
@@ -112,8 +118,13 @@ All steps are run from the repository root (`SEVA_GUI_MVVM`).
 
 Validation evidence:
 
+    OK: all function/method docstrings include Args where parameters exist.
+
+    python -m compileall -q seva/app
+    # (no output, success)
+
     ........                                                                 [100%]
-    8 passed in 0.10s
+    8 passed in 0.16s
 
 ## Validation and Acceptance
 
@@ -142,4 +153,4 @@ No new dependencies are introduced. Interfaces to highlight include:
 
 ---
 
-Change note (2026-02-04): Completed entrypoint mapping, expanded documentation across controllers/presenter/key views, and added validation evidence.
+Change note (2026-02-04): Completed full app/views documentation sweep, added AST-based docstring validation evidence, and finalized plan milestones.

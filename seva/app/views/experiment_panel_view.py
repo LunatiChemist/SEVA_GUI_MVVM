@@ -206,7 +206,15 @@ class ExperimentPanelView(ttk.Frame):
         self, parent: tk.Widget, *, check_var: tk.BooleanVar, check_text: str,
         on_copy: OnVoid, on_paste: OnVoid
     ) -> None:
-        """Create section header row with enable checkbox and copy/paste tools."""
+        """Create section header row with enable checkbox and copy/paste tools.
+
+        Args:
+            parent: Section frame receiving the header.
+            check_var: Checkbox variable for section enable state.
+            check_text: Checkbox label text.
+            on_copy: Copy callback for section clipboard action.
+            on_paste: Paste callback for section clipboard action.
+        """
         row = 0
         left = ttk.Frame(parent); left.grid(row=row, column=0, sticky="w", padx=6, pady=4)
         ttk.Checkbutton(left, text=check_text, variable=check_var).pack(side="left")
@@ -215,22 +223,36 @@ class ExperimentPanelView(ttk.Frame):
         ttk.Button(right, text="🗀", width=3, command=on_paste).pack(side="right")
 
     def _make_labeled_entry(self, parent: tk.Widget, label: str, field_id: str, row: int) -> None:
-        """Create one labeled entry and bind variable trace to ``on_change``."""
+        """Create one labeled entry and bind variable trace to ``on_change``.
+
+        Args:
+            parent: Section frame receiving the entry row.
+            label: User-facing label text.
+            field_id: Field identifier emitted to ``on_change``.
+            row: Grid row index in the section frame.
+        """
         ttk.Label(parent, text=label).grid(row=row, column=0, padx=6, pady=2, sticky="w")
         var = tk.StringVar(); self._vars[field_id] = var
         ent = ttk.Entry(parent, textvariable=var); ent.grid(row=row, column=1, padx=6, pady=2, sticky="ew")
         parent.columnconfigure(1, weight=1)
         def _on_var_changed(*_):
+            """Forward traced entry updates to the external change callback."""
             if self._on_change:
                 self._on_change(field_id, var.get())
         var.trace_add("write", _on_var_changed)
 
     def _register_flag(self, field_id: str, var: tk.BooleanVar) -> None:
-        """Register boolean field and keep section enablement in sync."""
+        """Register boolean field and keep section enablement in sync.
+
+        Args:
+            field_id: Boolean field id emitted to ``on_change``.
+            var: Tk boolean variable backing checkbox state.
+        """
         # <- BUGFIX: register flag so clear_fields()/set_fields() apply
         self._flag_vars[field_id] = var
 
         def _apply():
+            """Emit boolean change and refresh section enabled states."""
             # 1) notify VM
             if self._on_change:
                 self._on_change(field_id, "1" if var.get() else "0")
@@ -250,13 +272,23 @@ class ExperimentPanelView(ttk.Frame):
         var.trace_add("write", lambda *_: _apply())
 
     def _set_section_enabled(self, section_key: str, enabled: bool) -> None:
-        """Enable or disable editable widgets inside one mode section."""
+        """Enable or disable editable widgets inside one mode section.
+
+        Args:
+            section_key: Mode section key (for example ``CV``).
+            enabled: Target enabled state.
+        """
         frame = self._mode_frames.get(section_key)
         if not frame:
             return
         state = "normal" if enabled else "disabled"
 
         def _walk(w):
+            """Recursively toggle entry/combobox state in a section frame.
+
+            Args:
+                w: Root widget to traverse.
+            """
             for child in w.winfo_children():
                 try:
                     if isinstance(child, (ttk.Entry, ttk.Combobox)):
@@ -268,11 +300,19 @@ class ExperimentPanelView(ttk.Frame):
 
     # --- Public setters ------------------------------------------------
     def set_editing_well(self, well_label: str) -> None:
-        """Update footer label showing which well is currently edited."""
+        """Update footer label showing which well is currently edited.
+
+        Args:
+            well_label: Well label string to render.
+        """
         self.editing_well_var.set(f"Editing Well: {well_label}")
 
     def set_electrode_mode(self, mode: str) -> None:
-        """Set electrode-mode combobox from normalized token."""
+        """Set electrode-mode combobox from normalized token.
+
+        Args:
+            mode: Normalized token (``2E`` or ``3E``).
+        """
         self._electrode_display.set("2-electrode" if mode == "2E" else "3-electrode")
 
     def get_electrode_mode(self) -> str:
@@ -281,7 +321,11 @@ class ExperimentPanelView(ttk.Frame):
         return "2E" if disp.startswith("2") else "3E"
 
     def set_fields(self, mapping: Dict[str, str]) -> None:
-        """Apply field/flag values from viewmodel snapshot mapping."""
+        """Apply field/flag values from viewmodel snapshot mapping.
+
+        Args:
+            mapping: Field-id to value mapping from viewmodel.
+        """
         if not mapping:
             return
         # Text fields
@@ -291,6 +335,11 @@ class ExperimentPanelView(ttk.Frame):
                 var.set("" if val is None else str(val))
         # Flags – ALLE bekannten Flags deterministisch setzen
         def _as_bool(v: object) -> bool:
+            """Convert persisted field value into checkbox boolean state.
+
+            Args:
+                v: Raw persisted value.
+            """
             if isinstance(v, bool):
                 return v
             return str(v or "").strip().lower() in ("1", "true", "yes", "on")

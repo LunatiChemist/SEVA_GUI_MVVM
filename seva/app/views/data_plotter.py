@@ -37,7 +37,22 @@ class DataPlotter(tk.Toplevel):
         on_toggle_include: Optional[callable] = None,   # (well_id: str, included: bool)
         on_close: OnVoid = None,
     ) -> None:
-        """Create plotter popup widgets and callback bindings."""
+        """Create plotter popup widgets and callback bindings.
+
+        Args:
+            parent: Parent window.
+            on_fetch_data: Callback for refresh action.
+            on_axes_changed: Callback for x/y axis change.
+            on_section_changed: Callback for section dropdown change.
+            on_apply_ir: Callback for IR correction apply action.
+            on_reset_ir: Callback for IR reset action.
+            on_export_csv: Callback for CSV export.
+            on_export_png: Callback for PNG export.
+            on_open_plot: Callback opening per-well PNG.
+            on_open_results_folder: Callback opening per-well folder.
+            on_toggle_include: Callback toggling per-well inclusion.
+            on_close: Callback invoked before popup close.
+        """
         super().__init__(parent)
         self.title("Data Plotter")
         self.transient(parent)
@@ -151,33 +166,59 @@ class DataPlotter(tk.Toplevel):
     # Public setters (called by ViewModel)
     # ------------------------------------------------------------------
     def set_run_info(self, run_group_id: Optional[str], selection_summary: str) -> None:
-        """Render active run id and selection summary labels."""
+        """Render active run id and selection summary labels.
+
+        Args:
+            run_group_id: Active run-group id.
+            selection_summary: User-facing selection summary text.
+        """
         self._run_var.set(f"Run: {run_group_id or '–'}")
         self._selection_var.set(f"Selection: {selection_summary or '–'}")
 
     def set_axes_options(self, x_options: List[str], y_options: List[str]) -> None:
-        """Replace available axis options."""
+        """Replace available axis options.
+
+        Args:
+            x_options: X-axis option labels.
+            y_options: Y-axis option labels.
+        """
         self._x_combo.configure(values=list(x_options))
         self._y_combo.configure(values=list(y_options))
 
     def set_selected_axes(self, x: str, y: str) -> None:
-        """Set selected x/y axis labels."""
+        """Set selected x/y axis labels.
+
+        Args:
+            x: Selected x-axis label.
+            y: Selected y-axis label.
+        """
         self._x_var.set(x)
         self._y_var.set(y)
 
     def set_sections(self, options: List[str], selected: Optional[str] = None) -> None:
-        """Replace available section options and optional current selection."""
+        """Replace available section options and optional current selection.
+
+        Args:
+            options: Section option labels.
+            selected: Optional currently selected label.
+        """
         self._section_combo.configure(values=list(options))
         if selected is not None:
             self._section_var.set(selected)
 
     def set_ir_params(self, rs_value: str) -> None:
-        """Set the current IR correction value shown in the Rs input."""
+        """Set the current IR correction value shown in the Rs input.
+
+        Args:
+            rs_value: Rs value text.
+        """
         self._rs_var.set(rs_value)
 
     def set_rows(self, mapping: Dict[WellId, Tuple[bool, str, bool]]) -> None:
         """Replace well rows.
-        mapping: WellId -> (has_png: bool, path: str, included: bool)
+
+        Args:
+            mapping: ``WellId -> (has_png, path, included)``.
         """
         for c in list(self._rows_frame.winfo_children()):
             c.destroy()
@@ -206,7 +247,12 @@ class DataPlotter(tk.Toplevel):
             self._rows[wid] = (chk_var, lbl_well, lbl_png, lbl_path, btn_open, btn_folder)
 
     def set_stats(self, loaded: int, corrected: int) -> None:
-        """Update footer counters for loaded/corrected datasets."""
+        """Update footer counters for loaded/corrected datasets.
+
+        Args:
+            loaded: Number of loaded wells.
+            corrected: Number of IR-corrected wells.
+        """
         self._stats_var.set(f"Loaded: {loaded} • Corrected: {corrected}")
 
     # ------------------------------------------------------------------
@@ -228,14 +274,30 @@ class DataPlotter(tk.Toplevel):
             self._on_apply_ir(self._rs_var.get())
 
     def _emit_open_plot(self, well_id: WellId) -> None:
+        """Emit open-plot callback for one well id.
+
+        Args:
+            well_id: Well identifier.
+        """
         if self._on_open_plot:
             self._on_open_plot(well_id)
 
     def _emit_open_folder(self, well_id: WellId) -> None:
+        """Emit open-folder callback for one well id.
+
+        Args:
+            well_id: Well identifier.
+        """
         if self._on_open_results_folder:
             self._on_open_results_folder(well_id)
 
     def _emit_toggle_include(self, well_id: WellId, included: bool) -> None:
+        """Emit include-toggle callback for one well id.
+
+        Args:
+            well_id: Well identifier.
+            included: Whether the well is included in plotting/export.
+        """
         if self._on_toggle_include:
             self._on_toggle_include(well_id, bool(included))
 

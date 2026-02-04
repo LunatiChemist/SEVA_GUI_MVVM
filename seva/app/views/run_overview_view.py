@@ -133,7 +133,14 @@ class RunOverviewView(ttk.Frame):
     # Public API used by ViewModels/Presenters
     # ------------------------------------------------------------------
     def set_box_status(self, box_id: BoxId, *, phase: str, progress_pct: float, sub_run_id: Optional[str]) -> None:
-        """Update one box card with latest phase/progress/subrun values."""
+        """Update one box card with latest phase/progress/subrun values.
+
+        Args:
+            box_id: Box identifier to update.
+            phase: User-facing phase text.
+            progress_pct: Progress percent value from 0 to 100.
+            sub_run_id: Optional sub-run identifier label.
+        """
         if box_id not in self._boxes:
             return
         self._box_status_lbl[box_id].configure(text=phase)
@@ -161,7 +168,11 @@ class RunOverviewView(ttk.Frame):
             )
 
     def set_boxes(self, boxes: Iterable[BoxId]) -> None:
-        """Rebuild summary header for a new set of boxes."""
+        """Rebuild summary header for a new set of boxes.
+
+        Args:
+            boxes: New ordered set of visible boxes.
+        """
         # Destroy and rebuild summary area
         for child in list(self.grid_slaves(row=1, column=0)):
             child.destroy()
@@ -172,12 +183,20 @@ class RunOverviewView(ttk.Frame):
     # Internal helpers
     # ------------------------------------------------------------------
     def _format_remaining(self, remaining: Optional[object]) -> str:
-        """Normalize remaining-time values for table display."""
+        """Normalize remaining-time values for table display.
+
+        Args:
+            remaining: Remaining value from DTO.
+        """
         text = "" if remaining is None else str(remaining).strip()
         return text or "—"
 
     def _on_row_double_click(self, event=None):
-        """Open modal with full error text for the selected row."""
+        """Open modal with full error text for the selected row.
+
+        Args:
+            event: Tk double-click event (unused).
+        """
         sel = self.table.selection()
         if not sel:
             return

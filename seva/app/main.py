@@ -446,7 +446,10 @@ class App:
             self.win.show_toast(str(e))
 
     def _on_discover_devices(self, dialog: Optional[SettingsDialog] = None) -> None:
-        """Run discovery flow and surface failures as contextual UI toast messages.
+        """Run discovery flow and surface failures as contextual UI toast.
+
+        Args:
+            dialog: Optional settings dialog to refresh with discovered URLs.
         """
         try:
             self.discovery_controller.discover(dialog)
@@ -471,7 +474,10 @@ class App:
 
     def _on_download_box_results(self, box_id: str) -> None:
         """Trigger download action scoped from a box action in run overview.
-        
+
+        Args:
+            box_id: Selected box identifier from the overview tab.
+
         The current implementation delegates to group-level download behavior.
         """
         self.download_controller.download_box_results(box_id)
@@ -486,7 +492,13 @@ class App:
         return shutil.which("xdg-open") is not None
 
     def _on_open_download_folder_hotkey(self, event=None):
-        """Handle Ctrl+Shift+O to open the most recent download directory.
+        """Handle Ctrl+Shift+O and open the most recent download directory.
+
+        Args:
+            event: Tk keybinding event (unused).
+
+        Returns:
+            str: ``"break"`` to stop default key handling.
         """
         if not self.run_flow.last_download_dir:
             self.win.show_toast("Nothing downloaded yet.")
@@ -499,7 +511,11 @@ class App:
         return "break"
 
     def _open_results_folder(self, path: str) -> None:
-        """Open the download folder using the platform default file browser."""
+        """Open the download folder using the platform default file browser.
+
+        Args:
+            path: Absolute or relative directory path to open.
+        """
         if not path or not os.path.isdir(path):
             return
         try:
@@ -519,7 +535,11 @@ class App:
     # VM ↔ View glue
     # ==================================================================
     def _on_selection_changed(self, sel: Set[str]) -> None:
-        """Always clear first, then (if single) set snapshot + label."""
+        """Sync experiment form state to current well selection.
+
+        Args:
+            sel: Selected well identifiers from ``PlateVM``.
+        """
         # Clear the view first to avoid stale values
         self.experiment.clear_fields()
 
@@ -585,11 +605,17 @@ class App:
 
     def _mode_label(self, mode: str) -> str:
         """Return user-facing label text for a normalized mode token.
+
+        Args:
+            mode: Normalized mode token such as ``CV`` or ``EIS``.
         """
         return self.experiment_vm.mode_registry.label_for(mode)
 
     def _on_copy_mode(self, mode: str) -> None:
         """Copy mode-specific form values from one selected source well.
+
+        Args:
+            mode: Mode token copied from current form values.
         """
         selection = self.plate_vm.get_selection()
         if len(selection) == 0:
@@ -616,6 +642,9 @@ class App:
 
     def _on_paste_mode(self, mode: str) -> None:
         """Paste mode-specific clipboard values into all selected wells.
+
+        Args:
+            mode: Mode token to paste into selected wells.
         """
         selection = self.plate_vm.get_selection()
         if not selection:
@@ -647,6 +676,9 @@ class App:
 
     def _on_electrode_mode_changed(self, mode: str) -> None:
         """Apply electrode-mode change to VM first, then relay use case.
+
+        Args:
+            mode: Normalized electrode mode token (``2E`` or ``3E``).
         """
         try:
             self.experiment_vm.set_electrode_mode(mode)
@@ -657,6 +689,9 @@ class App:
 
     def _apply_run_overview(self, dto: Dict) -> None:
         """Render presenter-provided run overview DTO into the overview view.
+
+        Args:
+            dto: View DTO with box metadata and well table rows.
         """
         boxes = dto.get("boxes", {}) or {}
         # DTO is presenter-owned; this method only adapts shape for concrete widgets.
@@ -675,6 +710,9 @@ class App:
 
     def _apply_channel_activity(self, mapping: Dict[str, str]) -> None:
         """Render channel activity map and updated-at label in the activity view.
+
+        Args:
+            mapping: Mapping of ``well_id -> status`` produced by ``ProgressVM``.
         """
         self.activity.set_activity(mapping)
         label = self.progress_vm.updated_at_label or time.strftime("%H:%M:%S")
@@ -682,6 +720,9 @@ class App:
 
     def _open_plot_for_well(self, well_id: str) -> None:
         """Placeholder plot action hook for per-well interactions in the grid.
+
+        Args:
+            well_id: Well identifier selected by the user.
         """
         self.win.show_toast(f"Open PNG for {well_id}")
 
@@ -691,6 +732,10 @@ class App:
 
     def _toast_error(self, err: Exception, *, context: Optional[str] = None) -> None:
         """Format an exception into UI-safe text and show it in the toast area.
+
+        Args:
+            err: Exception raised by orchestration/usecase layers.
+            context: Optional prefix for contextualizing the error.
         """
         message = self._format_error_message(err)
         if context:
@@ -699,6 +744,9 @@ class App:
 
     def _format_error_message(self, err: Exception) -> str:
         """Convert exceptions into user-facing text while logging diagnostics.
+
+        Args:
+            err: Exception to convert.
         """
         if isinstance(err, UseCaseError):
             self._log.warning("UseCase error (%s): %s", err.code, err.message)
