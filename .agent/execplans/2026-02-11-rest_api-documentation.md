@@ -23,6 +23,7 @@ Success is observable when:
 - [x] (2026-02-04 21:18Z) Update `docs/classes_rest_api.md` and `docs/workflows_rest_api.md` with module inventory, endpoint mapping, workflow narratives, and Mermaid sequence diagram.
 - [x] (2026-02-04 21:20Z) Run validation checks (`docstring-check` script and `pytest -q`) and capture evidence.
 - [x] (2026-02-04 21:31Z) After user-confirmed repository stabilization, rerun validation commands to confirm documentation state remains green.
+- [x] (2026-02-04 01:36Z) Close nested-helper docstring gaps in `rest_api/app.py`, `rest_api/nas.py`, and `rest_api/nas_smb.py`; rerun global coverage + compile + tests.
 
 ## Surprises & Discoveries
 
@@ -41,6 +42,13 @@ Success is observable when:
 - Observation: After stabilization, the working tree was clean before final verification, so no additional code edits were required.
   Evidence:
     `git status --short` produced no output.
+- Observation: A stricter AST walk (including nested helpers) exposed 44 missing docstrings concentrated in NAS managers and telemetry helpers.
+  Evidence:
+    `checked_files= 94`, `missing_count= 44`, with missing entries only in `rest_api/app.py`, `rest_api/nas.py`, and `rest_api/nas_smb.py`.
+- Observation: Adding targeted helper-method docstrings removed all global coverage gaps.
+  Evidence:
+    `checked_files= 94`
+    `missing_count= 0`
 
 ## Decision Log
 
@@ -59,10 +67,13 @@ Success is observable when:
 - Decision: Do a final validation-only pass after repository stabilization without introducing new edits.
   Rationale: Confirms ExecPlan acceptance criteria still hold in the stabilized branch state.
   Date/Author: 2026-02-04 / Agent
+- Decision: Expand documentation to nested helper methods in the three affected REST modules instead of relaxing validation scope.
+  Rationale: Keeps documentation requirements coherent across the codebase and resolves real onboarding blind spots in background upload/telemetry helpers.
+  Date/Author: 2026-02-04 / Agent
 
 ## Outcomes & Retrospective
 
-At completion, the REST API package now has explicit module-level orientation, richer helper documentation, and updated architecture docs for classes and workflows. The biggest quality gain came from replacing low-information placeholder docstrings with practical call-chain and side-effect explanations. A post-stabilization validation pass confirmed the state remained intact (`docstring-check: ok`, `8 passed`).
+At completion, the REST API package now has explicit module-level orientation, richer helper documentation, and updated architecture docs for classes and workflows. The biggest quality gain came from replacing low-information placeholder docstrings with practical call-chain and side-effect explanations. Follow-up validation found and fixed nested-helper gaps in `rest_api/app.py`, `rest_api/nas.py`, and `rest_api/nas_smb.py`; global non-test docstring coverage is now zero-missing (`checked_files= 94`, `missing_count= 0`) with tests still green (`8 passed`).
 
 ## Context and Orientation
 
@@ -142,6 +153,17 @@ Post-stabilization verification evidence:
     ........                                                                 [100%]
     8 passed in 0.10s
 
+Nested-helper coverage hardening evidence:
+
+    checked_files= 94
+    missing_count= 44
+    ...
+    checked_files= 94
+    missing_count= 0
+
+    ........                                                                 [100%]
+    8 passed in 0.14s
+
 ## Validation and Acceptance
 
 Acceptance status: met.
@@ -201,3 +223,4 @@ Interfaces covered by the documentation update:
 ---
 
 Change note: 2026-02-04 implementation pass completed, then updated after repository stabilization with an additional validation-only checkpoint and evidence snippets.
+Change note (2026-02-04 01:36Z): Added nested-helper docstring remediation milestone and recorded global coverage proof (`missing_count= 0`).

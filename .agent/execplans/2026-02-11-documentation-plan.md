@@ -18,6 +18,7 @@ The goal is a fully documented, easy-to-understand codebase for the GUI (`seva/`
 - [x] (2026-02-04 00:00Z) Analyze `seva/viewmodels` and add docstrings + inline comments; update docs for UI state + commands.
 - [x] (2026-02-04 00:00Z) Analyze `seva/app` and `seva/app/views` and add docstrings + inline comments; update docs for UI composition and controllers.
 - [x] (2026-02-04 00:02Z) Final review pass to ensure style compliance, call-chain completeness, and documentation coverage.
+- [x] (2026-02-04 01:36Z) Post-stabilization strict global AST validation (including nested helpers), remediate 44 missing helper docstrings in REST NAS/telemetry modules, and revalidate coverage/tests.
 
 ## Surprises & Discoveries
 
@@ -35,6 +36,8 @@ The goal is a fully documented, easy-to-understand codebase for the GUI (`seva/`
   Evidence: Existing literals in `seva/app/views/discovery_results_dialog.py` and `seva/app/views/settings_dialog.py` were preserved while adding docstrings.
 - Observation: Final global coverage checks surfaced two remaining undocumented runtime files (`seva/__init__.py`, `seva/utils/logging.py`) outside earlier subsystem milestones.
   Evidence: The first global coverage pass reported `missing_count= 5` for those files/functions before final fixes.
+- Observation: A stricter follow-up AST walk (including nested helper callables) surfaced additional undocumented helper functions in `rest_api/app.py`, `rest_api/nas.py`, and `rest_api/nas_smb.py`.
+  Evidence: Post-stabilization strict check reported `checked_files= 94` and `missing_count= 44`; after helper docstring updates it reported `missing_count= 0`.
 
 
 ## Decision Log
@@ -74,6 +77,9 @@ The goal is a fully documented, easy-to-understand codebase for the GUI (`seva/`
 - Decision: Keep tests unchanged and exclude `*/tests/*` files from strict docstring-coverage checks during final validation.
   Rationale: The acceptance criteria required tests to remain unchanged; coverage validation therefore targets runtime code paths.
   Date/Author: 2026-02-04 / Agent
+- Decision: Keep strict runtime-code coverage by documenting nested helper functions rather than narrowing AST checks to top-level definitions.
+  Rationale: Nested workers/generators in telemetry and NAS workflows carry behavior-critical logic and should be self-documenting for onboarding/debugging.
+  Date/Author: 2026-02-04 / Agent
 
 
 ## Outcomes & Retrospective
@@ -86,6 +92,7 @@ The goal is a fully documented, easy-to-understand codebase for the GUI (`seva/`
 - Milestone 6 outcome (2026-02-04): ViewModel module coverage is complete with Google-style docstrings for module/class/function gaps, including status-format helper functions and runs-row model documentation.
 - Milestone 7 outcome (2026-02-04): `seva/app` and `seva/app/views` coverage is complete, including controller/presenter modules and remaining view modules; SEVA class/workflow docs now include full UI composition call-chains.
 - Milestone 8 outcome (2026-02-04): Final consistency validation passed. Remaining undocumented package/util files were fixed, global non-test coverage reached zero missing docstrings, docs artifacts are present, and test suite remains green (`8 passed`).
+- Post-stabilization outcome (2026-02-04): Strict global validation including nested helpers is now also zero-missing (`checked_files= 94`, `missing_count= 0`) after targeted docstring additions in REST NAS/telemetry helpers; tests remain green.
 
 ## Context and Orientation
 
@@ -364,6 +371,28 @@ Milestone 8 evidence:
     docs\classes_rest_api.md
     docs\architecture_overview.md
 
+Post-stabilization strict-validation evidence:
+
+    > python - <<'PY'
+    ... strict global AST coverage including nested callables ...
+    ... print("checked_files=", checked)
+    ... print("missing_count=", len(missing))
+    ... PY
+    checked_files= 94
+    missing_count= 44
+
+    > python - <<'PY'
+    ... rerun after helper docstring remediation ...
+    ... print("checked_files=", checked)
+    ... print("missing_count=", len(missing))
+    ... PY
+    checked_files= 94
+    missing_count= 0
+
+    > pytest -q
+    ........                                                                 [100%]
+    8 passed in 0.14s
+
 
 Example documentation snippet (Google style, for `seva/`):
 
@@ -418,3 +447,4 @@ No external services are required for documentation changes, but understanding c
 ---
 
 Change note (2026-02-04): Completed final review milestone, fixed remaining package/logging documentation gaps, and added final global validation evidence (coverage, compile, docs artifacts, tests).
+Change note (2026-02-04 01:36Z): Added strict nested-helper coverage checkpoint, documented remediation in REST NAS/telemetry modules, and embedded updated validation evidence.

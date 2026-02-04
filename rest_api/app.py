@@ -88,6 +88,7 @@ try:
     from seva.utils.logging import configure_root as _configure_logging, level_name as _level_name
 except Exception:  # pragma: no cover - fallback when GUI package unavailable
     def _configure_logging(default_level: int | str = logging.INFO) -> int:
+        """Configure root logging when shared GUI logging helpers are unavailable."""
         level = logging.INFO
         if isinstance(default_level, str):
             candidate = getattr(logging, default_level.upper(), None)
@@ -108,10 +109,12 @@ except Exception:  # pragma: no cover - fallback when GUI package unavailable
         return level
 
     def _level_name(level: int) -> str:
+        """Return standard logging level name text for diagnostics."""
         return logging.getLevelName(level)
 
 else:
     def _level_name(level: int) -> str:
+        """Return standard logging level name text for diagnostics."""
         return logging.getLevelName(level)
 
 
@@ -1079,6 +1082,7 @@ def _run_slot_sequence(
     cancel_event = CANCEL_FLAGS.setdefault(run_id, threading.Event())
 
     def _eval_plot(csv_path: pathlib.Path, mode: str, params: Dict[str, Any]) -> List[str]:
+        """Generate optional plot artifact and return sorted relative output file list."""
         files: List[str] = []
         try:
             if req.make_plot:
@@ -1137,6 +1141,7 @@ def _run_slot_sequence(
             # Measurement with abort window in background thread
             measurement_error: Optional[Exception] = None
             def _runner():
+                """Run one mode measurement and capture exceptions for outer thread."""
                 nonlocal measurement_error
                 try:
                     ctrl.apply_measurement(
@@ -1248,6 +1253,7 @@ def _run_one_slot(
     measurement_error: Optional[Exception] = None
 
     def _measurement_runner():
+        """Execute measurement call and capture raised exception for polling loop."""
         nonlocal measurement_error
         try:
             ctrl.apply_measurement(
@@ -2046,15 +2052,18 @@ class MockPotentiostatSource:
     dropouts so dashboards can be tested against non-ideal data.
     """
     def __init__(self, device_ids: List[int]) -> None:
+        """Seed per-device counters and baseline values for telemetry synthesis."""
         self.device_ids = device_ids
         self._seq_by_dev: Dict[int, int] = {d: 0 for d in device_ids}
         self._base_by_dev: Dict[int, float] = {d: 25.0 + d * 0.3 for d in device_ids}
         self._t0 = time.time()
 
     def _now_iso(self) -> str:
+        """Return current UTC timestamp as ISO-8601 text."""
         return datetime.datetime.now(timezone.utc).isoformat()
 
     def generate_one(self, device_id: int) -> Optional[TemperatureSample]:
+        """Generate one pseudo-random telemetry sample or dropout for a device."""
         # simulating Dropouts
         if random.random() < 0.01:
             return None
@@ -2168,6 +2177,7 @@ async def temperature_stream(rate_hz: float = Query(2.0, ge=0.2, le=20.0)):
     interval = 1.0 / rate_hz
 
     async def gen():
+        """Yield SSE payloads for temperature samples and periodic ping keepalives."""
         last_ping = time.time()
 
         # optional initial burst
