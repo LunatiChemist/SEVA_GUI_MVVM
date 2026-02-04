@@ -1,21 +1,7 @@
-"""
-WellGridView
-------------
-Grid of wells grouped by boxes (A–D). Pure View (no backend logic).
+"""Well selection grid view used by the experiment setup tab.
 
-Update:
-- The grid no longer reflects run statuses (Queued/Running/...). Those live in
-  ChannelActivity. Here we only show selection and a "configured" indicator.
-- "Configured" wells are colored green. After submit they are reset to default.
-
-Public API for ViewModel:
-- set_boxes(iterable[str])
-- set_selection(iterable[str])
-- get_selection() -> set[str]
-- set_configured_wells(iterable[str])      # replace configured set
-- add_configured_wells(iterable[str])      # mark as configured (green)
-- clear_configured_wells(iterable[str])    # remove configured state for given wells
-- clear_all_configured()                   # reset all to default (e.g., after submit)
+The grid renders one button per slot/well and exposes callback events for
+selection, context-menu actions, and plot opening. It owns only UI state.
 """
 
 from __future__ import annotations
@@ -50,6 +36,20 @@ class WellGridView(ttk.Frame):
         on_reset_all: OnVoid = None,
         on_open_plot: OnWell = None,
     ) -> None:
+        """Construct grid view and bind callbacks.
+
+        Args:
+            parent: Parent container for the grid view.
+            boxes: Ordered list of box identifiers.
+            wells_per_box: Number of wells rendered per box.
+            on_select_wells: Selection callback with selected well-id set.
+            on_toggle_enable_selected: Context menu toggle callback.
+            on_copy_params_from: Context menu copy-source callback.
+            on_paste_params_to_selection: Context menu paste callback.
+            on_reset_selected: Context menu reset callback for selected wells.
+            on_reset_all: Toolbar callback for resetting all wells.
+            on_open_plot: Double-click/context callback for per-well plotting.
+        """
         super().__init__(parent)
 
         self._boxes = list(boxes)
@@ -73,6 +73,7 @@ class WellGridView(ttk.Frame):
     # UI build
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
+        """Build toolbar and box/well button matrix."""
         toolbar = ttk.Frame(self)
         toolbar.pack(fill="x", pady=(0, 4))
 
@@ -97,6 +98,7 @@ class WellGridView(ttk.Frame):
             for i in range(1, self._wells_per_box + 1):
                 r = (i - 1) % 5
                 c = 0 if i <= 5 else 1
+                # Well ids are globally indexed (A1..A10, B11..B20, ...).
                 wid = f"{box}{global_index}"
                 btn = tk.Button(
                     lf,
@@ -117,7 +119,11 @@ class WellGridView(ttk.Frame):
     # Public API used by ViewModel
     # ------------------------------------------------------------------
     def set_boxes(self, boxes: Iterable[BoxId]) -> None:
-        """Rebuild grid for a new set of boxes."""
+        """Rebuild grid for a new set of boxes.
+
+        Args:
+            boxes: Ordered iterable of box ids to render.
+        """
         self._boxes = list(boxes)
         for child in list(self.winfo_children()):
             child.destroy()
@@ -128,27 +134,48 @@ class WellGridView(ttk.Frame):
         self._emit_selection()
 
     def set_configured_wells(self, wells: Iterable[WellId]) -> None:
-        """Replace the configured set and recolor buttons (green)."""
+        """Replace the configured set and recolor buttons (green).
+
+        Args:
+            wells: Well ids that should be marked configured.
+        """
         self._configured = set(wells)
         self._repaint_all()
 
     def add_configured_wells(self, wells: Iterable[WellId]) -> None:
+        """Add wells to configured set and repaint only affected buttons.
+
+        Args:
+            wells: Well ids to mark configured.
+        """
         self._configured.update(wells)
         self._repaint_some(wells)
 
     def clear_configured_wells(self, wells: Iterable[WellId]) -> None:
+        """Remove configured state for specific wells and repaint them.
+
+        Args:
+            wells: Well ids to clear from configured state.
+        """
         for w in wells:
             self._configured.discard(w)
         self._repaint_some(wells)
 
     def clear_all_configured(self) -> None:
+        """Clear configured state for all wells and repaint full grid."""
         self._configured.clear()
         self._repaint_all()
 
     def get_selection(self) -> Set[WellId]:
+        """Return a copy of the current selection set."""
         return set(self._selected)
 
     def set_selection(self, wells: Iterable[WellId]) -> None:
+        """Replace selected wells and notify selection callback.
+
+        Args:
+            wells: Well ids to mark as selected.
+        """
         self._selected = set(wells)
         self._repaint_all()
         self._emit_selection()
@@ -157,15 +184,23 @@ class WellGridView(ttk.Frame):
     # Coloring rules (no run statuses here)
     # ------------------------------------------------------------------
     def _color_default(self) -> str:
+        """Return default background color for unselected wells."""
         return "white"  # default idle/empty
 
     def _color_selected(self) -> str:
+        """Return background color for selected wells."""
         return "#bbdefb"  # light blue
 
     def _color_configured(self) -> str:
+        """Return background color for configured wells."""
         return "#c8e6c9"  # light green
 
     def _apply_style(self, wid: WellId) -> None:
+        """Apply color style for a single well based on current state.
+
+        Args:
+            wid: Well identifier to repaint.
+        """
         btn = self._buttons.get(wid)
         if not btn:
             return
@@ -180,6 +215,12 @@ class WellGridView(ttk.Frame):
     # Selection & helpers
     # ------------------------------------------------------------------
     def _on_click(self, event: tk.Event, well_id: str) -> None:
+        """Handle click/shift-click selection behavior for one well button.
+
+        Args:
+            event: Tk click event.
+            well_id: Well identifier of clicked button.
+        """
         shift = bool(event.state & 0x0001)  # ShiftMask
         if shift:
             if well_id in self._selected:
@@ -192,6 +233,11 @@ class WellGridView(ttk.Frame):
         self._emit_selection()
     
     def _toggle_select(self, well_id: WellId) -> None:
+        """Toggle one well in selection set and emit callback.
+
+        Args:
+            well_id: Well identifier to toggle.
+        """
         if well_id in self._selected:
             self._selected.remove(well_id)
         else:
@@ -200,18 +246,31 @@ class WellGridView(ttk.Frame):
         self._emit_selection()
 
     def _repaint_some(self, wells: Iterable[WellId]) -> None:
+        """Repaint only a subset of wells.
+
+        Args:
+            wells: Well ids that need style refresh.
+        """
         for w in wells:
             self._apply_style(w)
 
     def _repaint_all(self) -> None:
+        """Repaint style for every well button."""
         for w in self._buttons.keys():
             self._apply_style(w)
 
     def _emit_selection(self) -> None:
+        """Emit full selection set to the injected callback."""
         if self._on_select_wells:
             self._on_select_wells(set(self._selected))
 
     def _context_menu(self, event: tk.Event, well_id: WellId) -> None:
+        """Open well button context menu with copy/paste/reset actions.
+
+        Args:
+            event: Tk right-click event.
+            well_id: Well identifier under cursor.
+        """
         menu = tk.Menu(self, tearoff=0)
         menu.add_command(label="Copy Params from", command=lambda: self._on_copy_params_from(well_id))
         menu.add_command(label="Paste Params to Selection", command=self._on_paste_params_to_selection)

@@ -1,19 +1,39 @@
-import serial #Need pip install pyserial
-import serial.tools.list_ports
-import subprocess
-import time
+"""Linux firmware flashing helper used by the REST API.
+
+The `/firmware/flash` route in `rest_api.app` stores an uploaded `.bin` file and
+then invokes this script as a subprocess. The script switches the controller to
+DFU mode (USB bootloader mode), flashes the binary via `dfu-util`, and waits
+until the CDC serial interface is available again.
+"""
+
 import os
+import subprocess
 import sys
+import time
 
-# ----------- CONFIGURATION -----------
-BAUD_RATE = 115200              # Must match MCU UART config
-BOOT_COMMAND = b'BOOT_DFU_MODE' # Binary send by USB
-DFU_VENDOR = 2022               # VID
-DFU_PRODUCT = 22099             # PID
-# --------------------------------------
+import serial
+import serial.tools.list_ports
 
-def find_com_port():
+# Runtime constants must match the firmware bootloader configuration.
+BAUD_RATE = 115200
+BOOT_COMMAND = b"BOOT_DFU_MODE"
+DFU_VENDOR = 2022
+DFU_PRODUCT = 22099
 
+
+def find_com_port() -> str:
+    """Locate the CDC serial device for the configured VID/PID pair.
+
+    Returns
+    -------
+    str
+        Device path (for example `/dev/ttyACM0`).
+
+    Raises
+    ------
+    ValueError
+        If no ports are available or none match the configured USB IDs.
+    """
     ports = serial.tools.list_ports.comports()
 
     if not ports:
@@ -23,13 +43,30 @@ def find_com_port():
 
     for port in ports:
         if (port.vid == DFU_VENDOR) and (port.pid == DFU_PRODUCT):
-            return port.device  # CHANGED: was port.name (Linux needs /dev/...)
+            return port.device
 
-    raise ValueError("No compatible port found, verify that the device is connected (and flashed once) then try again")
+    raise ValueError(
+        "No compatible port found, verify that the device is connected (and flashed once) then try again"
+    )
 
 
-def send_command(command):
+def send_command(command: bytes) -> None:
+    """Send a binary command over CDC serial.
 
+    Parameters
+    ----------
+    command : bytes
+        Bootloader control command. The REST API passes `BOOT_DFU_MODE`.
+
+    Side Effects
+    ------------
+    Opens the serial port, writes a command, and prints optional response bytes.
+
+    Raises
+    ------
+    SystemExit
+        Exits with status code 1 when the serial port cannot be opened.
+    """
     try:
         com_port = find_com_port()
         print(f"[USB CDC] Sending {command} command to {com_port}...")
@@ -38,26 +75,43 @@ def send_command(command):
             ser.write(command)
             print("[USB CDC] Command sent.")
 
-            # Read response
-            timeout = time.time() + 3  # 2 seconds max
+            timeout = time.time() + 3
             while time.time() < timeout:
                 if ser.in_waiting:
-                    response = ser.read(ser.in_waiting).decode(errors='ignore')
+                    response = ser.read(ser.in_waiting).decode(errors="ignore")
                     print(f"[USB CDC] Received: {response.strip()}")
                     break
             else:
                 print("[USB CDC] No response received.")
 
     except (serial.SerialException, ValueError):
-        print(f"[!] Error opening COM port")
+        print("[!] Error opening COM port")
         sys.exit(1)
 
-def wait_for_dfu(timeout=10):
+
+def wait_for_dfu(timeout: int = 10) -> bool:
+    """Wait until a DFU device appears on USB.
+
+    Parameters
+    ----------
+    timeout : int, default=10
+        Maximum wait time in seconds.
+
+    Returns
+    -------
+    bool
+        `True` when DFU mode is detected.
+
+    Raises
+    ------
+    SystemExit
+        If `dfu-util` is missing or no DFU device appears before timeout.
+    """
     print(f"[DFU] Waiting for STM32 DFU device to appear on USB ({timeout}s)...")
-    for i in range(timeout):
+    for _ in range(timeout):
         try:
-            result = subprocess.run(['dfu-util', '-l'], capture_output=True, text=True)
-            if 'Found DFU' in result.stdout:
+            result = subprocess.run(["dfu-util", "-l"], capture_output=True, text=True)
+            if "Found DFU" in result.stdout:
                 print("[DFU] DFU device detected.")
                 return True
         except FileNotFoundError:
@@ -67,28 +121,43 @@ def wait_for_dfu(timeout=10):
     print("[!] DFU device not found in time.")
     sys.exit(1)
 
-def flash_firmware():
+
+def flash_firmware() -> None:
+    """Flash the firmware binary with `dfu-util`.
+
+    Side Effects
+    ------------
+    Runs an external process and writes firmware bytes to the controller.
+
+    Raises
+    ------
+    SystemExit
+        If `dfu-util` reports a critical error.
+    """
     print("[DFU] Flashing firmware via USB...")
     flash_cmd = [
-        'dfu-util',
-        '-a', '0',             # Alternate setting 0 (main flash)
-        '-d', f"{DFU_VENDOR:04x}:{DFU_PRODUCT:04x}",  # CHANGED: removed quotes + ensure hex
-        '-s', '0x08000000:leave',  # Start of flash + auto-leave DFU mode
-        '-D', BIN_FILE_PATH
+        "dfu-util",
+        "-a",
+        "0",
+        "-d",
+        f"{DFU_VENDOR:04x}:{DFU_PRODUCT:04x}",
+        "-s",
+        "0x08000000:leave",
+        "-D",
+        BIN_FILE_PATH,
     ]
     result = subprocess.run(flash_cmd, capture_output=True, text=True)
 
-    # Print stdout for user feedback
     if result.stdout:
         print(result.stdout)
 
-    # Filter non-critical warnings from stderr
+    # Ignore known non-fatal dfu-util warnings; fail only on critical lines.
     critical_errors = []
     for line in result.stderr.splitlines():
         if not (
-                "Invalid DFU suffix signature" in line
-                or "Error during download get_status" in line
-                or "A valid DFU suffix will be required in a future dfu-util release" in line
+            "Invalid DFU suffix signature" in line
+            or "Error during download get_status" in line
+            or "A valid DFU suffix will be required in a future dfu-util release" in line
         ):
             critical_errors.append(line)
 
@@ -100,12 +169,30 @@ def flash_firmware():
 
     print("[DFU] Flashing complete")
 
-def wait_for_cdc(timeout=10):
+
+def wait_for_cdc(timeout: int = 10) -> bool:
+    """Wait for CDC serial re-enumeration after flashing.
+
+    Parameters
+    ----------
+    timeout : int, default=10
+        Maximum wait time in seconds.
+
+    Returns
+    -------
+    bool
+        `True` when the serial port is available again.
+
+    Raises
+    ------
+    RuntimeError
+        If the CDC interface does not come back in time.
+    """
     print("[USB CDC] Waiting for new firmware to appear...")
     for _ in range(timeout):
         try:
             com_port = find_com_port()
-            with serial.Serial(com_port, BAUD_RATE, timeout=1) as ser:
+            with serial.Serial(com_port, BAUD_RATE, timeout=1):
                 print("[USB CDC] Device is back.")
                 return True
         except (serial.SerialException, ValueError):
@@ -113,11 +200,9 @@ def wait_for_cdc(timeout=10):
     raise RuntimeError("New firmware did not enumerate CDC")
 
 
-if __name__ == '__main__':
-
+if __name__ == "__main__":
     if len(sys.argv) == 2:
-        BIN_FILE_PATH = sys.argv[1]
-        BIN_FILE_PATH = BIN_FILE_PATH.replace("/", os.sep)  # CHANGED: assign result (harmless on Linux)
+        BIN_FILE_PATH = sys.argv[1].replace("/", os.sep)
     else:
         print("[!] Arg not found")
         sys.exit(1)

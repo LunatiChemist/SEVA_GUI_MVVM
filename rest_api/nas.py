@@ -1,4 +1,12 @@
 # /opt/box/nas.py
+"""SSH/rsync-based NAS upload manager for completed runs.
+
+Notes
+-----
+The API calls this module after successful jobs. It resolves run directories via
+`rest_api.storage`, uploads files idempotently, and applies retention cleanup.
+"""
+
 from __future__ import annotations
 import datetime as _dt
 import json, logging, os, shlex, shutil, subprocess, threading, time
@@ -14,6 +22,12 @@ import storage
 
 @dataclass
 class NASConfig:
+    """Configuration record for SSH/rsync NAS uploads.
+    
+    Notes
+    -----
+    Participates in REST API helper workflows and transport contracts.
+    """
     host: str
     username: str
     remote_base_dir: str
@@ -32,6 +46,7 @@ class NASManager:
     """
 
     def __init__(self, runs_root: Path, config_path: Path, logger: Optional[logging.Logger] = None) -> None:
+        """Initialize NAS manager state and local lock/health bookkeeping."""
         self.runs_root = runs_root
         self.config_path = config_path
         self.log = logger or logging.getLogger("nas")
@@ -44,6 +59,7 @@ class NASManager:
 
     # ---------- Config ----------
     def _load_config(self) -> Optional[NASConfig]:
+        """Load NAS configuration from disk, returning `None` when unavailable."""
         try:
             raw = self.config_path.read_text(encoding="utf-8")
             data = json.loads(raw)
@@ -55,6 +71,7 @@ class NASManager:
             return None
 
     def _write_config(self, cfg: NASConfig) -> None:
+        """Persist NAS configuration atomically with restrictive file permissions."""
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.config_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(cfg.__dict__, indent=2, sort_keys=True), encoding="utf-8")
@@ -64,6 +81,7 @@ class NASManager:
     # ---------- Setup ----------
     def setup(self, *, host: str, port: int, username: str, password: str,
               remote_base_dir: str, retention_days: int = 14) -> Dict[str, Any]:
+        """Create SSH key-based NAS access and persist validated NAS settings."""
         if not host or not username or not password:
             raise HTTPException(400, "host/username/password required")
         if not remote_base_dir or " " in remote_base_dir:
@@ -130,6 +148,7 @@ class NASManager:
 
     # ---------- Health ----------
     def health(self) -> Dict[str, Any]:
+        """Probe NAS reachability using stored configuration and return health snapshot."""
         cfg = self._load_config()
         if not cfg:
             self._health_state = {"ok": False, "last_checked": _dt.datetime.utcnow().isoformat()+"Z", "message": "not configured"}
@@ -140,6 +159,7 @@ class NASManager:
         return dict(self._health_state)
 
     def _probe(self, cfg: NASConfig) -> tuple[bool, str]:
+        """Run a non-interactive SSH probe for the configured NAS target."""
         cmd = [
             "ssh",
             "-i", cfg.key_path,
@@ -156,6 +176,7 @@ class NASManager:
 
     # ---------- Upload ----------
     def enqueue_upload(self, run_id: str) -> bool:
+        """Schedule asynchronous upload for a run id if not already queued."""
         with self._lock:
             if run_id in self._uploading:
                 return False
@@ -165,6 +186,7 @@ class NASManager:
         return True
 
     def _upload_worker(self, run_id: str) -> None:
+        """Upload one run directory and write marker files for success/failure."""
         cfg = self._load_config()
         if not cfg:
             self.log.warning("Upload skipped: NAS not configured (run_id=%s)", run_id)
@@ -232,6 +254,7 @@ class NASManager:
             self._uploading.discard(run_id)
 
     def _mkdir_remote(self, cfg: NASConfig, dest: str) -> tuple[bool, str]:
+        """Ensure destination directory exists on remote NAS over SSH."""
         cmd = [
             "ssh", "-i", cfg.key_path, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-p", str(cfg.port),
             f"{cfg.username}@{cfg.host}",
@@ -241,17 +264,20 @@ class NASManager:
         return (res.returncode == 0, f"rc={res.returncode}")
 
     def _mark_failed(self, run_dir: Path, reason: str) -> None:
+        """Write upload failure marker and log reason for diagnostics."""
         self.log.warning("Upload FAILED dir=%s reason=%s", run_dir, reason)
         (run_dir / "upload_failed").write_text(reason, encoding="utf-8")
 
     # ---------- Retention ----------
     def start_background(self) -> None:
+        """Start background health and retention threads."""
         # Initial health probe (3 tries, non-blocking)
         threading.Thread(target=self._initial_health_probe, daemon=True, name="nas-health-probe").start()
         # Housekeeper
         threading.Thread(target=self._retention_loop, daemon=True, name="nas-retention").start()
 
     def _initial_health_probe(self) -> None:
+        """Perform short startup health retries so UI reflects NAS state quickly."""
         cfg = self._load_config()
         if not cfg:
             return
@@ -263,6 +289,7 @@ class NASManager:
             time.sleep(5)
 
     def _retention_loop(self) -> None:
+        """Run retention cleanup periodically in a background thread."""
         while True:
             try:
                 cfg = self._load_config()
@@ -273,6 +300,7 @@ class NASManager:
             time.sleep(6 * 3600)  # every 6 hours
 
     def _apply_retention(self, cfg: NASConfig) -> None:
+        """Delete local uploaded runs older than configured retention window."""
         cutoff = _dt.datetime.utcnow() - _dt.timedelta(days=cfg.retention_days)
         for path in self.runs_root.rglob("*"):
             if not path.is_dir():
@@ -294,5 +322,6 @@ class NASManager:
 
     # ---------- Utils ----------
     def _run(self, cmd: list[str], check: bool = False) -> subprocess.CompletedProcess:
+        """Execute subprocess command with captured output for logging and checks."""
         self.log.debug("RUN %s", " ".join(shlex.quote(c) for c in cmd))
         return subprocess.run(cmd, text=True, capture_output=True, check=check)

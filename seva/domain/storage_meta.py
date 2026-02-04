@@ -1,6 +1,12 @@
+"""Typed storage metadata used by run orchestration and artifact storage.
+
+Use cases build `StorageMeta` from UI input and client timestamps, then pass
+it through coordinators and the runs registry to keep path-related metadata
+validated and consistent.
+"""
+
 from __future__ import annotations
 
-"""Typed storage metadata used to build download paths and registry entries."""
 
 from dataclasses import dataclass
 from datetime import datetime
@@ -19,6 +25,7 @@ class StorageMeta:
     results_dir: str
 
     def __post_init__(self) -> None:
+        """Validate required text fields and normalize optional subdirectory."""
         if not isinstance(self.experiment, str) or not self.experiment.strip():
             raise ValueError("StorageMeta.experiment must be a non-empty string.")
         cleaned = self.subdir.strip() if isinstance(self.subdir, str) else None
@@ -27,9 +34,11 @@ class StorageMeta:
             raise ValueError("StorageMeta.results_dir must be a non-empty string.")
 
     def client_datetime_label(self) -> str:
+        """Format client timestamp for folder/file naming workflows."""
         return self.client_datetime.astimezone().strftime("%Y-%m-%d_%H-%M-%S")
 
     def to_payload(self) -> dict[str, str]:
+        """Serialize storage metadata to a JSON-compatible dictionary."""
         return {
             "experiment": self.experiment,
             "subdir": self.subdir or "",
@@ -39,6 +48,7 @@ class StorageMeta:
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "StorageMeta":
+        """Parse persisted metadata payloads into a validated `StorageMeta`."""
         if not isinstance(payload, Mapping):
             raise ValueError("StorageMeta payload must be a mapping.")
         experiment = str(payload.get("experiment") or "").strip()

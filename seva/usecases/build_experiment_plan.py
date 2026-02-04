@@ -1,6 +1,7 @@
+"""Use case for assembling a domain ExperimentPlan from UI-provided inputs."""
+
 from __future__ import annotations
 
-"""Use case for assembling a domain ExperimentPlan from UI-provided inputs."""
 
 from dataclasses import dataclass, field
 from typing import Dict, Mapping, Optional, Tuple
@@ -46,6 +47,28 @@ class BuildExperimentPlan:
     mode_registry: ModeRegistry = field(default_factory=ModeRegistry.default)
 
     def __call__(self, request: ExperimentPlanRequest) -> ExperimentPlan:
+        """Validate UI snapshots and build a typed ``ExperimentPlan``.
+
+        Args:
+            request: Normalized payload assembled by presenter/viewmodel code.
+
+        Returns:
+            ExperimentPlan: Plan metadata plus per-well mode configuration.
+
+        Side Effects:
+            None. This method only transforms and validates in-memory objects.
+
+        Call Chain:
+            ``RunFlowPresenter.start_run`` -> ``BuildExperimentPlan.__call__`` ->
+            ``StartExperimentBatch``.
+
+        Usage:
+            Called once per run-start action before any adapter I/O begins.
+
+        Raises:
+            UseCaseError: If required wells, modes, metadata, or parameters are
+                missing or invalid.
+        """
         wells = tuple(request.wells or ())
         if not wells:
             raise UseCaseError("NO_CONFIGURED_WELLS", "No configured wells to start.")
@@ -83,6 +106,7 @@ class BuildExperimentPlan:
                     continue
                 mode_names.append(ModeName(mode_token))
 
+                # Prefer typed mode builders; gracefully handle legacy builders.
                 builder = self.mode_registry.builder_for(mode_token) or ModeParams
                 try:
                     params_obj = builder.from_form(mode_snapshot.params)

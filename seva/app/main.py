@@ -1,3 +1,30 @@
+"""GUI application bootstrap and top-level event wiring.
+
+This module is the composition root of the desktop application. It assembles
+the Tkinter user interface by wiring views, view models, controllers, use
+cases, and concrete infrastructure adapters into one runnable app instance.
+
+Responsibilities of this module include:
+
+- Initializing the main window and core subviews (grid, experiment panel,
+  run overview, channel activity, runs panel, settings dialog entrypoints)
+- Creating and connecting view models to their corresponding views
+- Binding user actions (toolbar commands, panel actions, hotkeys) to
+  controller and use-case orchestration
+- Selecting concrete runtime dependencies (local storage, discovery adapter,
+  relay adapter) and connecting them to orchestration components
+- Coordinating run-flow lifecycle integration (start, cancel, polling,
+  download, registry sync)
+- Keeping UI state synchronized with domain/application state snapshots
+- Centralizing user-facing error formatting and status feedback
+
+The ``App`` class intentionally contains no business logic. It orchestrates
+interaction across layers and delegates domain behavior to use cases.
+
+Application startup is performed via :func:`main`, which instantiates
+``App`` and starts the Tkinter event loop.
+"""
+
 # seva/app/main.py
 from __future__ import annotations
 import logging
@@ -57,9 +84,15 @@ logging_utils.configure_root()
 
 
 class App:
-    """Bootstrap: wire Views <-> ViewModels, REST adapter, and simple polling."""
+    """Composition root that wires UI, orchestration, and adapter dependencies."""
 
     def __init__(self) -> None:
+        """Build the full desktop application composition graph.
+        
+        This constructor wires views, view models, controllers, adapters, and
+        use cases, then connects callback chains so user actions can flow from
+        UI widgets into orchestrated use-case calls.
+        """
         self._log = logging.getLogger(__name__)
         # Main window with toolbar callback wiring
         self.win = MainWindowView(
@@ -73,6 +106,8 @@ class App:
         self.win.bind("<Control-Shift-o>", self._on_open_download_folder_hotkey)
         self.win.bind("<Control-Shift-O>", self._on_open_download_folder_hotkey)
 
+        # Registry is the long-lived state bridge between run-flow orchestration
+        # and UI panels that need persisted/active run metadata.
         # ---- Shared registries ----
         self.runs = RunsRegistry.instance()
 
@@ -94,6 +129,7 @@ class App:
         self.live_vm = LiveDataVM()
         self.runs_vm = RunsVM(self.runs)
 
+        # Views receive callbacks only; they do not call adapters/use cases directly.
         # ---- Subviews (constructor callbacks; no .configure(...)) ----
         initial_boxes = tuple(self._configured_boxes())
         self.wellgrid = WellGridView(
@@ -152,6 +188,7 @@ class App:
         except Exception:
             self.win.tabs.add(self.runs_panel, text="Runs")
 
+        # Adapter wiring is lazy because URLs/API keys may be loaded from settings.
         # ---- REST Adapter & UseCases (lazy init after settings) ----
         self.controller = AppController(self.settings_vm)
 
@@ -177,6 +214,7 @@ class App:
         self.uc_test_relay = TestRelay(self._relay)
         self.uc_set_electrode_mode = SetElectrodeMode(self._relay)
 
+        # Presenter coordinates app-level flow and keeps Runs/Progress panels synchronized.
         # ---- Run flow coordination ----
         self.run_flow = RunFlowPresenter(
             win=self.win,
@@ -219,6 +257,7 @@ class App:
         self.runs_panel.on_open = self.run_flow.on_runs_open_folder
         self.runs_panel.on_cancel = self.run_flow.on_runs_cancel
         self.runs_panel.on_delete = self.run_flow.on_runs_delete
+        # Initial panel refresh ensures persisted entries are visible before user actions.
         self.run_flow.refresh_runs_panel()
         self.run_flow.configure_runs_registry(Path.home() / ".seva" / "runs_registry.json")
         self.run_flow.start_activity_polling()
@@ -228,6 +267,8 @@ class App:
         self.win.set_status_message("Ready.")
 
     def _load_user_settings(self) -> None:
+        """Load persisted settings, apply them to the SettingsVM, and sync UI.
+        """
         try:
             payload = self._storage.load_user_settings()
         except Exception as exc:
@@ -236,11 +277,14 @@ class App:
         try:
             self.settings_vm.apply_dict(payload)
         except ValueError as exc:
+            # Keep app startup resilient: show warning, keep defaults, continue.
             self.win.show_toast(str(exc))
         self._apply_logging_preferences()
         self._apply_box_configuration()
 
     def _apply_logging_preferences(self) -> None:
+        """Apply GUI logging preferences and emit effective-level diagnostics.
+        """
         level = logging_utils.apply_gui_preferences(self.settings_vm.debug_logging)
         self._log.debug(
             "Effective GUI log level: %s", logging_utils.level_name(level)
@@ -272,6 +316,7 @@ class App:
         """Ensure controller has adapters and use-cases initialized."""
         if self.controller.ensure_ready():
             return True
+        # UX guardrail: all network actions depend on configured box URLs.
         self.win.show_toast("Configure box URLs in Settings first.")
         return False
 
@@ -279,6 +324,8 @@ class App:
     # Demo data seeding (light)
     # ==================================================================
     def _seed_demo_state(self) -> None:
+        """Initialize views with a neutral empty state after startup wiring.
+        """
         boxes = tuple(self._configured_boxes())
         self.wellgrid.set_boxes(boxes)
         self.wellgrid.set_selection([])
@@ -296,9 +343,13 @@ class App:
         self.run_flow.start_run()
 
     def _on_cancel_group(self) -> None:
+        """Forward toolbar cancel-group action to the run-flow presenter.
+        """
         self.run_flow.cancel_active_group()
 
     def _on_end_selection(self) -> None:
+        """Cancel only the currently selected runs through presenter orchestration.
+        """
         self.run_flow.cancel_selected_runs()
 
     def _suggest_layout_filename(self) -> str:
@@ -313,6 +364,8 @@ class App:
         return f"layout_{sanitized}.json"
 
     def _on_save_layout(self) -> None:
+        """Collect current plate/form state and persist it as a layout JSON file.
+        """
         try:
             configured = self.plate_vm.configured()
             if not configured:
@@ -350,6 +403,8 @@ class App:
             self.win.show_toast(str(e))
 
     def _on_load_layout(self) -> None:
+        """Load a saved layout and push restored state back into VMs and views.
+        """
         try:
             initial_dir = os.path.abspath(self._storage_root)
             if not os.path.isdir(initial_dir):
@@ -367,6 +422,7 @@ class App:
                 experiment_vm=self.experiment_vm,
                 plate_vm=self.plate_vm,
             )
+            # Layout payload may omit explicit selection; fallback to configured wells.
             configured_wells = self.plate_vm.configured()
             selection_list = list(data.get("selection") or [])
             if not selection_list and configured_wells:
@@ -382,7 +438,7 @@ class App:
             self.plate_vm.set_selection(selection_list)
             self.wellgrid.set_configured_wells(configured_wells)
             self.wellgrid.set_selection(selection_list)
-            # Safety: explizit nochmal synchronisieren (idempotent)
+            # Idempotent safety sync to avoid stale form state in edge cases.
             self._on_selection_changed(set(selection_list))
 
             self.win.show_toast(f"Loaded {os.path.basename(path)}")
@@ -390,25 +446,45 @@ class App:
             self.win.show_toast(str(e))
 
     def _on_discover_devices(self, dialog: Optional[SettingsDialog] = None) -> None:
+        """Run discovery flow and surface failures as contextual UI toast.
+
+        Args:
+            dialog: Optional settings dialog to refresh with discovered URLs.
+        """
         try:
             self.discovery_controller.discover(dialog)
         except Exception as exc:
             self._toast_error(exc, context="Discovery failed")
 
     def _on_open_settings(self) -> None:
+        """Open the settings dialog through the dedicated settings controller.
+        """
         self.settings_controller.open_dialog()
 
 
     def _on_open_plotter(self) -> None:
+        """Open the standalone data plotter window.
+        """
         DataProcessingGUI(self.win)
 
     def _on_download_group_results(self) -> None:
+        """Trigger download for the active run group.
+        """
         self.download_controller.download_group_results()
 
     def _on_download_box_results(self, box_id: str) -> None:
+        """Trigger download action scoped from a box action in run overview.
+
+        Args:
+            box_id: Selected box identifier from the overview tab.
+
+        The current implementation delegates to group-level download behavior.
+        """
         self.download_controller.download_box_results(box_id)
 
     def _can_open_results_folder(self) -> bool:
+        """Return whether this runtime platform supports opening folders directly.
+        """
         if sys.platform.startswith("win"):
             return hasattr(os, "startfile")
         if sys.platform == "darwin":
@@ -416,17 +492,30 @@ class App:
         return shutil.which("xdg-open") is not None
 
     def _on_open_download_folder_hotkey(self, event=None):
+        """Handle Ctrl+Shift+O and open the most recent download directory.
+
+        Args:
+            event: Tk keybinding event (unused).
+
+        Returns:
+            str: ``"break"`` to stop default key handling.
+        """
         if not self.run_flow.last_download_dir:
             self.win.show_toast("Nothing downloaded yet.")
             return "break"
         if not self._can_open_results_folder():
             self.win.show_toast("Open folder not supported on this platform.")
             return "break"
+        # Delegate to shared open logic to keep toolbar/hotkey behavior identical.
         self._open_results_folder(self.run_flow.last_download_dir)
         return "break"
 
     def _open_results_folder(self, path: str) -> None:
-        """Open the download folder using the platform default file browser."""
+        """Open the download folder using the platform default file browser.
+
+        Args:
+            path: Absolute or relative directory path to open.
+        """
         if not path or not os.path.isdir(path):
             return
         try:
@@ -446,13 +535,17 @@ class App:
     # VM ↔ View glue
     # ==================================================================
     def _on_selection_changed(self, sel: Set[str]) -> None:
-        """Always clear first, then (if single) set snapshot + label."""
+        """Sync experiment form state to current well selection.
+
+        Args:
+            sel: Selected well identifiers from ``PlateVM``.
+        """
         # Clear the view first to avoid stale values
         self.experiment.clear_fields()
 
         if len(sel) == 1:
             wid = next(iter(sel))
-            # Label aktualisieren
+            # Update the "editing well" label in the panel.
             try:
                 self.experiment.set_editing_well(wid)
             except Exception:
@@ -460,11 +553,14 @@ class App:
             # Flatten grouped snapshot and set
             params = self.experiment_vm.get_params_for(wid)
             if params:
+                # View always receives flat fields; VM handles grouped mode storage.
                 self.experiment.set_fields(params)
         else:
             self.experiment.set_editing_well("–")
 
     def _on_apply_params(self) -> None:
+        """Persist current form values into each selected well snapshot.
+        """
         selection = self.plate_vm.get_selection()
         if not selection:
             self.win.show_toast("No wells selected.")
@@ -477,6 +573,8 @@ class App:
         self.win.show_toast("Parameters applied.")
 
     def _on_reset_well_config(self) -> None:
+        """Clear saved parameters only for currently selected wells.
+        """
         selection = self.plate_vm.get_selection()
         if not selection:
             self.win.show_toast("No wells selected.")
@@ -491,6 +589,8 @@ class App:
         self.win.show_toast("Well config reset.")
 
     def _on_reset_all_wells(self) -> None:
+        """Clear all per-well parameter snapshots and reset selection state.
+        """
         configured = self.plate_vm.configured()
         if not configured and not self.plate_vm.get_selection():
             self.win.show_toast("No wells to reset.")
@@ -504,9 +604,19 @@ class App:
         self.win.show_toast("All wells reset.")
 
     def _mode_label(self, mode: str) -> str:
+        """Return user-facing label text for a normalized mode token.
+
+        Args:
+            mode: Normalized mode token such as ``CV`` or ``EIS``.
+        """
         return self.experiment_vm.mode_registry.label_for(mode)
 
     def _on_copy_mode(self, mode: str) -> None:
+        """Copy mode-specific form values from one selected source well.
+
+        Args:
+            mode: Mode token copied from current form values.
+        """
         selection = self.plate_vm.get_selection()
         if len(selection) == 0:
             self.win.show_toast("Select one well to copy.")
@@ -514,6 +624,7 @@ class App:
         if len(selection) > 1:
             self.win.show_toast("Select exactly one well to copy.")
             return
+        # Copy is intentionally single-source to keep clipboard semantics deterministic.
         well_id = next(iter(selection))
         try:
             snapshot = self.experiment_vm.build_mode_snapshot_for_copy(mode)
@@ -530,6 +641,11 @@ class App:
             self.win.show_toast(str(e))
 
     def _on_paste_mode(self, mode: str) -> None:
+        """Paste mode-specific clipboard values into all selected wells.
+
+        Args:
+            mode: Mode token to paste into selected wells.
+        """
         selection = self.plate_vm.get_selection()
         if not selection:
             self.win.show_toast("No wells selected.")
@@ -552,12 +668,18 @@ class App:
             self.win.show_toast(str(e))
             return
 
+        # Pasting implicitly configures targets; reflect that in VM and grid styling.
         self.plate_vm.mark_configured(selection)
         self.wellgrid.add_configured_wells(selection)
         self._on_selection_changed(selection)
         self.win.show_toast(f"Pasted {self._mode_label(mode)}.")
 
     def _on_electrode_mode_changed(self, mode: str) -> None:
+        """Apply electrode-mode change to VM first, then relay use case.
+
+        Args:
+            mode: Normalized electrode mode token (``2E`` or ``3E``).
+        """
         try:
             self.experiment_vm.set_electrode_mode(mode)
             self.uc_set_electrode_mode(mode)
@@ -566,7 +688,13 @@ class App:
             self.win.show_toast(str(e))
 
     def _apply_run_overview(self, dto: Dict) -> None:
+        """Render presenter-provided run overview DTO into the overview view.
+
+        Args:
+            dto: View DTO with box metadata and well table rows.
+        """
         boxes = dto.get("boxes", {}) or {}
+        # DTO is presenter-owned; this method only adapts shape for concrete widgets.
         for b, meta in boxes.items():
             # subrun may be a CSV string or a list; normalize to CSV for the view
             sub = meta.get("subrun")
@@ -581,11 +709,21 @@ class App:
         self.run_overview.set_well_rows(dto.get("wells", []) or [])
 
     def _apply_channel_activity(self, mapping: Dict[str, str]) -> None:
+        """Render channel activity map and updated-at label in the activity view.
+
+        Args:
+            mapping: Mapping of ``well_id -> status`` produced by ``ProgressVM``.
+        """
         self.activity.set_activity(mapping)
         label = self.progress_vm.updated_at_label or time.strftime("%H:%M:%S")
         self.activity.set_updated_at(label)
 
     def _open_plot_for_well(self, well_id: str) -> None:
+        """Placeholder plot action hook for per-well interactions in the grid.
+
+        Args:
+            well_id: Well identifier selected by the user.
+        """
         self.win.show_toast(f"Open PNG for {well_id}")
 
     # ==================================================================
@@ -593,12 +731,23 @@ class App:
     # ==================================================================
 
     def _toast_error(self, err: Exception, *, context: Optional[str] = None) -> None:
+        """Format an exception into UI-safe text and show it in the toast area.
+
+        Args:
+            err: Exception raised by orchestration/usecase layers.
+            context: Optional prefix for contextualizing the error.
+        """
         message = self._format_error_message(err)
         if context:
             message = f"{context}: {message}"
         self.win.show_toast(message)
 
     def _format_error_message(self, err: Exception) -> str:
+        """Convert exceptions into user-facing text while logging diagnostics.
+
+        Args:
+            err: Exception to convert.
+        """
         if isinstance(err, UseCaseError):
             self._log.warning("UseCase error (%s): %s", err.code, err.message)
             return err.message
@@ -609,6 +758,7 @@ class App:
 
 
 def main() -> None:
+    """Start the desktop application entrypoint."""
     app = App()
     app.win.mainloop()
 

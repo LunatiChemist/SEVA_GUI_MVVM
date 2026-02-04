@@ -1,3 +1,10 @@
+"""Adapter and use-case wiring for the desktop app runtime.
+
+This module owns lazy construction of concrete REST adapters and use-case
+objects that depend on values in :class:`seva.viewmodels.settings_vm.SettingsVM`.
+It is invoked by app-level presenters/controllers before network actions.
+"""
+
 from __future__ import annotations
 
 from typing import Optional
@@ -21,9 +28,21 @@ except ImportError:
 
 
 class AppController:
-    """Wires adapters and use-cases from the current settings state."""
+    """Create and cache runtime adapters/use-cases from settings state.
+
+    Call chain:
+        ``seva.app.main.App`` creates one instance and passes it to presenter
+        and controller collaborators. Those collaborators call ``ensure_ready``
+        before start/cancel/poll/download/test/flash operations.
+    """
 
     def __init__(self, settings_vm: SettingsVM) -> None:
+        """Initialize controller with settings-backed lazy dependencies.
+
+        Args:
+            settings_vm: UI state model containing API URLs, keys, and timeout
+                preferences used to build adapter instances.
+        """
         self.settings_vm = settings_vm
         self._job_adapter: Optional[JobRestAdapter] = None
         self._device_adapter: Optional[DeviceRestAdapter] = None
@@ -39,13 +58,21 @@ class AppController:
 
     @property
     def job_adapter(self) -> Optional[JobRestAdapter]:
+        """Return the cached job adapter used for run lifecycle requests."""
         return self._job_adapter
 
     @property
     def device_adapter(self) -> Optional[DeviceRestAdapter]:
+        """Return the cached device adapter used for health/status requests."""
         return self._device_adapter
 
     def reset(self) -> None:
+        """Drop all cached adapters and use-cases.
+
+        Side Effects:
+            Clears runtime objects so the next ``ensure_ready`` call rebuilds
+            everything from current settings values.
+        """
         self._job_adapter = None
         self._device_adapter = None
         self._firmware_adapter = None
@@ -59,6 +86,12 @@ class AppController:
         self.uc_flash_firmware = None
 
     def ensure_ready(self) -> bool:
+        """Ensure adapters/use-cases are available for network operations.
+
+        Returns:
+            ``True`` when dependencies are available, ``False`` when required
+            base URLs are missing from settings.
+        """
         if (
             self._job_adapter
             and self._device_adapter
@@ -119,6 +152,18 @@ class AppController:
         api_key: str,
         request_timeout: int,
     ) -> TestConnection:
+        """Create a one-box connection checker, optionally reusing adapter.
+
+        Args:
+            box_id: Target box identifier.
+            base_url: Base URL to test.
+            api_key: Optional API key for the box.
+            request_timeout: Request timeout in seconds.
+
+        Returns:
+            A :class:`TestConnection` use-case bound to either a cached adapter
+            (when target URL matches) or a temporary single-box adapter.
+        """
         adapter = self._device_adapter
         if adapter and getattr(adapter, "base_urls", {}).get(box_id) == base_url:
             if self.uc_test_connection is None:

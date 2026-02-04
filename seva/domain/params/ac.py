@@ -1,4 +1,9 @@
-"""AC mode parameter mapping."""
+"""AC mode parameter mapping from UI form snapshots to typed payload fields.
+
+`ModeRegistry` resolves this builder for AC/DC workflows so the use-case layer
+can construct API payloads from a validated domain object instead of raw form
+dictionaries.
+"""
 
 from __future__ import annotations
 
@@ -80,6 +85,7 @@ class ACParams(ModeParams):
 
     @classmethod
     def _extract_flags(cls, data: Mapping[str, Any]) -> Dict[str, Any]:
+        """Collect mode flags from nested and flat form snapshots."""
         flags: Dict[str, Any] = {}
         nested = data.get("flags")
         if isinstance(nested, MutableMapping):
@@ -93,10 +99,12 @@ class ACParams(ModeParams):
 
     @staticmethod
     def _is_flag_key(key: str) -> bool:
+        """Return whether a field key should be treated as a run flag."""
         return key in _FLAG_KEYS or key.startswith("run_")
 
     @staticmethod
     def _maybe_set(target: Dict[str, Any], key: str, value: Any) -> None:
+        """Write a key/value only when the value is non-empty."""
         if value is None:
             return
         if isinstance(value, str) and not value.strip():
@@ -105,6 +113,7 @@ class ACParams(ModeParams):
 
     @staticmethod
     def _is_empty(value: Any) -> bool:
+        """Return whether a candidate value should be treated as empty."""
         if value is None:
             return True
         if isinstance(value, str):

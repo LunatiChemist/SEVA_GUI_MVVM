@@ -1,3 +1,9 @@
+"""Use case for polling group status with domain normalization.
+
+It reads server-authoritative snapshots through `JobPort`, normalizes payloads
+into `GroupSnapshot`, and enforces requested group identifiers.
+"""
+
 from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Dict, Mapping
@@ -11,10 +17,36 @@ from seva.domain.snapshot_normalizer import normalize_status
 
 @dataclass
 class PollGroupStatus:
+    """Use-case callable for group-level status polling.
+    
+    Attributes:
+        Fields are consumed by use-case orchestration code and callers.
+    """
     job_port: JobPort
 
     def __call__(self, run_group_id: RunGroupId) -> GroupSnapshot:
-        """Poll the backend and return a normalized GroupSnapshot."""
+        """Poll server status and return a normalized ``GroupSnapshot``.
+
+        Args:
+            run_group_id: Group identifier of the running experiment batch.
+
+        Returns:
+            GroupSnapshot: Domain snapshot consumed by presenter/viewmodels.
+
+        Side Effects:
+            Performs network I/O via ``JobPort.poll_group``.
+
+        Call Chain:
+            Poll scheduler tick -> ``PollGroupStatus.__call__`` ->
+            ``JobPort.poll_group`` -> ``normalize_status``.
+
+        Usage:
+            Keeps UI status server-authoritative by normalizing backend payloads.
+
+        Raises:
+            UseCaseError: If adapter polling fails and is mapped by
+                ``map_api_error``.
+        """
         try:
             raw_snapshot = self.job_port.poll_group(run_group_id)
         except Exception as exc:  # pragma: no cover - defensive guard

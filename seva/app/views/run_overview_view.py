@@ -1,15 +1,7 @@
-"""
-RunOverviewView
-----------------
-UI-only Tkinter view that displays progress/status for the current Run Group.
+"""Run overview tab that renders per-box and per-well runtime status.
 
-Features:
-- Per-box summary panels (A–D) with status label, progress bar and SubRunId.
-- Per-well table (Treeview) showing Phase, Progress %, Remaining, Last Error, SubRunId.
-- Toolbar with action: Download Group.
-- Scrollable table; no backend or domain logic here.
-
-All comments are in English as per project guidance.
+This module is view-only. It receives already-prepared DTO tuples from the
+progress viewmodel and renders them in summary cards plus a details table.
 """
 from __future__ import annotations
 import tkinter as tk
@@ -38,6 +30,16 @@ class RunOverviewView(ttk.Frame):
         on_download_box_results: OnBox = None,
         on_open_plot: Optional[callable] = None,
     ) -> None:
+        """Create toolbar, box summary cards, and well status table.
+
+        Args:
+            parent: Notebook tab container.
+            boxes: Ordered list of box ids shown in summary cards.
+            on_cancel_group: Optional cancel-group callback (reserved).
+            on_download_group_results: Callback for group download action.
+            on_download_box_results: Optional callback for box-scoped download.
+            on_open_plot: Optional callback used by row interactions.
+        """
         super().__init__(parent)
 
         self._boxes = list(boxes)
@@ -55,12 +57,14 @@ class RunOverviewView(ttk.Frame):
 
     # ------------------------------------------------------------------
     def _build_toolbar(self) -> None:
+        """Build row of top-level actions for the run overview tab."""
         bar = ttk.Frame(self)
         bar.grid(row=0, column=0, sticky="ew", padx=6, pady=(6, 4))
         ttk.Button(bar, text="Download Group", command=self._on_download_group_results).pack(side="left", padx=18)
 
     # ------------------------------------------------------------------
     def _build_box_summary(self) -> None:
+        """Build per-box status card widgets."""
         wrap = ttk.Frame(self)
         wrap.grid(row=1, column=0, sticky="ew", padx=6, pady=4)
 
@@ -88,6 +92,7 @@ class RunOverviewView(ttk.Frame):
 
     # ------------------------------------------------------------------
     def _build_well_table(self) -> None:
+        """Build scrollable tree table for per-well status rows."""
         frame = ttk.Frame(self)
         frame.grid(row=2, column=0, sticky="nsew", padx=6, pady=(4, 6))
         frame.rowconfigure(0, weight=1)
@@ -128,7 +133,14 @@ class RunOverviewView(ttk.Frame):
     # Public API used by ViewModels/Presenters
     # ------------------------------------------------------------------
     def set_box_status(self, box_id: BoxId, *, phase: str, progress_pct: float, sub_run_id: Optional[str]) -> None:
-        """Update per-box summary information."""
+        """Update one box card with latest phase/progress/subrun values.
+
+        Args:
+            box_id: Box identifier to update.
+            phase: User-facing phase text.
+            progress_pct: Progress percent value from 0 to 100.
+            sub_run_id: Optional sub-run identifier label.
+        """
         if box_id not in self._boxes:
             return
         self._box_status_lbl[box_id].configure(text=phase)
@@ -139,7 +151,8 @@ class RunOverviewView(ttk.Frame):
     def set_well_rows(self, rows: List[Tuple]) -> None:
         """Replace the well table content.
 
-        rows: list of tuples (well_id, phase, progress_pct, [remaining], last_error, sub_run_id)
+        Args:
+            rows: Iterable of table tuples in presenter/viewmodel format.
         """
         self.table.delete(*self.table.get_children())
         for row in rows:
@@ -155,7 +168,11 @@ class RunOverviewView(ttk.Frame):
             )
 
     def set_boxes(self, boxes: Iterable[BoxId]) -> None:
-        """Rebuild summary header for a new set of boxes."""
+        """Rebuild summary header for a new set of boxes.
+
+        Args:
+            boxes: New ordered set of visible boxes.
+        """
         # Destroy and rebuild summary area
         for child in list(self.grid_slaves(row=1, column=0)):
             child.destroy()
@@ -166,10 +183,20 @@ class RunOverviewView(ttk.Frame):
     # Internal helpers
     # ------------------------------------------------------------------
     def _format_remaining(self, remaining: Optional[object]) -> str:
+        """Normalize remaining-time values for table display.
+
+        Args:
+            remaining: Remaining value from DTO.
+        """
         text = "" if remaining is None else str(remaining).strip()
         return text or "—"
 
     def _on_row_double_click(self, event=None):
+        """Open modal with full error text for the selected row.
+
+        Args:
+            event: Tk double-click event (unused).
+        """
         sel = self.table.selection()
         if not sel:
             return
@@ -194,6 +221,15 @@ class RunOverviewView(ttk.Frame):
         btns.pack(fill="x", pady=(6,0))
         ttk.Button(btns, text="Copy", command=lambda: self._copy_to_clipboard(full_err)).pack(side="left")
         ttk.Button(btns, text="Close", command=top.destroy).pack(side="right")
+
+    def _copy_to_clipboard(self, text: str) -> None:
+        """Copy text to system clipboard.
+
+        Args:
+            text: Text payload copied when user clicks "Copy" in the error modal.
+        """
+        self.clipboard_clear()
+        self.clipboard_append(text or "")
 
 if __name__ == "__main__":
     root = tk.Tk()

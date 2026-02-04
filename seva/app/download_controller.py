@@ -1,6 +1,11 @@
+"""UI-facing controller for run-result download actions.
+
+This module maps download button events from views into the download use-case
+through app-level collaborators. It contains orchestration only.
+"""
+
 from __future__ import annotations
 
-"""Controller for download actions initiated from UI."""
 
 import logging
 import os
@@ -12,7 +17,7 @@ from seva.app.run_flow_presenter import RunFlowPresenter
 
 
 class DownloadController:
-    """Download orchestration for run results."""
+    """Coordinate download actions for active run groups."""
 
     def __init__(
         self,
@@ -24,6 +29,16 @@ class DownloadController:
         ensure_adapter: Callable[[], bool],
         toast_error,
     ) -> None:
+        """Initialize controller dependencies.
+
+        Args:
+            win: Root window used for toast feedback.
+            controller: Adapter/use-case wiring provider.
+            run_flow: Run presenter storing active group and metadata.
+            settings_vm: Settings viewmodel containing fallback results dir.
+            ensure_adapter: Callback ensuring adapters are initialized.
+            toast_error: Callback for normalized error-to-toast mapping.
+        """
         self._log = logging.getLogger(__name__)
         self.win = win
         self.controller = controller
@@ -33,6 +48,12 @@ class DownloadController:
         self._toast_error = toast_error
 
     def download_group_results(self) -> None:
+        """Download the active group's result bundle and toast the target path.
+
+        Error Cases:
+            Missing active group, missing storage metadata, and download
+            failures are converted to user-visible toast messages.
+        """
         group_id = self.run_flow.active_group_id
         if not group_id or not self._ensure_adapter():
             self.win.show_toast("No active group.")
@@ -62,6 +83,15 @@ class DownloadController:
             self._toast_error(exc)
 
     def download_box_results(self, box_id: str) -> None:
+        """Handle box-scoped download requests.
+
+        Args:
+            box_id: Box id selected in the run overview tab.
+
+        Notes:
+            Current behavior delegates to group-level download because the
+            backend export path is group-oriented.
+        """
         self.download_group_results()
 
 

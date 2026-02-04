@@ -1,6 +1,12 @@
+"""Domain value objects and aggregates shared across adapters, use cases, and VMs.
+
+The domain layer uses these immutable wrappers to keep validation close to
+contract boundaries. Use cases build these types from adapter payloads and
+pass them upward without leaking raw JSON structures.
+"""
+
 from __future__ import annotations
 
-"""Domain value objects and aggregates shared across adapters, use-cases, and view models."""
 
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -15,10 +21,12 @@ class GroupId:
     """Sanitized identifier string safe for persistence, URLs, and file-system paths."""
 
     def __post_init__(self) -> None:
+        """Reject blank identifiers before they enter plans and registries."""
         if not isinstance(self.value, str) or not self.value.strip():
             raise ValueError("GroupId must be a non-empty string.")
 
     def __str__(self) -> str:
+        """Return the raw identifier string for serialization."""
         return self.value
 
 
@@ -30,10 +38,12 @@ class RunId:
     """Backend-provided identifier string for the run, preserved verbatim."""
 
     def __post_init__(self) -> None:
+        """Validate backend run identifiers before snapshot usage."""
         if not isinstance(self.value, str) or not self.value.strip():
             raise ValueError("RunId must be a non-empty string.")
 
     def __str__(self) -> str:
+        """Expose the run identifier as text."""
         return self.value
 
 
@@ -45,10 +55,12 @@ class WellId:
     """Domain identifier string for a well, typically in A1 notation."""
 
     def __post_init__(self) -> None:
+        """Validate that well ids are non-empty strings."""
         if not isinstance(self.value, str) or not self.value.strip():
             raise ValueError("WellId must be a non-empty string.")
 
     def __str__(self) -> str:
+        """Return the canonical well id string."""
         return self.value
 
 
@@ -60,10 +72,12 @@ class BoxId:
     """Stable identifier string used to address a specific box."""
 
     def __post_init__(self) -> None:
+        """Validate that box ids are non-empty strings."""
         if not isinstance(self.value, str) or not self.value.strip():
             raise ValueError("BoxId must be a non-empty string.")
 
     def __str__(self) -> str:
+        """Return the canonical box id string."""
         return self.value
 
 
@@ -75,10 +89,12 @@ class ModeName:
     """Name of the mode as understood by both the UI and the backend."""
 
     def __post_init__(self) -> None:
+        """Validate mode names used by mode registry lookups."""
         if not isinstance(self.value, str) or not self.value.strip():
             raise ValueError("ModeName must be a non-empty string.")
 
     def __str__(self) -> str:
+        """Return the mode name string."""
         return self.value
 
 
@@ -90,12 +106,14 @@ class ClientDateTime:
     """Timezone-aware timestamp representing when the client issued the plan."""
 
     def __post_init__(self) -> None:
+        """Ensure client timestamps include timezone information."""
         if not isinstance(self.value, datetime):
             raise TypeError("ClientDateTime requires a datetime instance.")
         if self.value.tzinfo is None or self.value.tzinfo.utcoffset(self.value) is None:
             raise ValueError("ClientDateTime must be timezone-aware.")
 
     def __str__(self) -> str:
+        """Format the timestamp as ISO-8601 text."""
         return self.value.isoformat()
 
 
@@ -107,12 +125,14 @@ class ServerDateTime:
     """Timezone-aware timestamp reported by the backend for status updates."""
 
     def __post_init__(self) -> None:
+        """Ensure server timestamps include timezone information."""
         if not isinstance(self.value, datetime):
             raise TypeError("ServerDateTime requires a datetime instance.")
         if self.value.tzinfo is None or self.value.tzinfo.utcoffset(self.value) is None:
             raise ValueError("ServerDateTime must be timezone-aware.")
 
     def __str__(self) -> str:
+        """Format the timestamp as ISO-8601 text."""
         return self.value.isoformat()
 
 
@@ -124,6 +144,7 @@ class ProgressPct:
     """Progress value in percent, clamped to the inclusive range [0.0, 100.0]."""
 
     def __post_init__(self) -> None:
+        """Normalize progress values and enforce the valid range."""
         if not isinstance(self.value, (float, int)):
             raise TypeError("ProgressPct expects a numeric percent value.")
         numeric = float(self.value)
@@ -132,9 +153,11 @@ class ProgressPct:
         object.__setattr__(self, "value", numeric)
 
     def __float__(self) -> float:
+        """Return progress as float for math operations."""
         return self.value
 
     def __str__(self) -> str:
+        """Return progress as a user-facing percentage string."""
         return f"{self.value:.2f}%"
 
 
@@ -146,6 +169,7 @@ class Seconds:
     """Non-negative number of seconds representing a duration measurement."""
 
     def __post_init__(self) -> None:
+        """Normalize durations to non-negative integer seconds."""
         if not isinstance(self.value, (int, float)):
             raise TypeError("Seconds expects an integer number of seconds.")
         numeric = int(self.value)
@@ -154,9 +178,11 @@ class Seconds:
         object.__setattr__(self, "value", numeric)
 
     def __int__(self) -> int:
+        """Return the normalized integer duration."""
         return self.value
 
     def __str__(self) -> str:
+        """Render duration as compact `Xs` text."""
         return f"{self.value}s"
 
 
@@ -168,6 +194,7 @@ class ModeParams:
     """Mode toggle flags derived from the mode definition."""
 
     def __post_init__(self) -> None:
+        """Copy flags into a plain dict for immutable snapshot semantics."""
         mapping = dict(self.flags or {})
         object.__setattr__(self, "flags", mapping)
 
@@ -208,6 +235,7 @@ class PlanMeta:
     """Optional sampling interval override supplied by the client."""
 
     def __post_init__(self) -> None:
+        """Trim plan metadata fields before orchestration persists them."""
         experiment = self.experiment.strip()
         if not experiment:
             raise ValueError("PlanMeta.experiment must not be blank.")
@@ -223,7 +251,7 @@ class WellPlan:
     """Plan for an individual well including its mode and configuration."""
     well: WellId
     modes: List[ModeName]
-    params_by_mode: Dict[ModeName,ModeParams]
+    params_by_mode: Dict[ModeName, ModeParams]
 
 
 @dataclass(frozen=True)
@@ -234,6 +262,7 @@ class ExperimentPlan:
     wells: List[WellPlan]
 
     def __post_init__(self) -> None:
+        """Validate that experiment plans contain at least one typed well plan."""
         if not self.wells:
             raise ValueError("ExperimentPlan.wells must contain at least one WellPlan.")
         if not all(isinstance(plan, WellPlan) for plan in self.wells):
@@ -260,6 +289,7 @@ class RunStatus:
     remaining_modes: Tuple[str, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
+        """Normalize status phase values for consistent UI rendering."""
         if not isinstance(self.phase, str) or not self.phase.strip():
             raise ValueError("RunStatus.phase must be a non-empty string.")
         object.__setattr__(self, "phase", self.phase.strip())
@@ -291,6 +321,7 @@ class GroupSnapshot:
     """Flag indicating whether every run in the group has finished successfully."""
 
     def __post_init__(self) -> None:
+        """Validate typed run and box maps produced by snapshot normalization."""
         self._validate_mapping("runs", self.runs, WellId, RunStatus)
         self._validate_mapping("boxes", self.boxes, BoxId, BoxSnapshot)
 
@@ -301,6 +332,7 @@ class GroupSnapshot:
         expected_key: type,
         expected_value: type,
     ) -> None:
+        """Enforce key/value type contracts for snapshot aggregate mappings."""
         if not isinstance(mapping, Mapping):
             raise TypeError(f"GroupSnapshot.{attr_name} must be a mapping.")
         for key, value in mapping.items():

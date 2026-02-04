@@ -1,6 +1,12 @@
+"""Controller for settings dialog actions and persistence updates.
+
+This module keeps settings workflow orchestration out of views by handling
+dialog callbacks, validation, persistence, and side effects (adapter resets,
+polling restarts, and box-configuration reapplication).
+"""
+
 from __future__ import annotations
 
-"""Controller for settings dialog actions."""
 
 import logging
 import os
@@ -33,6 +39,21 @@ class SettingsController:
         apply_box_configuration: Callable[[], None],
         stop_all_polling: Callable[[], None],
     ) -> None:
+        """Store collaborators needed by settings UI workflows.
+
+        Args:
+            win: Root window used for toasts and modal parenting.
+            settings_vm: Settings viewmodel holding editable values.
+            controller: App controller that owns runtime adapter wiring.
+            storage: Persistence port for user settings.
+            test_relay: Relay connectivity use-case callable.
+            ensure_adapter: Callback ensuring adapters/use-cases are ready.
+            toast_error: Callback that converts exceptions to user toasts.
+            on_discover_devices: Callback launching discovery workflow.
+            apply_logging_preferences: Callback applying debug log settings.
+            apply_box_configuration: Callback refreshing configured box UI.
+            stop_all_polling: Callback stopping active polling loops.
+        """
         self._log = logging.getLogger(__name__)
         self.win = win
         self.settings_vm = settings_vm
@@ -47,9 +68,15 @@ class SettingsController:
         self._stop_all_polling = stop_all_polling
 
     def open_dialog(self) -> None:
+        """Open settings dialog and wire per-button handlers."""
         dlg: Optional[SettingsDialog] = None
 
         def handle_test_connection(box_id: str) -> None:
+            """Test API connectivity for a single box id.
+
+            Args:
+                box_id: Box identifier selected from dialog row.
+            """
             if not dlg:
                 return
             url_var = dlg.url_vars.get(box_id)
@@ -106,6 +133,7 @@ class SettingsController:
             self.win.show_toast(f"Box {box_id}: {status} ({detail})")
 
         def handle_test_relay() -> None:
+            """Test relay connectivity with values from dialog fields."""
             if not dlg:
                 return
             ip = dlg.relay_ip_var.get().strip()
@@ -130,6 +158,7 @@ class SettingsController:
             self.win.show_toast(message)
 
         def handle_browse_results_dir() -> None:
+            """Open directory picker and set results directory field."""
             if not dlg:
                 return
             current = dlg.results_dir_var.get().strip()
@@ -154,6 +183,7 @@ class SettingsController:
             dlg.set_results_dir(new_dir)
 
         def handle_browse_firmware() -> None:
+            """Open file picker and set firmware path field."""
             if not dlg:
                 return
             current = dlg.firmware_path_var.get().strip()
@@ -179,6 +209,7 @@ class SettingsController:
             dlg.set_firmware_path(os.path.normpath(selected))
 
         def handle_flash_firmware() -> None:
+            """Flash firmware to all configured boxes."""
             if not dlg:
                 return
             firmware_path = dlg.firmware_path_var.get().strip()
@@ -218,6 +249,7 @@ class SettingsController:
                 self.win.show_toast("Firmware flash completed.")
 
         def handle_open_nas_setup() -> None:
+            """Open standalone NAS setup dialog."""
             NASSetupGUI(self.win)
 
         dlg = SettingsDialog(
@@ -251,6 +283,11 @@ class SettingsController:
         dlg.set_save_enabled(self.settings_vm.is_valid())
 
     def _on_settings_saved(self, cfg: dict) -> None:
+        """Validate and persist settings payload from the dialog.
+
+        Args:
+            cfg: Settings payload emitted by ``SettingsDialog``.
+        """
         payload = dict(cfg or {})
         raw_dir = str(payload.get("results_dir") or ".").strip() or "."
         expanded_dir = os.path.expanduser(raw_dir)

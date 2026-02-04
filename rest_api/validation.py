@@ -1,3 +1,11 @@
+"""Mode-specific payload validation for `POST /modes/{mode}/validate`.
+
+GUI ViewModels call this endpoint through `seva.adapters.device_rest` before
+submitting `POST /jobs`. The validators in this module are intentionally
+hardware-independent: they normalize values, apply safety and shape checks, and
+return structured errors/warnings that can be shown directly in the UI.
+"""
+
 from __future__ import annotations
 
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple

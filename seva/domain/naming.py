@@ -1,6 +1,7 @@
+"""Naming helpers for deterministic identifiers shared between layers."""
+
 from __future__ import annotations
 
-"""Naming helpers for deterministic identifiers shared between layers."""
 
 import random
 import re

@@ -1,4 +1,23 @@
-# /opt/box/app.py
+"""Primary FastAPI application for the potentiostat REST service.
+
+This module defines the HTTP contract consumed by GUI adapters in `seva`:
+
+- `seva.adapters.device_rest` for discovery and mode metadata
+- `seva.adapters.job_rest` for validate/start/poll/cancel/download workflows
+- `seva.adapters.firmware_rest` for firmware uploads
+
+The routes here orchestrate job lifecycle state, then delegate specialized work
+to helper modules:
+
+- `validation.py` for payload validation
+- `progress_utils.py` for progress and remaining-time estimates
+- `storage.py` for run-directory naming and lookup
+- `nas_smb.py` for SMB upload and retention operations
+
+Error responses are normalized through `http_error(...)` so GUI ViewModels can
+surface stable error codes/messages without parsing framework-native payloads.
+"""
+
 import logging, os, uuid, threading, zipfile, io, pathlib, datetime, platform, subprocess, shutil
 from typing import Optional, Literal, Dict, List, Any
 from datetime import timezone
@@ -69,6 +88,7 @@ try:
     from seva.utils.logging import configure_root as _configure_logging, level_name as _level_name
 except Exception:  # pragma: no cover - fallback when GUI package unavailable
     def _configure_logging(default_level: int | str = logging.INFO) -> int:
+        """Configure root logging when shared GUI logging helpers are unavailable."""
         level = logging.INFO
         if isinstance(default_level, str):
             candidate = getattr(logging, default_level.upper(), None)
@@ -89,10 +109,12 @@ except Exception:  # pragma: no cover - fallback when GUI package unavailable
         return level
 
     def _level_name(level: int) -> str:
+        """Return standard logging level name text for diagnostics."""
         return logging.getLevelName(level)
 
 else:
     def _level_name(level: int) -> str:
+        """Return standard logging level name text for diagnostics."""
         return logging.getLevelName(level)
 
 
@@ -102,6 +124,27 @@ log.debug("REST API logger initialized at %s", _level_name(logging.getLogger().l
 
 
 def _detect_pybeep_version() -> str:
+    """Detect the installed pyBEEP package version for version reporting.
+    
+    Parameters
+    ----------
+    None
+        This callable does not receive explicit input parameters.
+    
+    Returns
+    -------
+    str
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Used by FastAPI routes and background slot worker orchestration.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     if "importlib_metadata" in globals() and importlib_metadata:
         try:
             version = importlib_metadata.version("pyBEEP")
@@ -121,6 +164,27 @@ def _detect_pybeep_version() -> str:
 
 
 def _detect_build_identifier() -> str:
+    """Resolve a build identifier from environment variables, git, or timestamp fallback.
+    
+    Parameters
+    ----------
+    None
+        This callable does not receive explicit input parameters.
+    
+    Returns
+    -------
+    str
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Used by FastAPI routes and background slot worker orchestration.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     env_build = os.getenv("BOX_BUILD") or os.getenv("BOX_BUILD_ID")
     if env_build:
         return env_build
@@ -142,10 +206,62 @@ def _detect_build_identifier() -> str:
 
 
 def _build_error_detail(code: str, message: str, hint: Optional[str] = None) -> Dict[str, str]:
+    """Build the canonical JSON error payload returned by API endpoints.
+    
+    Parameters
+    ----------
+    code : str
+        Value supplied by the API caller or internal orchestration.
+    message : str
+        Value supplied by the API caller or internal orchestration.
+    hint : Optional[str]
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    Dict[str, str]
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Used by FastAPI routes and background slot worker orchestration.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     return {"code": code, "message": message, "hint": hint or ""}
 
 
 def http_error(status_code: int, code: str, message: str, hint: Optional[str] = None) -> JSONResponse:
+    """Create a JSONResponse in the shared API error format.
+    
+    Parameters
+    ----------
+    status_code : int
+        Value supplied by the API caller or internal orchestration.
+    code : str
+        Value supplied by the API caller or internal orchestration.
+    message : str
+        Value supplied by the API caller or internal orchestration.
+    hint : Optional[str]
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    JSONResponse
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Used by FastAPI routes and background slot worker orchestration.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     if status_code == 422:
         log.info("Validation failed [%s]: %s", code, message)
         if hint:
@@ -159,6 +275,12 @@ BUILD_IDENTIFIER = _detect_build_identifier()
 
 # ---------- Device registry ----------
 class DeviceInfo(BaseModel):
+    """Schema describing one discovered hardware slot.
+    
+    Notes
+    -----
+    Used by FastAPI routes to validate or serialize request and response payloads.
+    """
     slot: str
     port: str  # e.g. /dev/ttyACM0 or ttyACM0
     sn: Optional[str] = None
@@ -168,6 +290,27 @@ DEV_META: Dict[str, DeviceInfo] = {}              # slot -> info
 DEVICE_SCAN_LOCK = threading.Lock()
 
 def discover_devices():
+    """Scan connected potentiostats and refresh in-memory slot metadata.
+    
+    Parameters
+    ----------
+    None
+        This callable does not receive explicit input parameters.
+    
+    Returns
+    -------
+    Any
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Used by FastAPI routes and background slot worker orchestration.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     with DEVICE_SCAN_LOCK:
         DEVICES.clear()
         DEV_META.clear()
@@ -188,6 +331,12 @@ def discover_devices():
 
 # ---------- Job models ----------
 class JobRequest (BaseModel):
+    """Schema for `/jobs` start requests from GUI clients.
+    
+    Notes
+    -----
+    Used by FastAPI routes to validate or serialize request and response payloads.
+    """
     devices: List[str] | Literal["all"] = Field(..., description='e.g. ["slot01","slot02"] or "all"')
     modes: List[str] = Field(..., min_length=1, description="e.g. ['CV','EIS']")
     params_by_mode: Dict[str, Dict] = Field(default_factory=dict, description="per-mode parameter schema")
@@ -203,6 +352,27 @@ class JobRequest (BaseModel):
 
 
 def _build_run_storage_info(req: JobRequest) -> RunStorageInfo:
+    """Derive sanitized storage naming metadata from a job request.
+    
+    Parameters
+    ----------
+    req : JobRequest
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    RunStorageInfo
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Used by FastAPI routes and background slot worker orchestration.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     subdir_source = req.subdir
     if _value_or_none(subdir_source) is None:
         subdir_source = req.folder_name
@@ -228,6 +398,12 @@ def _build_run_storage_info(req: JobRequest) -> RunStorageInfo:
 
 
 class SlotStatus(BaseModel):
+    """Schema for per-slot execution state inside a run.
+    
+    Notes
+    -----
+    Used by FastAPI routes to validate or serialize request and response payloads.
+    """
     slot: str
     status: Literal["idle", "queued", "running", "done", "failed", "cancelled"]
     started_at: Optional[str] = None
@@ -236,6 +412,12 @@ class SlotStatus(BaseModel):
     files: List[str] = Field(default_factory=list)  # relative paths
 
 class JobStatus(BaseModel):
+    """Schema for full run status responses.
+    
+    Notes
+    -----
+    Used by FastAPI routes to validate or serialize request and response payloads.
+    """
     run_id: str
     # For backward compatibility we use 'mode' as the *current* mode
     mode: str
@@ -251,6 +433,12 @@ class JobStatus(BaseModel):
 
 
 class JobOverview(BaseModel):
+    """Schema for compact run listings returned by `/jobs`.
+    
+    Notes
+    -----
+    Used by FastAPI routes to validate or serialize request and response payloads.
+    """
     run_id: str
     mode: str
     status: Literal["queued", "running", "done", "failed", "cancelled"]
@@ -260,6 +448,12 @@ class JobOverview(BaseModel):
 
 
 class JobStatusBulkRequest(BaseModel):
+    """Schema for bulk status lookup requests.
+    
+    Notes
+    -----
+    Used by FastAPI routes to validate or serialize request and response payloads.
+    """
     run_ids: List[str] = Field(..., min_length=1, description="run_id list for bulk status lookup")
 
 JOBS: Dict[str, JobStatus] = {}            # run_id -> status
@@ -282,6 +476,27 @@ def record_job_meta(run_id: str, mode: str, params: Dict[str, Any]) -> None:
 
 
 def _normalize_group_value(value: Optional[str]) -> Optional[str]:
+    """Normalize optional group identifiers for consistent matching.
+    
+    Parameters
+    ----------
+    value : Optional[str]
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    Optional[str]
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Used by FastAPI routes and background slot worker orchestration.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     if value is None:
         return None
     if not isinstance(value, str):
@@ -291,6 +506,27 @@ def _normalize_group_value(value: Optional[str]) -> Optional[str]:
 
 
 def _derive_group_folder(run_id: str) -> Optional[str]:
+    """Infer the storage group folder from a run identifier.
+    
+    Parameters
+    ----------
+    run_id : str
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    Optional[str]
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Used by FastAPI routes and background slot worker orchestration.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     try:
         run_dir = _resolve_run_directory(run_id)
     except HTTPException:
@@ -308,6 +544,27 @@ def _derive_group_folder(run_id: str) -> Optional[str]:
 
 
 def _job_overview_status(job: JobStatus) -> Literal["queued", "running", "done", "failed", "cancelled"]:
+    """Compute list-level status semantics from per-slot states.
+    
+    Parameters
+    ----------
+    job : JobStatus
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    Literal['queued', 'running', 'done', 'failed', 'cancelled']
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Used by FastAPI routes and background slot worker orchestration.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     slot_states = [slot.status for slot in job.slots]
     if slot_states and all(state == "queued" for state in slot_states):
         return "queued"
@@ -315,6 +572,27 @@ def _job_overview_status(job: JobStatus) -> Literal["queued", "running", "done",
 
 
 def job_snapshot(job: JobStatus) -> JobStatus:
+    """Build a status snapshot enriched with computed progress metrics.
+    
+    Parameters
+    ----------
+    job : JobStatus
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    JobStatus
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Used by FastAPI routes and background slot worker orchestration.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     copy = job.model_copy(deep=True)
 
     # only create/retain meta while the job is running
@@ -347,6 +625,27 @@ def job_snapshot(job: JobStatus) -> JobStatus:
 # ---------- Startup ----------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Manage application startup and shutdown side effects.
+    
+    Parameters
+    ----------
+    app : FastAPI
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    Any
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Used by FastAPI routes and background slot worker orchestration.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     discover_devices()
     try:
         NAS.start_background()
@@ -369,6 +668,29 @@ app = FastAPI(title="Potentiostat Box API", version=API_VERSION, lifespan=lifesp
 async def handle_request_validation(
     request: Request, exc: RequestValidationError
 ):
+    """Map FastAPI validation errors to the API-specific error contract.
+    
+    Parameters
+    ----------
+    request : Request
+        Value supplied by the API caller or internal orchestration.
+    exc : RequestValidationError
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    Any
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Used by FastAPI routes and background slot worker orchestration.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     errors = exc.errors()
     log.info("Validation 422 path=%s issues=%d", request.url.path, len(errors))
     log.debug("Validation detail: %s", errors)
@@ -384,6 +706,27 @@ async def handle_request_validation(
 
 # ---------- Auth Helper ----------
 def require_key(x_api_key: Optional[str]) -> Optional[JSONResponse]:
+    """Enforce optional API-key authentication for protected endpoints.
+    
+    Parameters
+    ----------
+    x_api_key : Optional[str]
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    Optional[JSONResponse]
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Used by FastAPI routes and background slot worker orchestration.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     if API_KEY and x_api_key != API_KEY:
         return http_error(
             status_code=401,
@@ -396,6 +739,27 @@ def require_key(x_api_key: Optional[str]) -> Optional[JSONResponse]:
 
 @app.get("/version")
 def version_info() -> Dict[str, str]:
+    """Return API, runtime, and build version metadata.
+    
+    Parameters
+    ----------
+    None
+        This callable does not receive explicit input parameters.
+    
+    Returns
+    -------
+    Dict[str, str]
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Called by GUI adapter HTTP clients through the FastAPI router.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     return {
         "api": API_VERSION,
         "pybeep": PYBEEP_VERSION,
@@ -406,6 +770,27 @@ def version_info() -> Dict[str, str]:
 # ---------- Health / Devices / Modes ----------
 @app.get("/health")
 def health(x_api_key: Optional[str] = Header(None)):
+    """Return service health and discovered-device count.
+    
+    Parameters
+    ----------
+    x_api_key : Optional[str]
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    Any
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Called by GUI adapter HTTP clients through the FastAPI router.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     if auth_error := require_key(x_api_key):
         return auth_error
     with DEVICE_SCAN_LOCK:
@@ -414,6 +799,27 @@ def health(x_api_key: Optional[str] = Header(None)):
 
 @app.get("/devices")
 def list_devices(x_api_key: Optional[str] = Header(None)):
+    """Return discovered device metadata and slot names.
+    
+    Parameters
+    ----------
+    x_api_key : Optional[str]
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    Any
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Called by GUI adapter HTTP clients through the FastAPI router.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     if auth_error := require_key(x_api_key):
         return auth_error
     with DEVICE_SCAN_LOCK:
@@ -426,6 +832,27 @@ def list_devices(x_api_key: Optional[str] = Header(None)):
 
 @app.get("/devices/status", response_model=List[SlotStatus])
 def list_device_status(x_api_key: Optional[str] = Header(None)) -> List[SlotStatus]:
+    """Return per-slot runtime state derived from active jobs.
+    
+    Parameters
+    ----------
+    x_api_key : Optional[str]
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    List[SlotStatus]
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Called by GUI adapter HTTP clients through the FastAPI router.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     if auth_error := require_key(x_api_key):
         return auth_error
     with DEVICE_SCAN_LOCK:
@@ -457,6 +884,27 @@ def list_device_status(x_api_key: Optional[str] = Header(None)) -> List[SlotStat
 
 @app.get("/modes")
 def list_modes(x_api_key: Optional[str] = Header(None)):
+    """Expose mode names supported by the connected controller.
+    
+    Parameters
+    ----------
+    x_api_key : Optional[str]
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    Any
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Called by GUI adapter HTTP clients through the FastAPI router.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     if auth_error := require_key(x_api_key):
         return auth_error
     # Take modes from the first device (all are configured identically)
@@ -474,6 +922,29 @@ def list_modes(x_api_key: Optional[str] = Header(None)):
 
 @app.get("/modes/{mode}/params")
 def mode_params(mode: str, x_api_key: Optional[str] = Header(None)):
+    """Return mode-specific parameter schema information.
+    
+    Parameters
+    ----------
+    mode : str
+        Value supplied by the API caller or internal orchestration.
+    x_api_key : Optional[str]
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    Any
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Called by GUI adapter HTTP clients through the FastAPI router.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     if auth_error := require_key(x_api_key):
         return auth_error
     with DEVICE_SCAN_LOCK:
@@ -520,6 +991,27 @@ def validate_mode_params(
 
 # ---------- Job Worker ----------
 def _update_job_status_locked(job: Optional[JobStatus]) -> None:
+    """Recompute aggregate job state from per-slot statuses.
+    
+    Parameters
+    ----------
+    job : Optional[JobStatus]
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    None
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Used by FastAPI routes and background slot worker orchestration.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     if not job:
         return
 
@@ -590,6 +1082,7 @@ def _run_slot_sequence(
     cancel_event = CANCEL_FLAGS.setdefault(run_id, threading.Event())
 
     def _eval_plot(csv_path: pathlib.Path, mode: str, params: Dict[str, Any]) -> List[str]:
+        """Generate optional plot artifact and return sorted relative output file list."""
         files: List[str] = []
         try:
             if req.make_plot:
@@ -648,6 +1141,7 @@ def _run_slot_sequence(
             # Measurement with abort window in background thread
             measurement_error: Optional[Exception] = None
             def _runner():
+                """Run one mode measurement and capture exceptions for outer thread."""
                 nonlocal measurement_error
                 try:
                     ctrl.apply_measurement(
@@ -759,6 +1253,7 @@ def _run_one_slot(
     measurement_error: Optional[Exception] = None
 
     def _measurement_runner():
+        """Execute measurement call and capture raised exception for polling loop."""
         nonlocal measurement_error
         try:
             ctrl.apply_measurement(
@@ -1106,6 +1601,29 @@ def job_status(run_id: str, x_api_key: Optional[str] = Header(None)):
 
 @app.get("/runs/{run_id}/files")
 def list_run_files(run_id: str, x_api_key: Optional[str] = Header(None)):
+    """List files available inside a run output directory.
+    
+    Parameters
+    ----------
+    run_id : str
+        Value supplied by the API caller or internal orchestration.
+    x_api_key : Optional[str]
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    Any
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Called by GUI adapter HTTP clients through the FastAPI router.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     if auth_error := require_key(x_api_key):
         return auth_error
     run_dir = _resolve_run_directory(run_id)
@@ -1128,6 +1646,31 @@ def list_run_files(run_id: str, x_api_key: Optional[str] = Header(None)):
 
 @app.get("/runs/{run_id}/file")
 def get_run_file(run_id: str, path: str, x_api_key: Optional[str] = Header(None)):
+    """Serve a single file from a run output directory.
+    
+    Parameters
+    ----------
+    run_id : str
+        Value supplied by the API caller or internal orchestration.
+    path : str
+        Value supplied by the API caller or internal orchestration.
+    x_api_key : Optional[str]
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    Any
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Called by GUI adapter HTTP clients through the FastAPI router.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     if auth_error := require_key(x_api_key):
         return auth_error
     run_dir = _resolve_run_directory(run_id)
@@ -1182,6 +1725,29 @@ def get_run_file(run_id: str, path: str, x_api_key: Optional[str] = Header(None)
 
 @app.get("/runs/{run_id}/zip")
 def get_run_zip(run_id: str, x_api_key: Optional[str] = Header(None)):
+    """Stream a ZIP archive of all files for one run.
+    
+    Parameters
+    ----------
+    run_id : str
+        Value supplied by the API caller or internal orchestration.
+    x_api_key : Optional[str]
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    Any
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Called by GUI adapter HTTP clients through the FastAPI router.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     if auth_error := require_key(x_api_key):
         return auth_error
     run_dir = _resolve_run_directory(run_id)
@@ -1210,6 +1776,12 @@ def get_run_zip(run_id: str, x_api_key: Optional[str] = Header(None)):
 # ---------- NAS Storage Requests ----------
 
 class SMBSetupRequest(BaseModel):
+    """Schema for SMB/NAS setup requests.
+    
+    Notes
+    -----
+    Used by FastAPI routes to validate or serialize request and response payloads.
+    """
     host: str
     share: str
     username: str
@@ -1220,6 +1792,29 @@ class SMBSetupRequest(BaseModel):
 
 @app.post("/nas/setup")
 def nas_setup(req: SMBSetupRequest, x_api_key: Optional[str] = Header(None)):
+    """Persist NAS/SMB settings and run an initial connectivity probe.
+    
+    Parameters
+    ----------
+    req : SMBSetupRequest
+        Value supplied by the API caller or internal orchestration.
+    x_api_key : Optional[str]
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    Any
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Called by GUI adapter HTTP clients through the FastAPI router.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     if auth_error := require_key(x_api_key):
         return auth_error
     result = NAS.setup(
@@ -1235,12 +1830,56 @@ def nas_setup(req: SMBSetupRequest, x_api_key: Optional[str] = Header(None)):
 
 @app.get("/nas/health")
 def nas_health(x_api_key: Optional[str] = Header(None)):
+    """Report NAS/SMB connectivity status from the manager.
+    
+    Parameters
+    ----------
+    x_api_key : Optional[str]
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    Any
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Called by GUI adapter HTTP clients through the FastAPI router.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     if auth_error := require_key(x_api_key):
         return auth_error
     return NAS.health()
 
 @app.post("/runs/{run_id}/upload")
 def nas_upload_run(run_id: str, x_api_key: Optional[str] = Header(None)):
+    """Queue an on-demand NAS upload for a run directory.
+    
+    Parameters
+    ----------
+    run_id : str
+        Value supplied by the API caller or internal orchestration.
+    x_api_key : Optional[str]
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    Any
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Called by GUI adapter HTTP clients through the FastAPI router.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     if auth_error := require_key(x_api_key):
         return auth_error
     enq = NAS.enqueue_upload(run_id)
@@ -1249,6 +1888,27 @@ def nas_upload_run(run_id: str, x_api_key: Optional[str] = Header(None)):
 # ---------- Admin (optional) ----------
 @app.post("/admin/rescan")
 def rescan(x_api_key: Optional[str] = Header(None)):
+    """Trigger a fresh hardware discovery scan.
+    
+    Parameters
+    ----------
+    x_api_key : Optional[str]
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    Any
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Called by GUI adapter HTTP clients through the FastAPI router.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     if auth_error := require_key(x_api_key):
         return auth_error
     discover_devices()
@@ -1258,6 +1918,29 @@ def rescan(x_api_key: Optional[str] = Header(None)):
 
 @app.post("/firmware/flash")
 def flash_firmware(file: UploadFile = File(...), x_api_key: Optional[str] = Header(None)):
+    """Invoke dfu-util to write firmware to the controller.
+    
+    Parameters
+    ----------
+    file : UploadFile
+        Value supplied by the API caller or internal orchestration.
+    x_api_key : Optional[str]
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    Any
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Called by GUI adapter HTTP clients through the FastAPI router.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     if auth_error := require_key(x_api_key):
         return auth_error
 
@@ -1339,28 +2022,48 @@ DEVICE_IDS = list(range(1, 11))
 
 @dataclass
 class TemperatureSample:
+    """Telemetry sample emitted by the mock source.
+    
+    Notes
+    -----
+    Used by FastAPI routes to validate or serialize request and response payloads.
+    """
     device_id: int
     ts: str          # ISO 8601
     temp_c: float
     seq: int
 
 class LatestResponse(BaseModel):
+    """Schema wrapper for latest telemetry samples.
+    
+    Notes
+    -----
+    Used by FastAPI routes to validate or serialize request and response payloads.
+    """
     samples: List[TemperatureSample]
 
 class MockPotentiostatSource:
-    """
-    Mockt 10 Geräte: Sinus + Drift + Noise + Dropouts.
+    """Generate deterministic-looking mock telemetry for 10 device ids.
+
+    Notes
+    -----
+    The telemetry endpoint uses this source to exercise GUI streaming workflows
+    without connecting to real hardware. Samples include drift, noise, and rare
+    dropouts so dashboards can be tested against non-ideal data.
     """
     def __init__(self, device_ids: List[int]) -> None:
+        """Seed per-device counters and baseline values for telemetry synthesis."""
         self.device_ids = device_ids
         self._seq_by_dev: Dict[int, int] = {d: 0 for d in device_ids}
         self._base_by_dev: Dict[int, float] = {d: 25.0 + d * 0.3 for d in device_ids}
         self._t0 = time.time()
 
     def _now_iso(self) -> str:
+        """Return current UTC timestamp as ISO-8601 text."""
         return datetime.datetime.now(timezone.utc).isoformat()
 
     def generate_one(self, device_id: int) -> Optional[TemperatureSample]:
+        """Generate one pseudo-random telemetry sample or dropout for a device."""
         # simulating Dropouts
         if random.random() < 0.01:
             return None
@@ -1387,6 +2090,27 @@ latest_by_dev: Dict[int, TemperatureSample] = {}
 
 @app.get("/api/telemetry/temperature/latest")
 def get_latest():
+    """Return the latest cached telemetry sample per device.
+    
+    Parameters
+    ----------
+    None
+        This callable does not receive explicit input parameters.
+    
+    Returns
+    -------
+    Any
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Called by GUI adapter HTTP clients through the FastAPI router.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     for d in DEVICE_IDS:
         if d not in latest_by_dev:
             s = source.generate_one(d)
@@ -1395,6 +2119,31 @@ def get_latest():
     return {"samples": [asdict(latest_by_dev[d]) for d in DEVICE_IDS if d in latest_by_dev]}
 
 def sse_format(event: str, data_obj, event_id: Optional[str] = None) -> str:
+    """Serialize a server-sent-event message payload.
+    
+    Parameters
+    ----------
+    event : str
+        Value supplied by the API caller or internal orchestration.
+    data_obj : Any
+        Value supplied by the API caller or internal orchestration.
+    event_id : Optional[str]
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    str
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Used by FastAPI routes and background slot worker orchestration.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     msg = ""
     if event_id is not None:
         msg += f"id: {event_id}\n"
@@ -1404,9 +2153,31 @@ def sse_format(event: str, data_obj, event_id: Optional[str] = None) -> str:
 
 @app.get("/api/telemetry/temperature/stream")
 async def temperature_stream(rate_hz: float = Query(2.0, ge=0.2, le=20.0)):
+    """Stream simulated telemetry samples over SSE.
+    
+    Parameters
+    ----------
+    rate_hz : float
+        Value supplied by the API caller or internal orchestration.
+    
+    Returns
+    -------
+    Any
+        Value returned to the caller or consumed by the route handler.
+    
+    Notes
+    -----
+    Called by GUI adapter HTTP clients through the FastAPI router.
+    
+    Raises
+    ------
+    HTTPException
+        Raises HTTPException when request data, auth, or storage resolution fails.
+    """
     interval = 1.0 / rate_hz
 
     async def gen():
+        """Yield SSE payloads for temperature samples and periodic ping keepalives."""
         last_ping = time.time()
 
         # optional initial burst

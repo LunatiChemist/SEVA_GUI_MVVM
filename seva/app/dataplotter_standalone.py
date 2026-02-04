@@ -1,3 +1,9 @@
+"""Standalone data-plotter UI and charge-integration utilities.
+
+This legacy utility module hosts plotting widgets and helper calculations used
+outside the main run orchestration flow.
+"""
+
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk, simpledialog
 import pandas as pd
@@ -29,6 +35,19 @@ import numpy as np
 from scipy.integrate import simpson as simps
 
 def computeChargePassed(df, min_time, max_time):
+    """Integrate current over a selected time window and report charge metrics.
+    
+    Args:
+        df (Any): Input provided by callers or UI events.
+        min_time (Any): Input provided by callers or UI events.
+        max_time (Any): Input provided by callers or UI events.
+    
+    Returns:
+        Any: Value returned to callers.
+    
+    Raises:
+        RuntimeError: Raised when UI orchestration encounters unrecoverable errors.
+    """
     integrals = {}
 
     # Filter the DataFrame for the specified time interval
@@ -76,13 +95,10 @@ def computeChargePassed(df, min_time, max_time):
 
 
 def DataProcessingGUI(master=None):
-    """
-    SEVA Data Processing GUI.
+    """Create and run the standalone data-processing GUI window.
 
-    CSV-native workflow:
-    - Load a single .csv file into a pandas DataFrame.
-    - Map user CSV headers (e.g., 'Time (s)', 'Potential (V)', 'Current (A)') to canonical column names.
-    - Replace legacy .data "sections" with Cycle-based selections if a 'Cycle' column exists.
+    Args:
+        master: Optional Tk parent for opening as child window.
     """
 
     global df
@@ -136,7 +152,11 @@ def DataProcessingGUI(master=None):
     ESSENTIAL_COLUMNS = ['Time', 'Voltage', 'Current']
 
     def resource_path(relative_path):
-        """Get absolute path to resource, works for dev and for PyInstaller."""
+        """Resolve resource path for both source and PyInstaller runs.
+
+        Args:
+            relative_path: Relative path to resolve.
+        """
         try:
             base_path = sys._MEIPASS
         except Exception:
@@ -144,7 +164,11 @@ def DataProcessingGUI(master=None):
         return os.path.join(base_path, relative_path)
 
     def apply_column_mapper(df_in: pd.DataFrame) -> pd.DataFrame:
-        """Normalize and map user CSV headers to the internal canonical names."""
+        """Normalize and map user CSV headers to canonical names.
+
+        Args:
+            df_in: Raw dataframe loaded from CSV.
+        """
         df_local = df_in.copy()
 
         # Strip header whitespace
@@ -183,7 +207,11 @@ def DataProcessingGUI(master=None):
         return df_local
 
     def load_csv_with_mapper(file_path: str) -> pd.DataFrame:
-        """Load a CSV, map its columns, and validate required columns."""
+        """Load CSV, normalize column names, and validate essentials.
+
+        Args:
+            file_path: CSV file path selected by the user.
+        """
         try:
             raw = pd.read_csv(file_path)
         except Exception as e:
@@ -204,10 +232,10 @@ def DataProcessingGUI(master=None):
         return mapped
 
     def update_variable_dropdowns_from_df(df_source: pd.DataFrame):
-        """
-        Rebuild X/Y/Y2 menus to only contain columns present in the DataFrame.
+        """Rebuild X/Y/Y2 menus to columns present in the dataframe.
 
-        This prevents KeyErrors when users load CSVs without EIS columns.
+        Args:
+            df_source: Dataframe currently loaded in the GUI.
         """
         preferred = [
             'Time', 'Voltage', 'Current', 'Applied (V)',
@@ -231,6 +259,13 @@ def DataProcessingGUI(master=None):
             options = list(df_source.columns)
 
         def rebuild(menu_widget, tk_var, values):
+            """Rebuild a Tk option-menu with new values.
+
+            Args:
+                menu_widget: Tk option-menu widget.
+                tk_var: Bound Tk variable.
+                values: New option labels.
+            """
             menu_widget['menu'].delete(0, 'end')
             for v in values:
                 menu_widget['menu'].add_command(
@@ -251,7 +286,11 @@ def DataProcessingGUI(master=None):
             secondary_y_axis_var.set('Voltage' if 'Voltage' in options else options[0])
 
     def update_section_dropdown(df_source: pd.DataFrame):
-        """Update the 'Selections' dropdown based on Cycle column (CSV workflow)."""
+        """Update section dropdown from ``Cycle`` values.
+
+        Args:
+            df_source: Dataframe currently loaded in the GUI.
+        """
         global selected_section_id
 
         section_dict = {}
@@ -268,6 +307,11 @@ def DataProcessingGUI(master=None):
         section_menu['menu'].delete(0, 'end')
 
         def on_section_select(display_text):
+            """Apply selected section id and refresh plot.
+
+            Args:
+                display_text: Selected section display label.
+            """
             global selected_section_id
             selected_section_id = section_dict[display_text]
             update_plot()
@@ -356,7 +400,16 @@ def DataProcessingGUI(master=None):
             print(f"Update plot error: {e}")
 
     def display_plot(df_in, col1, col2, secondary_col, log_x, y2_enabled):
-        """Create and embed the matplotlib figure into the Tk UI."""
+        """Create and embed matplotlib figure into the Tk UI.
+
+        Args:
+            df_in: Dataframe to plot.
+            col1: X-axis column name.
+            col2: Primary Y-axis column name.
+            secondary_col: Optional secondary Y-axis column name.
+            log_x: Whether X axis should be logarithmic.
+            y2_enabled: Whether secondary axis should be rendered.
+        """
         global fig, ax, canvas, toolbar, span_selector, redoxEvents
         fig, ax = plt.subplots()
 
@@ -482,11 +535,18 @@ def DataProcessingGUI(master=None):
         canvas.get_tk_widget().pack(expand=True, fill=tk.BOTH)
 
     def IRCorrect(df_in, FilePath, col1, col2):
-        """
-        iR correction:
-        - Only applies when X is Voltage/E_real and Y is Current.
-        - Prompts for series resistance Rs (Ohm).
-        - Adds/updates column 'E_real' in df_full.
+        """Apply IR correction and update ``E_real`` values.
+
+        Args:
+            df_in: Currently displayed dataframe.
+            FilePath: Source file path (unused, retained for compatibility).
+            col1: Active x-axis column.
+            col2: Active y-axis column.
+
+        Notes:
+            - Only applies when X is Voltage/E_real and Y is Current.
+            - Prompts for series resistance Rs (ohm).
+            - Adds/updates column ``E_real`` in ``df_full``.
         """
         global df_full
 
@@ -521,6 +581,11 @@ def DataProcessingGUI(master=None):
         update_plot()
 
     def get_label_with_units(variable):
+        """Return human-readable axis label for a dataframe column name.
+
+        Args:
+            variable: Canonical dataframe column name.
+        """
         units = {
             'Time': 'Time (s)',
             'Voltage': 'Voltage (V)',
@@ -536,6 +601,11 @@ def DataProcessingGUI(master=None):
         return units.get(variable, variable)
 
     def zoom_plot(event=None):
+        """Apply manual x-range zoom and recompute charge over visible window.
+
+        Args:
+            event: Tk event from Enter key binding.
+        """
         global df
         try:
             xmin_val = float(xmin_entry.get())
@@ -566,6 +636,14 @@ def DataProcessingGUI(master=None):
             messagebox.showerror("Error", f"An error occurred: {e}")
 
     def get_peaks(df_in, FilePath, col1, col2):
+        """Legacy placeholder for peak extraction workflow hooks.
+
+        Args:
+            df_in: Currently displayed dataframe.
+            FilePath: Source data file path.
+            col1: Active x-axis column.
+            col2: Active y-axis column.
+        """
         global redoxEvents
 
         if col1 == 'Voltage' and col2 == 'Current':
@@ -594,9 +672,10 @@ def DataProcessingGUI(master=None):
                 print(f'Could not find peaks due to: {e}')
 
     def data_to_CSV(FilePath):
-        """
-        Save the currently loaded (and optionally cycle-filtered) dataframe to dataframe.csv
-        next to the source CSV file.
+        """Save current dataframe view to ``dataframe.csv`` next to source file.
+
+        Args:
+            FilePath: Source CSV path used as output directory anchor.
         """
         global df_full, selected_section_id
 

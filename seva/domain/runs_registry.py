@@ -1,3 +1,9 @@
+"""Persistent registry for run-group metadata and runtime attachments.
+
+Application controllers and use cases use this singleton to keep track of
+active groups, persisted snapshots, and download completion state.
+"""
+
 from __future__ import annotations
 
 import json
@@ -60,12 +66,14 @@ class RunsRegistry:
 
     @classmethod
     def instance(cls) -> "RunsRegistry":
+        """Return the process-wide registry singleton."""
         with cls._lock:
             if cls._instance is None:
                 cls._instance = cls()
             return cls._instance
 
     def __init__(self) -> None:
+        """Initialize in-memory registries and the default persistence path."""
         self._log = logging.getLogger(__name__)
         self._entries: Dict[str, RunEntry] = {}
         self._coordinators: Dict[str, "RunFlowCoordinator"] = {}
@@ -94,6 +102,7 @@ class RunsRegistry:
             ]
         ] = None,
     ) -> None:
+        """Configure persistence and runtime factory hooks used for reattachment."""
         if store_path is not None:
             self._store_path = store_path
         if hooks_factory is not None:
@@ -120,9 +129,11 @@ class RunsRegistry:
         self._contexts.pop(group_id, None)
 
     def coordinator_for(self, group_id: str) -> Optional["RunFlowCoordinator"]:
+        """Return runtime coordinator for a group when attached."""
         return self._coordinators.get(group_id)
 
     def context_for(self, group_id: str) -> Optional["GroupContext"]:
+        """Return cached runtime context for a group when attached."""
         return self._contexts.get(group_id)
 
     def start_tracking(self, group_id: str) -> Optional["GroupContext"]:
@@ -177,6 +188,7 @@ class RunsRegistry:
         storage_meta: StorageMeta,
         created_at_iso: Optional[str] = None,
     ) -> None:
+        """Create and persist a new registry entry for a run group."""
         created = created_at_iso or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         entry = RunEntry(
             group_id=group_id,
@@ -192,12 +204,14 @@ class RunsRegistry:
         self._persist()
 
     def update_snapshot(self, group_id: str, snapshot: Any) -> None:
+        """Persist the latest polling snapshot for one group if it exists."""
         entry = self._entries.get(group_id)
         if not entry:
             return
         entry.last_snapshot = self._serialize_snapshot(snapshot)
 
     def mark_done(self, group_id: str, download_path: Optional[str]) -> None:
+        """Mark a group complete, record download output, and detach runtime hooks."""
         entry = self._entries.get(group_id)
         if not entry:
             return
@@ -207,6 +221,7 @@ class RunsRegistry:
         self._persist()
 
     def mark_cancelled(self, group_id: str) -> None:
+        """Mark a group as cancelled and detach runtime hooks."""
         entry = self._entries.get(group_id)
         if not entry:
             return
@@ -215,6 +230,7 @@ class RunsRegistry:
         self._persist()
 
     def mark_error(self, group_id: str, message: Optional[str] = None) -> None:
+        """Mark a group as failed, optionally recording an error message."""
         entry = self._entries.get(group_id)
         if not entry:
             return
@@ -225,6 +241,7 @@ class RunsRegistry:
         self._persist()
 
     def remove(self, group_id: str) -> None:
+        """Remove a non-active group and stop any lingering coordinator polling."""
         # Safety: do not remove active groups; require cancel/done first
         if group_id in self.active_groups():
             coord = self._coordinators.get(group_id)
@@ -248,12 +265,15 @@ class RunsRegistry:
         self._persist()
 
     def get(self, group_id: str) -> Optional[RunEntry]:
+        """Return one registry entry by group id."""
         return self._entries.get(group_id)
 
     def all_entries(self) -> List[RunEntry]:
+        """Return all registry entries for UI list rendering."""
         return list(self._entries.values())
 
     def active_groups(self) -> List[str]:
+        """Return group ids still considered active by status."""
         return [
             group_id
             for group_id, entry in self._entries.items()
@@ -264,6 +284,7 @@ class RunsRegistry:
     # Persistence helpers
     # ------------------------------------------------------------------ #
     def load(self) -> None:
+        """Load persisted entries, skipping malformed payload items safely."""
         self._entries.clear()
         if not self._store_path.exists():
             return
@@ -318,6 +339,7 @@ class RunsRegistry:
             self._log.warning("RunsRegistry load skipped %d invalid entries.", failed)
 
     def save(self) -> None:
+        """Persist the current in-memory registry state."""
         self._persist()
 
     # ------------------------------------------------------------------ #
@@ -325,6 +347,7 @@ class RunsRegistry:
     # ------------------------------------------------------------------ #
     @staticmethod
     def _serialize_plan_meta(meta: PlanMeta) -> Dict[str, Any]:
+        """Convert `PlanMeta` into JSON-serializable persistence payload."""
         return {
             "experiment": meta.experiment,
             "subdir": meta.subdir or "",
@@ -337,6 +360,7 @@ class RunsRegistry:
 
     @staticmethod
     def _parse_plan_meta(payload: Mapping[str, Any]) -> PlanMeta:
+        """Parse persisted plan metadata with compatibility key fallbacks."""
         if not isinstance(payload, Mapping):
             raise ValueError("Plan meta payload must be a mapping.")
         experiment_source = (
@@ -346,6 +370,7 @@ class RunsRegistry:
             or payload.get("group_id")
             or "unknown"
         )
+        # Keep legacy key compatibility while still producing normalized PlanMeta.
         experiment = str(experiment_source).strip() or "unknown"
 
         subdir_raw = payload.get("subdir")
@@ -365,6 +390,7 @@ class RunsRegistry:
         if group_raw:
             group_id = GroupId(str(group_raw))
         else:
+            # Rebuild deterministic ids for old payloads that missed persisted group ids.
             group_id = make_group_id_from_parts(experiment, subdir, client_value)
 
         make_plot = payload.get("make_plot")
@@ -384,18 +410,22 @@ class RunsRegistry:
 
     @staticmethod
     def _serialize_storage_meta(meta: StorageMeta) -> Dict[str, Any]:
+        """Convert `StorageMeta` into JSON payload form."""
         return meta.to_payload()
 
     @staticmethod
     def _parse_storage_meta(payload: Mapping[str, Any]) -> StorageMeta:
+        """Parse persisted storage metadata into typed `StorageMeta`."""
         return StorageMeta.from_payload(payload)
 
     def _serialize_snapshot(self, snapshot: Any) -> Optional[Dict[str, Any]]:
+        """Convert snapshots into JSON-safe dictionary payloads."""
         if snapshot is None:
             return None
         if isinstance(snapshot, dict):
             return snapshot
         if isinstance(snapshot, GroupSnapshot):
+            # Persist only JSON-safe scalar fields to keep registry reload robust.
             return {
                 "group": str(snapshot.group),
                 "runs": {
@@ -423,6 +453,7 @@ class RunsRegistry:
             return None
 
     def _persist(self) -> None:
+        """Write registry entries to disk as indented JSON."""
         self._store_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "entries": [
@@ -451,6 +482,7 @@ class RunsRegistry:
 
     @staticmethod
     def _default_store_path() -> Path:
+        """Return default registry file path under the user's home directory."""
         return Path.home() / ".seva" / "runs_registry.json"
 
 

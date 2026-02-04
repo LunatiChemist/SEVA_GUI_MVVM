@@ -1,3 +1,9 @@
+"""Runs-panel view for registry-backed run-group summaries.
+
+The panel renders rows and emits open/cancel/delete/select callbacks to the app
+presenter layer.
+"""
+
 from __future__ import annotations
 
 import tkinter as tk
@@ -12,6 +18,12 @@ class RunsPanelView(ttk.Frame):
     """
 
     def __init__(self, parent, **kwargs):
+        """Build toolbar + runs table.
+
+        Args:
+            parent: Notebook parent widget.
+            **kwargs: Additional frame options forwarded to ``ttk.Frame``.
+        """
         super().__init__(parent, **kwargs)
 
         toolbar = ttk.Frame(self)
@@ -70,6 +82,11 @@ class RunsPanelView(ttk.Frame):
     # Public API
     # ------------------------------------------------------------------
     def set_rows(self, rows: List) -> None:
+        """Replace table rows with registry-derived run summaries.
+
+        Args:
+            rows: Sequence of row DTOs from ``RunsVM.rows()``.
+        """
         selected = self.selected_group_id()
         self.tree.delete(*self.tree.get_children())
         for row in rows:
@@ -92,13 +109,18 @@ class RunsPanelView(ttk.Frame):
         self._update_buttons_state()
 
     def selected_group_id(self) -> Optional[str]:
+        """Return currently selected group id, if any."""
         selection = self.tree.selection()
         if not selection:
             return None
         return selection[0]
 
     def select_group(self, group_id: Optional[str]) -> None:
-        """Programmatically select a group row if available."""
+        """Programmatically select a group row if available.
+
+        Args:
+            group_id: Group id to select, or ``None`` to clear selection.
+        """
         for item in self.tree.selection():
             self.tree.selection_remove(item)
         if not group_id:
@@ -113,28 +135,37 @@ class RunsPanelView(ttk.Frame):
     # Internal helpers
     # ------------------------------------------------------------------
     def _on_select_changed(self, _event=None) -> None:
+        """Forward selection changes to external callback and update buttons.
+
+        Args:
+            _event: Tk selection-changed event.
+        """
         group_id = self.selected_group_id()
         self._update_buttons_state()
         if group_id and self.on_select:
             self.on_select(group_id)
 
     def _update_buttons_state(self) -> None:
+        """Enable action buttons only when a row is selected."""
         has_selection = self.selected_group_id() is not None
         state = "normal" if has_selection else "disabled"
         for button in (self.btn_open, self.btn_cancel, self.btn_delete):
             button.configure(state=state)
 
     def _on_open_click(self) -> None:
+        """Emit open callback for current selection."""
         group_id = self.selected_group_id()
         if group_id and self.on_open:
             self.on_open(group_id)
 
     def _on_cancel_click(self) -> None:
+        """Emit cancel callback for current selection."""
         group_id = self.selected_group_id()
         if group_id and self.on_cancel:
             self.on_cancel(group_id)
 
     def _on_delete_click(self) -> None:
+        """Emit delete callback for current selection."""
         group_id = self.selected_group_id()
         if group_id and self.on_delete:
             self.on_delete(group_id)

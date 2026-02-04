@@ -1,3 +1,9 @@
+"""Settings dialog view for editing runtime configuration.
+
+This UI component exposes callback hooks for save/test/discovery actions and
+contains no persistence or network logic of its own.
+"""
+
 from __future__ import annotations
 
 import tkinter as tk
@@ -30,6 +36,21 @@ class SettingsDialog(tk.Toplevel):
         on_flash_firmware: OnVoid = None,
         on_close: OnVoid = None,
     ) -> None:
+        """Initialize modal settings dialog and field variables.
+
+        Args:
+            parent: Root window used for modality and centering.
+            boxes: Ordered box ids rendered in connection rows.
+            on_test_connection: Per-box callback for connection tests.
+            on_test_relay: Callback for relay connection test.
+            on_browse_results_dir: Callback for selecting local results dir.
+            on_browse_firmware: Callback for selecting firmware image.
+            on_discover_devices: Callback that runs discovery workflow.
+            on_open_nas_setup: Callback opening NAS setup flow.
+            on_save: Callback receiving a normalized settings payload dict.
+            on_flash_firmware: Callback triggering firmware flashing flow.
+            on_close: Callback invoked when dialog closes.
+        """
         super().__init__(parent)
         self.title("Settings")
         self.transient(parent)
@@ -73,6 +94,7 @@ class SettingsDialog(tk.Toplevel):
 
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
+        """Create all dialog widget groups and footer actions."""
         pad = dict(padx=8, pady=6)
 
         # Connection group
@@ -205,6 +227,7 @@ class SettingsDialog(tk.Toplevel):
 
     # ------------------------------------------------------------------
     def _emit_save(self) -> None:
+        """Collect field values and emit them through ``on_save`` callback."""
         settings = {
             "api_base_urls": {box: self.url_vars[box].get().strip() for box in self._boxes},
             "api_keys": {box: self.key_vars[box].get() for box in self._boxes},
@@ -229,6 +252,7 @@ class SettingsDialog(tk.Toplevel):
                 print(f"SettingsDialog on_save failed: {exc}")
 
     def _on_close_clicked(self) -> None:
+        """Invoke close callback and destroy dialog safely."""
         self._safe(self._on_close)
         try:
             if self.winfo_exists():
@@ -240,57 +264,135 @@ class SettingsDialog(tk.Toplevel):
     # Public setters to initialize dialog fields from VM
     # ------------------------------------------------------------------
     def set_api_base_urls(self, mapping: Dict[BoxId, str]) -> None:
+        """Populate base URL fields from settings viewmodel state.
+
+        Args:
+            mapping: Box-id to base URL mapping.
+        """
         for box, url in (mapping or {}).items():
             if box in self.url_vars:
                 self.url_vars[box].set(url)
 
     def set_api_keys(self, mapping: Dict[BoxId, str]) -> None:
+        """Populate API key fields from settings viewmodel state.
+
+        Args:
+            mapping: Box-id to API key mapping.
+        """
         for box, key in (mapping or {}).items():
             if box in self.key_vars:
                 self.key_vars[box].set(key)
 
     def set_timeouts(self, request_s: int, download_s: int) -> None:
+        """Set request/download timeout inputs.
+
+        Args:
+            request_s: Request timeout in seconds.
+            download_s: Download timeout in seconds.
+        """
         self.request_timeout_var.set(str(request_s))
         self.download_timeout_var.set(str(download_s))
 
     def set_poll_interval(self, ms: int) -> None:
+        """Set poll interval input.
+
+        Args:
+            ms: Poll interval in milliseconds.
+        """
         self.poll_interval_var.set(str(ms))
 
     def set_poll_backoff_max(self, ms: int) -> None:
+        """Set maximum poll backoff input.
+
+        Args:
+            ms: Maximum poll backoff in milliseconds.
+        """
         self.poll_backoff_var.set(str(ms))
 
     def set_results_dir(self, path: str) -> None:
+        """Set results directory input.
+
+        Args:
+            path: Directory path string.
+        """
         self.results_dir_var.set(path)
 
     def set_experiment_name(self, name: str) -> None:
+        """Set experiment name input.
+
+        Args:
+            name: Experiment name string.
+        """
         self.experiment_name_var.set(name)
 
     def set_subdir(self, value: str) -> None:
+        """Set optional subdirectory input.
+
+        Args:
+            value: Optional subdirectory string.
+        """
         self.subdir_var.set(value)
 
     def set_auto_download(self, enabled: bool) -> None:
+        """Set auto-download checkbox state.
+
+        Args:
+            enabled: Whether auto-download should be enabled.
+        """
         self.auto_download_var.set(bool(enabled))
 
     def set_use_streaming(self, enabled: bool) -> None:
+        """Set streaming checkbox state.
+
+        Args:
+            enabled: Whether streaming mode should be enabled.
+        """
         self.use_streaming_var.set(bool(enabled))
 
     def set_debug_logging(self, enabled: bool) -> None:
+        """Set debug logging checkbox state.
+
+        Args:
+            enabled: Whether debug logging should be enabled.
+        """
         self.debug_logging_var.set(bool(enabled))
 
     def set_relay_config(self, ip: str, port: int) -> None:
+        """Set relay endpoint inputs.
+
+        Args:
+            ip: Relay IP address.
+            port: Relay TCP port.
+        """
         self.relay_ip_var.set(ip)
         self.relay_port_var.set(str(port))
 
     def set_firmware_path(self, path: str) -> None:
+        """Set firmware image path input.
+
+        Args:
+            path: Firmware image path string.
+        """
         self.firmware_path_var.set(path)
 
     def set_save_enabled(self, enabled: bool) -> None:
+        """Enable or disable the Save button.
+
+        Args:
+            enabled: Whether the Save button should be enabled.
+        """
         state = tk.NORMAL if enabled else tk.DISABLED
         self._btn_save.configure(state=state)
 
     # ------------------------------------------------------------------
     @staticmethod
     def _parse_int(text: str, default: int) -> int:
+        """Parse integer input, returning fallback on parse failure.
+
+        Args:
+            text: Input text to parse.
+            default: Fallback integer value.
+        """
         try:
             return int(text)
         except Exception:
@@ -298,6 +400,11 @@ class SettingsDialog(tk.Toplevel):
 
     @staticmethod
     def _center_over_parent(parent: tk.Widget) -> str:
+        """Return geometry string centered over parent window when possible.
+
+        Args:
+            parent: Parent widget used as centering anchor.
+        """
         try:
             px = parent.winfo_rootx()
             py = parent.winfo_rooty()
@@ -312,10 +419,21 @@ class SettingsDialog(tk.Toplevel):
             return "600x650"
 
     def _safe(self, fn: OnVoid) -> None:
+        """Invoke no-arg callback only when provided.
+
+        Args:
+            fn: Optional callback.
+        """
         if fn:
             fn()
 
     def _safe_box(self, fn: OnBox, box_id: BoxId) -> None:
+        """Invoke box callback only when provided.
+
+        Args:
+            fn: Optional callback taking box id.
+            box_id: Box id argument for callback.
+        """
         if fn:
             fn(box_id)
 

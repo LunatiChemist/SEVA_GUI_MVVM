@@ -1,3 +1,9 @@
+"""Use case for submitting experiment plans as backend jobs.
+
+This orchestration step calls `JobPort.start_batch`, maps transport failures,
+and returns run-group identifiers with per-box run mappings.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -23,6 +29,27 @@ class StartExperimentBatch:
     job_port: JobPort
 
     def __call__(self, plan: ExperimentPlan) -> StartBatchResult:
+        """Submit the prepared plan to the backend and return run identifiers.
+
+        Args:
+            plan: Fully validated domain plan produced by ``BuildExperimentPlan``.
+
+        Returns:
+            StartBatchResult: Group id and per-box run ids assigned by backend.
+
+        Side Effects:
+            Performs network I/O through ``JobPort.start_batch``.
+
+        Call Chain:
+            ``RunFlowCoordinator.start`` -> ``StartExperimentBatch.__call__`` ->
+            ``JobPort.start_batch``.
+
+        Usage:
+            First adapter-facing step in the experiment execution workflow.
+
+        Raises:
+            UseCaseError: Propagated directly or produced through error mapping.
+        """
         try:
             run_group_id, per_box_runs = self.job_port.start_batch(plan)
         except UseCaseError:

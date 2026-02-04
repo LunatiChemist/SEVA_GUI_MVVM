@@ -1,4 +1,13 @@
 # /opt/box/nas_smb.py
+"""SMB/CIFS NAS upload manager for completed runs.
+
+Notes
+-----
+`rest_api.app` uses this manager for `/nas/*` and `/runs/{run_id}/upload`. The
+manager mounts the share, copies run artifacts, verifies uploads, and handles
+retention cleanup.
+"""
+
 from __future__ import annotations
 import datetime as _dt
 import json, logging, os, shlex, shutil, subprocess, threading, time
@@ -13,6 +22,12 @@ import storage  # uses resolve_run_directory & RUNS_ROOT mirroring
 
 @dataclass
 class SMBConfig:
+    """Configuration record for SMB/CIFS uploads.
+    
+    Notes
+    -----
+    Participates in REST API helper workflows and transport contracts.
+    """
     host: str                # e.g. 192.168.1.10 or nas.local
     share: str               # SMB share name, e.g. "experiments"
     username: str
@@ -34,6 +49,7 @@ class NASManager:
     """
 
     def __init__(self, runs_root: Path, config_path: Path, logger: Optional[logging.Logger] = None) -> None:
+        """Initialize SMB manager runtime state, locks, and health cache."""
         self.runs_root = runs_root
         self.config_path = config_path
         self.log = logger or logging.getLogger("nas_smb")
@@ -46,6 +62,7 @@ class NASManager:
 
     # ---------- Config ----------
     def _load_config(self) -> Optional[SMBConfig]:
+        """Load SMB configuration from disk, returning `None` when unavailable."""
         try:
             data = json.loads(self.config_path.read_text(encoding="utf-8"))
             return SMBConfig(**data)
@@ -56,6 +73,7 @@ class NASManager:
             return None
 
     def _write_config(self, cfg: SMBConfig) -> None:
+        """Persist SMB configuration atomically with restrictive permissions."""
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.config_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(cfg.__dict__, indent=2, sort_keys=True), encoding="utf-8")
@@ -63,6 +81,7 @@ class NASManager:
         tmp.replace(self.config_path)
 
     def _write_credentials(self, path: Path, username: str, password: str, domain: Optional[str]) -> None:
+        """Write SMB credentials file used by mount.cifs."""
         lines = [f"username={username}", f"password={password}"]
         if domain:
             lines.append(f"domain={domain}")
@@ -73,6 +92,7 @@ class NASManager:
     # ---------- Setup ----------
     def setup(self, *, host: str, share: str, username: str, password: str,
               base_subdir: str = "", retention_days: int = 14, domain: Optional[str] = None) -> Dict[str, Any]:
+        """Store SMB settings, credentials, and verify share access with probe mount."""
         if not (host and share and username and password):
             raise HTTPException(400, "host/share/username/password required")
         cred_path = Path("/opt/box/.smbcredentials_nas")
@@ -96,6 +116,7 @@ class NASManager:
 
     # ---------- Health ----------
     def health(self) -> Dict[str, Any]:
+        """Return current SMB health using stored config and lightweight probe mount."""
         cfg = self._load_config()
         if not cfg:
             self._health_state = {"ok": False, "last_checked": self._now(), "message": "not configured"}
@@ -105,6 +126,7 @@ class NASManager:
         return dict(self._health_state)
 
     def _probe(self, cfg: SMBConfig, *, ensure_base: bool) -> tuple[bool, str]:
+        """Probe SMB mount accessibility and optionally ensure destination base exists."""
         mnt = Path(cfg.mount_root) / "health"
         try:
             self._mount(cfg, mnt, read_only=True)
@@ -123,6 +145,7 @@ class NASManager:
 
     # ---------- Upload ----------
     def enqueue_upload(self, run_id: str) -> bool:
+        """Queue asynchronous SMB upload for a run id when not already active."""
         with self._upl_lock:
             if run_id in self._uploading:
                 return False
@@ -132,6 +155,7 @@ class NASManager:
         return True
 
     def _upload_worker(self, run_id: str) -> None:
+        """Upload one run directory to SMB destination and mark success/failure."""
         cfg = self._load_config()
         if not cfg:
             self.log.warning("Upload skipped: SMB not configured (run_id=%s)", run_id)
@@ -190,10 +214,12 @@ class NASManager:
 
     # ---------- Retention & Background ----------
     def start_background(self) -> None:
+        """Start non-blocking health probe and retention background loops."""
         threading.Thread(target=self._initial_health, daemon=True, name="smb-health-probe").start()
         threading.Thread(target=self._retention_loop, daemon=True, name="smb-retention").start()
 
     def _initial_health(self) -> None:
+        """Retry initial health probe at startup to prime UI-visible status."""
         cfg = self._load_config()
         if not cfg:
             return
@@ -205,6 +231,7 @@ class NASManager:
             time.sleep(5)
 
     def _retention_loop(self) -> None:
+        """Periodically apply local retention policy in background."""
         while True:
             try:
                 cfg = self._load_config()
@@ -215,6 +242,7 @@ class NASManager:
             time.sleep(6 * 3600)
 
     def _apply_retention(self, cfg: SMBConfig) -> None:
+        """Delete local uploaded run directories older than retention threshold."""
         cutoff = _dt.datetime.utcnow() - _dt.timedelta(days=cfg.retention_days)
         for path in self.runs_root.rglob("*"):
             if not path.is_dir():
@@ -235,12 +263,15 @@ class NASManager:
 
     # ---------- Mount helpers ----------
     def _unc(self, cfg: SMBConfig) -> str:
+        """Return UNC share path for mount.cifs."""
         return f"//{cfg.host.strip('/')}/{cfg.share.strip('/')}"
 
     def _dest_base_path(self, cfg: SMBConfig, mount_point: Path) -> Path:
+        """Return base destination directory inside mounted share."""
         return mount_point / (cfg.base_subdir.strip("/") if cfg.base_subdir else "")
 
     def _mount(self, cfg: SMBConfig, mount_point: Path, *, read_only: bool) -> None:
+        """Mount SMB share to local path with configured credentials/options."""
         mount_point.mkdir(parents=True, exist_ok=True)
         opts = [
             f"credentials={cfg.cred_path}",
@@ -264,15 +295,18 @@ class NASManager:
                 raise RuntimeError(f"mount failed rc={res.returncode} err={res.stderr.strip() if res.stderr else ''}")
 
     def _umount(self, mount_point: Path) -> None:
+        """Unmount mount point lazily to tolerate open file handles."""
         if mount_point.exists():
             # lazy unmount in case handles are still open
             self._run(["umount", "-l", str(mount_point)], check=False)
 
     # ---------- Utils ----------
     def _run(self, cmd: list[str], check: bool = False) -> subprocess.CompletedProcess:
+        """Execute subprocess command with captured output for diagnostics."""
         self.log.debug("RUN %s", " ".join(shlex.quote(c) for c in cmd))
         return subprocess.run(cmd, text=True, capture_output=True, check=check)
 
     @staticmethod
     def _now() -> str:
+        """Return current UTC timestamp in ISO-8601 format."""
         return _dt.datetime.utcnow().isoformat() + "Z"

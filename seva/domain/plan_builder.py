@@ -1,6 +1,7 @@
+"""Helpers for converting UI/state snapshots into domain experiment plans."""
+
 from __future__ import annotations
 
-"""Helpers for converting UI/state snapshots into domain experiment plans."""
 
 from datetime import datetime
 from typing import Any, Dict, Mapping, Optional
@@ -42,6 +43,17 @@ def build_meta(
 
 
 def _ensure_local_timezone(candidate: datetime) -> datetime:
+    """Ensure client timestamps are timezone-aware in local time.
+    
+    Args:
+        candidate (datetime): Input provided by the caller.
+    
+    Returns:
+        datetime: Value returned to the caller.
+    
+    Raises:
+        ValueError: Raised when normalized values violate domain constraints.
+    """
     if candidate.tzinfo is None or candidate.tzinfo.utcoffset(candidate) is None:
         local_zone = datetime.now().astimezone().tzinfo
         if local_zone is None:

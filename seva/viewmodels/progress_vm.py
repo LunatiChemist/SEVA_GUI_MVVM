@@ -1,3 +1,14 @@
+"""Run-progress projection helpers for overview and activity views.
+
+Call context:
+    ``RunFlowPresenter`` pushes authoritative ``GroupSnapshot`` objects into
+    :class:`ProgressVM`. The VM converts domain snapshots into simple DTOs for:
+    - ``RunOverviewView`` (box and well progress tables)
+    - ``ChannelActivityView`` (well -> status activity map)
+
+The module intentionally performs no polling, network calls, or persistence.
+"""
+
 from __future__ import annotations
 
 import time
@@ -21,7 +32,7 @@ ActivityMap = Dict[str, str]
 
 @dataclass
 class ProgressVM:
-    """Owns polling state and aggregates status for RunOverview & ChannelActivity."""
+    """Own active-group view state and derive progress payloads for UI panels."""
 
     on_update_run_overview: Optional[Callable[[Dict], None]] = None
     on_update_channel_activity: Optional[Callable[[ActivityMap], None]] = None
@@ -32,9 +43,22 @@ class ProgressVM:
     updated_at_label: str = ""
 
     def set_run_group(self, run_id: Optional[str]) -> None:
+        """Set the currently displayed run-group token."""
         self.run_group_id = run_id
 
     def set_active_group(self, group_id: Optional[str], registry: RunsRegistry) -> None:
+        """Switch active group and hydrate UI state from registry cache.
+
+        Call chain:
+            ``RunFlowPresenter._set_active_group`` -> ``set_active_group``.
+
+        Args:
+            group_id: Selected group id or ``None``.
+            registry: Shared runs registry containing persisted snapshots.
+
+        Side Effects:
+            Updates ``active_group_id`` and may invoke ``apply_snapshot``.
+        """
         self.active_group_id = group_id
         if not group_id:
             return
@@ -53,7 +77,18 @@ class ProgressVM:
                 self.apply_snapshot(rebuilt)
 
     def apply_snapshot(self, snapshot: GroupSnapshot) -> None:
-        """Consume the latest GroupSnapshot and fan it out to the views."""
+        """Consume a full group snapshot and emit run-overview DTO payload.
+
+        Args:
+            snapshot: Authoritative server-normalized group status.
+
+        Side Effects:
+            Updates ``last_snapshot`` and ``updated_at_label``. Triggers
+            ``on_update_run_overview`` callback when present.
+
+        Raises:
+            TypeError: If ``snapshot`` is not a ``GroupSnapshot`` instance.
+        """
         if not isinstance(snapshot, GroupSnapshot):
             raise TypeError("ProgressVM.apply_snapshot requires a GroupSnapshot.")
 
@@ -61,6 +96,8 @@ class ProgressVM:
         self.run_group_id = str(snapshot.group)
         self.active_group_id = str(snapshot.group)
 
+        # Build all dependent projections from one snapshot so every panel uses
+        # the same status frame and timestamp.
         well_rows, activity_map, runs_by_box = self._build_well_state(snapshot)
         box_rows = self.derive_box_rows(snapshot, runs_by_box)
         boxes_payload = self._compose_box_payload(snapshot, runs_by_box)
@@ -79,7 +116,14 @@ class ProgressVM:
             self.on_update_run_overview(dto)
 
     def apply_activity_snapshot(self, snapshot: GroupSnapshot) -> None:
-        """Update only the channel activity matrix from a snapshot."""
+        """Update only channel-activity mapping from a group snapshot.
+
+        Usage scenario:
+            Used when run-overview table does not need a full refresh.
+
+        Raises:
+            TypeError: If ``snapshot`` is not a ``GroupSnapshot``.
+        """
         if not isinstance(snapshot, GroupSnapshot):
             raise TypeError("ProgressVM.apply_activity_snapshot requires a GroupSnapshot.")
 
@@ -89,6 +133,20 @@ class ProgressVM:
             self.on_update_channel_activity(activity_map)
 
     def apply_device_activity(self, snapshot: DeviceActivitySnapshot) -> None:
+        """Apply device-level activity state produced by device polling use case.
+
+        Call chain:
+            ``RunFlowPresenter._on_activity_poll_tick`` -> ``apply_device_activity``.
+
+        Args:
+            snapshot: Typed device activity container.
+
+        Side Effects:
+            Emits ``on_update_channel_activity`` with a flattened mapping.
+
+        Raises:
+            TypeError: If ``snapshot`` is not ``DeviceActivitySnapshot``.
+        """
         if not isinstance(snapshot, DeviceActivitySnapshot):
             raise TypeError("ProgressVM.apply_device_activity requires a DeviceActivitySnapshot.")
 
@@ -105,7 +163,7 @@ class ProgressVM:
     def derive_well_rows(self, snapshot: GroupSnapshot) -> List[WellRow]:
         """Return well table rows sorted by WellId (domain order).
 
-        8-tuple per row (View-Spaltenreihenfolge):
+        8-tuple per row (view column order):
         (well, phase, current_mode, next_modes, progress, remaining, error, subrun)
         """
         ordered_runs = sorted(snapshot.runs.items(), key=lambda item: item[0].value)
@@ -134,7 +192,7 @@ class ProgressVM:
         return rows
 
     def _snapshot_from_serialized(self, payload: Dict[str, Union[str, Dict, List]]) -> Optional[GroupSnapshot]:
-        """Rebuild a GroupSnapshot from a serialized registry payload."""
+        """Rebuild ``GroupSnapshot`` from registry-serialized dictionaries."""
         return normalize_status(payload)
 
     def derive_box_rows(
@@ -142,7 +200,7 @@ class ProgressVM:
         snapshot: GroupSnapshot,
         runs_by_box: Optional[Dict[str, List[Tuple[str, RunStatus]]]] = None,
     ) -> List[BoxRow]:
-        """Return per-box summary rows (box_id, avg progress, max remaining label)."""
+        """Return per-box summary rows for the run overview panel."""
         runs_map = runs_by_box or self._group_runs_by_box(snapshot)
         boxes = self._collect_box_tokens(snapshot, runs_map)
         snapshot_by_token = {
@@ -165,7 +223,12 @@ class ProgressVM:
     def map_selection_to_runs(
         self, selection: Sequence[Union[WellId, str]]
     ) -> Dict[str, List[str]]:
-        """Map selected wells to their run identifiers grouped by Box."""
+        """Map selected wells to run ids grouped by box.
+
+        Call chain:
+            ``RunFlowPresenter.cancel_selected_runs`` uses this map to build the
+            cancel-runs request payload.
+        """
         if not selection or not self.last_snapshot:
             return {}
 
@@ -195,7 +258,7 @@ class ProgressVM:
 
     @staticmethod
     def fmt_remaining(seconds: Optional[int]) -> str:
-        """Format remaining seconds as m:ss or h:mm:ss."""
+        """Format remaining seconds as ``m:ss`` or ``h:mm:ss`` for UI labels."""
         if seconds is None:
             return ""
         total = int(seconds)
@@ -213,6 +276,7 @@ class ProgressVM:
     def _build_well_state(
         self, snapshot: GroupSnapshot
     ) -> Tuple[List[WellRow], ActivityMap, Dict[str, List[Tuple[str, RunStatus]]]]:
+        """Build well-table rows, activity map, and box-grouped runs in one pass."""
         rows = self.derive_well_rows(snapshot)
         activity = self._build_activity_map(snapshot)
         runs_by_box = self._group_runs_by_box(snapshot)
@@ -223,6 +287,7 @@ class ProgressVM:
         snapshot: GroupSnapshot,
         runs_by_box: Dict[str, List[Tuple[str, RunStatus]]],
     ) -> Dict[str, Dict[str, object]]:
+        """Compose per-box DTO payload consumed by ``RunOverviewView`` widgets."""
         payload: Dict[str, Dict[str, object]] = {}
         boxes = self._collect_box_tokens(snapshot, runs_by_box)
         snapshot_by_token = {
@@ -245,6 +310,7 @@ class ProgressVM:
     def _collect_box_tokens(
         snapshot: GroupSnapshot, runs_by_box: Dict[str, List[Tuple[str, RunStatus]]]
     ) -> List[str]:
+        """Return sorted box ids from both snapshot metadata and run rows."""
         tokens = {str(box_id) for box_id in snapshot.boxes.keys()}
         tokens.update(runs_by_box.keys())
         return sorted(tokens)
@@ -252,6 +318,7 @@ class ProgressVM:
     def _group_runs_by_box(
         self, snapshot: GroupSnapshot
     ) -> Dict[str, List[Tuple[str, RunStatus]]]:
+        """Group run-status objects by box token and sort wells within each box."""
         grouped: Dict[str, List[Tuple[str, RunStatus]]] = {}
         for well_id, run in snapshot.runs.items():
             box_token = self._extract_box_prefix(well_id)
@@ -263,15 +330,18 @@ class ProgressVM:
         return grouped
 
     def _build_activity_map(self, snapshot: GroupSnapshot) -> ActivityMap:
+        """Convert run statuses to a well->label mapping for activity grid."""
         activity: ActivityMap = {}
         for well_id, run in snapshot.runs.items():
             activity[str(well_id)] = self._activity_label(run)
         return activity
 
     def _current_time_label(self) -> str:
+        """Return the current local wall-clock label used in the footer timestamp."""
         return time.strftime("%H:%M:%S", time.localtime())
 
     def _aggregate_box_phase(self, runs: List[Tuple[str, RunStatus]]) -> str:
+        """Aggregate multiple run phases into one operator-facing box status label."""
         if not runs:
             return "Idle"
 
@@ -293,6 +363,7 @@ class ProgressVM:
 
     @staticmethod
     def _collect_box_run_ids(runs: List[Tuple[str, RunStatus]]) -> List[str]:
+        """Collect de-duplicated run ids for a box in stable well order."""
         seen: List[str] = []
         for well_token, run in sorted(runs, key=lambda item: item[0]):
             run_id = str(run.run_id).strip()
@@ -304,6 +375,7 @@ class ProgressVM:
     def _box_progress(
         box_snapshot: Optional[BoxSnapshot], runs: List[Tuple[str, RunStatus]]
     ) -> float:
+        """Return progress for one box preferring explicit box snapshot values."""
         if box_snapshot and box_snapshot.progress is not None:
             return float(box_snapshot.progress.value)
         progress_values = [
@@ -317,6 +389,7 @@ class ProgressVM:
     def _box_remaining(
         box_snapshot: Optional[BoxSnapshot], runs: List[Tuple[str, RunStatus]]
     ) -> Optional[int]:
+        """Return remaining seconds for one box with max-of-runs fallback."""
         if box_snapshot and box_snapshot.remaining_s is not None:
             return int(box_snapshot.remaining_s.value)
         remaining_values = [
@@ -327,6 +400,7 @@ class ProgressVM:
         return max(remaining_values)
 
     def _activity_label(self, run: RunStatus) -> str:
+        """Convert one ``RunStatus`` into channel-activity label text."""
         if run.error:
             return "Error"
         key = phase_key(run.phase)
@@ -338,4 +412,5 @@ class ProgressVM:
 
     @staticmethod
     def _extract_box_prefix(well_id: Union[WellId, str]) -> Optional[str]:
+        """Extract ``A``/``B``/``C``/``D`` style prefix token from a well id."""
         return well_id_to_box(str(well_id))
