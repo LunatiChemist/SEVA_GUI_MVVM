@@ -23,6 +23,7 @@ Success is observable when:
 - [x] (2026-02-04 01:09Z) Added inline comments and explanatory docstrings for complex UI/event sections (selection behavior, nested Tk callbacks, layout-sensitive helpers).
 - [x] (2026-02-04 18:19Z) Updated `docs/workflows_seva.md` with UI entrypoints and view-model/usecase handoffs.
 - [x] (2026-02-04 01:09Z) Final consistency pass completed (AST docstring check + compile + test run).
+- [x] (2026-02-04 01:33Z) Post-stabilization revalidation completed (`app-docstring-check`, `python -m compileall -q seva/app`, `pytest -q`).
 
 ## Surprises & Discoveries
 
@@ -32,6 +33,8 @@ Success is observable when:
   Evidence: Added `_copy_to_clipboard()` in `seva/app/views/run_overview_view.py` to match existing button command.
 - Observation: `dataplotter_standalone.py` had mixed legacy comments/docstrings and required careful cleanup to avoid syntax regressions while adding Google-style content.
   Evidence: `python -m compileall -q seva/app` succeeds after docstring normalization.
+- Observation: Post-stabilization checks confirmed app/view documentation coverage and runtime safety remained intact.
+  Evidence: `app-docstring-check: OK`, compileall exited without output, and `pytest -q` returned `8 passed in 0.12s`.
 
 ## Decision Log
 
@@ -50,6 +53,7 @@ Success is observable when:
 - Milestone update (2026-02-04): UI entrypoint mapping is now documented in `docs/workflows_seva.md`; remaining work is docstring/comment normalization in `seva/app` and `seva/app/views`.
 - Milestone update (2026-02-04): Expanded docstrings in controllers/presenter and major views; test suite remains green after changes.
 - Completion update (2026-02-04): Completed documentation sweep for `seva/app` + `seva/app/views`, including helper functions and nested Tk callbacks; validation checks pass.
+- Revalidation update (2026-02-04 01:33Z): Post-stabilization checks remained green with no additional source edits.
 
 ## Context and Orientation
 
@@ -126,6 +130,16 @@ Validation evidence:
     ........                                                                 [100%]
     8 passed in 0.16s
 
+Post-stabilization evidence:
+
+    app-docstring-check: OK
+
+    python -m compileall -q seva/app
+    # (no output, success)
+
+    ........                                                                 [100%]
+    8 passed in 0.12s
+
 ## Validation and Acceptance
 
 - All app and view files have Google-style module docstrings with call contexts.
@@ -154,3 +168,4 @@ No new dependencies are introduced. Interfaces to highlight include:
 ---
 
 Change note (2026-02-04): Completed full app/views documentation sweep, added AST-based docstring validation evidence, and finalized plan milestones.
+Change note (2026-02-04 01:33Z): Added post-stabilization revalidation milestone and evidence snippets.
