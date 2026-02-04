@@ -1,6 +1,7 @@
 site_name: SEVA GUI – Architecture & Developer Documentation
 site_description: Developer documentation for the SEVA GUI (MVVM) and REST API
 site_author: LunatiChemist
+copyright: Docs track the main branch.
 
 repo_name: LunatiChemist/SEVA_GUI_MVVM
 repo_url: https://github.com/LunatiChemist/SEVA_GUI_MVVM
@@ -21,6 +22,9 @@ theme:
 plugins:
   - search
 
+extra:
+  docs_branch: main
+
 markdown_extensions:
   - admonition
   - toc:
@@ -30,14 +34,12 @@ markdown_extensions:
 
 nav:
   - Home: index.md
-
-  - Overview:
-      - Architecture Overview: architecture_overview.md
-
-  - SEVA GUI:
-      - Classes & Modules: classes_seva.md
-      - Workflows: workflows_seva.md
-
-  - REST API:
-      - Classes & Modules: classes_rest_api.md
-      - Workflows: workflows_rest_api.md
+  - Development Setup: dev-setup.md
+  - Architecture Overview: architecture_overview.md
+  - SEVA GUI Workflows: workflows_seva.md
+  - SEVA GUI Classes & Modules: classes_seva.md
+  - REST API Workflows: workflows_rest_api.md
+  - REST API Classes & Modules: classes_rest_api.md
+  - Troubleshooting: troubleshooting.md
+  - Glossary: glossary.md
+  - ChatGPT Codex Guide: codex_guide.md
