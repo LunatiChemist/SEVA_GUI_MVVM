@@ -1,7 +1,8 @@
-"""View model for live-data plotting controls.
+"""Live-data plotter UI state for include flags and axis configuration.
 
-It stores selected wells, axes, and section filters while leaving data loading
-and export I/O to use-case/controller layers.
+Call context:
+    ``DataProcessingGUI`` reads this VM to determine which wells are included
+    in export/plot actions. Data loading and filesystem writes remain outside.
 """
 
 from __future__ import annotations
@@ -26,4 +27,5 @@ class LiveDataVM:
     rs_text: str = ""
 
     def toggle_include(self, well_id: WellId, included: bool) -> None:
+        """Set include/exclude state for a single well in plotting/export views."""
         self.include[well_id] = bool(included)

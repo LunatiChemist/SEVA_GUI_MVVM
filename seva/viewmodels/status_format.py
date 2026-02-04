@@ -1,7 +1,8 @@
-"""Formatting helpers for normalized status labels in the UI layer.
+"""Status-token normalization and display labeling helpers for view models.
 
-Views and view models use these functions to convert backend/domain status keys
-into consistent labels for operators.
+Call context:
+    ``ProgressVM`` and ``RunsVM`` call these helpers to map backend/domain
+    status tokens into consistent operator-facing labels.
 """
 
 from __future__ import annotations
@@ -10,32 +11,12 @@ from typing import Optional
 
 
 def phase_key(phase: Optional[str]) -> str:
-    """Normalize phase text into a lowercase status token.
-    
-    Args:
-        phase (Optional[str]): Input provided by the caller.
-    
-    Returns:
-        str: Value returned to the caller.
-    
-    Raises:
-        ValueError: Raised when status or configuration values are invalid.
-    """
+    """Normalize status text into lowercase canonical token."""
     return (phase or "").strip().lower()
 
 
 def phase_label(phase: Optional[str]) -> str:
-    """Convert normalized status keys into operator-facing labels.
-    
-    Args:
-        phase (Optional[str]): Input provided by the caller.
-    
-    Returns:
-        str: Value returned to the caller.
-    
-    Raises:
-        ValueError: Raised when status or configuration values are invalid.
-    """
+    """Convert normalized status key into operator-facing label text."""
     key = phase_key(phase)
     mapping = {
         "failed": "Failed",
@@ -56,18 +37,7 @@ def phase_label(phase: Optional[str]) -> str:
 
 
 def registry_status_label(status: Optional[str], *, downloaded: bool) -> str:
-    """Format registry status strings with download-state context.
-    
-    Args:
-        status (Optional[str]): Input provided by the caller.
-        downloaded (bool): Input provided by the caller.
-    
-    Returns:
-        str: Value returned to the caller.
-    
-    Raises:
-        ValueError: Raised when status or configuration values are invalid.
-    """
+    """Format registry status token with download completion context."""
     key = phase_key(status)
     if key == "done":
         return "Done (Downloaded)" if downloaded else "Done"
