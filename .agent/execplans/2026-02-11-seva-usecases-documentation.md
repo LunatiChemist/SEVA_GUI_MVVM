@@ -17,27 +17,38 @@ Success is observable when:
 
 ## Progress
 
-- [ ] (2026-02-11 00:00Z) Map all usecases to the UI commands and adapters they call.
-- [ ] (2026-02-11 00:00Z) Add/expand module docstrings for each usecase file.
-- [ ] (2026-02-11 00:00Z) Add/expand class/function docstrings with call-chain and error cases.
-- [ ] (2026-02-11 00:00Z) Add inline comments for complex orchestration logic.
-- [ ] (2026-02-11 00:00Z) Update `docs/workflows_seva.md` with detailed workflows.
-- [ ] (2026-02-11 00:00Z) Final consistency pass for Google style and completeness.
+- [x] (2026-02-04 00:42Z) Map all usecases to the UI commands and adapters they call.
+- [x] (2026-02-04 00:44Z) Add/expand module docstrings for each usecase file.
+- [x] (2026-02-04 00:48Z) Add/expand class/function docstrings with call-chain and error cases.
+- [x] (2026-02-04 00:49Z) Add inline comments for complex orchestration logic.
+- [x] (2026-02-04 00:52Z) Update `docs/workflows_seva.md` with detailed workflows and Mermaid diagrams.
+- [x] (2026-02-04 00:54Z) Final consistency pass for Google style and completeness, including validation evidence.
 
 ## Surprises & Discoveries
 
-- Observation: None yet.
-  Evidence: Plan initialization only.
+- Observation: `seva/usecases` includes significantly more modules than the initial non-exhaustive context list (21 Python modules).
+  Evidence: Repository file scan with `rg --files seva/usecases`.
+- Observation: Many callable methods already had short docstrings but lacked the detailed orchestration context required by this plan.
+  Evidence: AST audit initially reported missing method docstrings across planning, discovery, polling, layout, and diagnostics usecases.
 
 ## Decision Log
 
 - Decision: Use Google-style docstrings for all files in `seva/usecases`.
   Rationale: User requirement and alignment with GUI subsystem documentation.
   Date/Author: 2026-02-11 / Agent
+- Decision: Keep implementation changes documentation-only and avoid behavior refactors, except adding explicit exception chaining (`from exc`) where already mapping errors.
+  Rationale: The task scope is usecase documentation and workflow mapping; behavior changes would increase risk without requirement.
+  Date/Author: 2026-02-04 / Agent
+- Decision: Expand `docs/workflows_seva.md` into an explicit entrypoint-to-usecase map plus Mermaid sequence diagrams.
+  Rationale: This makes upstream UI triggers and downstream adapter calls traceable for novice onboarding.
+  Date/Author: 2026-02-04 / Agent
 
 ## Outcomes & Retrospective
 
-- Status: Not started. This section will be updated after milestones and completion.
+- Outcome: Completed full pass on `seva/usecases` doc coverage (module/class/function/method), added targeted orchestration comments, and rewrote workflow documentation with end-to-end call chains.
+- Outcome: Validation succeeded (`pytest -q` all green), and an AST docstring audit confirms complete docstring coverage for `seva/usecases/*.py`.
+- Remaining gaps: None for this ExecPlan scope.
+- Lesson learned: A small scripted docstring audit is effective as a fast acceptance check for documentation refactors across many files.
 
 ## Context and Orientation
 
@@ -80,7 +91,7 @@ Key files (non-exhaustive):
 
 ## Concrete Steps
 
-All steps are run from the repository root (`/workspace/SEVA_GUI_MVVM`).
+All steps are run from the repository root (`c:\Users\LunaP\OneDrive - UBC\Dokumente\Chemistry\Potentiostats\GUI Testing\SEVA_GUI_MVVM`).
 
 1) Inspect usecase files:
 
@@ -97,9 +108,29 @@ All steps are run from the repository root (`/workspace/SEVA_GUI_MVVM`).
 
 3) Update `docs/workflows_seva.md` with workflows and diagrams.
 
-4) Optional validation (documentation only):
+4) Validation:
 
     pytest -q
+
+5) Documentation completeness check:
+
+    @'
+    import ast
+    from pathlib import Path
+    missing = []
+    for p in sorted(Path("seva/usecases").glob("*.py")):
+        mod = ast.parse(p.read_text(encoding="utf-8"))
+        if not ast.get_docstring(mod):
+            missing.append(f"{p}: module")
+        for node in mod.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and not ast.get_docstring(node):
+                missing.append(f"{p}: {node.name}")
+            if isinstance(node, ast.ClassDef):
+                for sub in node.body:
+                    if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)) and not ast.get_docstring(sub):
+                        missing.append(f"{p}: {node.name}.{sub.name}")
+    print("OK" if not missing else "\n".join(missing))
+    '@ | python -
 
 ## Validation and Acceptance
 
@@ -114,10 +145,19 @@ Documentation changes are safe and repeatable. Revert and reapply documentation-
 
 ## Artifacts and Notes
 
-Expected artifacts:
+Delivered artifacts:
 
 - Updated docstrings and inline comments in `seva/usecases/*.py`.
 - Updated `docs/workflows_seva.md` with workflow descriptions.
+
+Validation evidence snippets:
+
+    > pytest -q
+    ........                                                                 [100%]
+    8 passed in 0.26s
+
+    > python <docstring audit script>
+    OK: docstrings present for all modules/classes/functions/methods in seva/usecases/*.py
 
 ## Interfaces and Dependencies
 
@@ -128,4 +168,4 @@ No new dependencies are introduced. Interfaces to highlight include:
 
 ---
 
-Change note: Initial plan created to cover the usecase subsystem in deep detail.
+Change note (2026-02-04): Updated living sections to completed state, recorded discoveries/decisions, added concrete validation steps, and embedded short validation evidence transcripts.
