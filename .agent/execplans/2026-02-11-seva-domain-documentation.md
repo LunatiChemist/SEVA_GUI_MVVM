@@ -22,6 +22,7 @@ Success is observable when:
 - [x] (2026-02-04 00:35Z) Added inline comments for complex normalization/persistence branches in `runs_registry.py` and mode field filtering in `modes.py`.
 - [x] (2026-02-04 00:37Z) Updated `docs/classes_seva.md` with domain invariants, call-chain examples, and explicit mode-registry responsibilities.
 - [x] (2026-02-04 00:39Z) Ran final consistency and validation pass (`docstring-check` + `pytest -q`) and recorded evidence.
+- [x] (2026-02-04 01:02Z) Re-ran validation after confirming concurrent workspace changes were stable (`pytest -q`, AST docstring coverage check).
 
 ## Surprises & Discoveries
 
@@ -49,6 +50,7 @@ Success is observable when:
 - Outcome: Completed planned documentation pass for domain modules, method-level APIs, and domain architecture notes.
 - Outcome: Added targeted inline comments where mapping/normalization behavior could otherwise be misread during maintenance.
 - Validation: `pytest -q` passed with no regressions (`8 passed`), and AST coverage check confirmed no missing module/class/function docstrings.
+- Validation (reconfirm): Post-stabilization rerun still passed (`8 passed in 0.11s`) with `docstring-check: OK`.
 - Retrospective: The existing documentation baseline was stronger than expected; the highest-value improvements were completeness at method granularity and a clearer domain relationship narrative in `docs/classes_seva.md`.
 
 ## Context and Orientation
@@ -169,6 +171,9 @@ Validation snippets:
 
     ........                                                                 [100%]
     8 passed in 0.16s
+
+    ........                                                                 [100%]
+    8 passed in 0.11s
 
 Example Google-style docstring:
 
