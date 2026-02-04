@@ -24,6 +24,9 @@ Success is observable when:
 - [x] (2026-02-03 16:40Z) Updated `docs/classes_seva.md` and `docs/workflows_seva.md` with explicit viewmodel responsibilities, view bindings, and usecase dependencies.
 - [x] (2026-02-03 16:42Z) Ran final consistency pass and validation command (`pytest -q`), then embedded evidence snippets in this plan.
 - [x] (2026-02-04 01:33Z) Re-ran post-stabilization validation (`pytest -q` + viewmodel docstring audit) and recorded fresh evidence.
+- [x] (2026-02-04 01:52Z) Re-executed this ExecPlan milestone-by-milestone; audited all `seva/viewmodels/*.py` module/class/function docstrings against plan acceptance criteria.
+- [x] (2026-02-04 01:52Z) Closed remaining gap by adding full module docstring call-context/dependency/responsibility coverage to `seva/viewmodels/__init__.py`.
+- [x] (2026-02-04 01:53Z) Re-ran validation (`pytest -q` + viewmodel docstring audit) and embedded fresh evidence snippets in this plan.
 
 ## Surprises & Discoveries
 
@@ -39,6 +42,10 @@ Success is observable when:
   Evidence: `git status --short` after completion still shows many unrelated `M` entries outside this ExecPlan scope.
 - Observation: Post-stabilization rerun confirms viewmodel documentation coverage remains complete.
   Evidence: Audit script returned `viewmodels-docstring-check: OK` and `pytest -q` returned `8 passed in 0.12s`.
+- Observation: A full-file audit found one uncovered module-docstring requirement in `seva/viewmodels/__init__.py` (missing explicit `Call context:` block), despite earlier completion marks.
+  Evidence: Audit script output before fix:
+    viewmodels-docstring-check: FAIL
+    - seva\viewmodels\__init__.py: module missing 'Call context:'
 
 ## Decision Log
 
@@ -53,12 +60,16 @@ Success is observable when:
 - Decision: Keep behavior unchanged and limit edits to docstrings/comments/docs text.
   Rationale: Scope of this ExecPlan is documentation, and behavior-preserving changes reduce regression risk.
   Date/Author: 2026-02-03 / Agent
+- Decision: Treat `seva/viewmodels/__init__.py` as in-scope for the "every file in `seva/viewmodels`" requirement and patch it instead of narrowing validation.
+  Rationale: The acceptance criterion is explicit and should include package module files, not only concrete VM implementations.
+  Date/Author: 2026-02-04 / Agent
 
 ## Outcomes & Retrospective
 
 - Milestone outcome (in progress): Viewmodel documentation coverage is now complete at module/class/function level, and architecture call-chains are documented in `docs/classes_seva.md` and `docs/workflows_seva.md`.
 - Milestone outcome (completed): Validation command passed (`8 passed`) and no behavior changes were introduced; edits remained documentation-only within target files.
 - Milestone outcome (reconfirmed): Post-stabilization validation remained green (`viewmodels-docstring-check: OK`, `8 passed in 0.12s`).
+- Milestone outcome (re-executed): A final audit-driven pass fixed the last module-docstring compliance gap in `seva/viewmodels/__init__.py`; validation is green (`viewmodels-docstring-check: OK`, `8 passed in 0.13s`).
 - Delivery outcome: Changes were split into two small commits:
     4cdd86c docs(viewmodels): expand module and API docstrings
     081e29e docs(seva): map viewmodel call chains and update execplan
@@ -100,7 +111,7 @@ Key files (non-exhaustive):
 
 ## Concrete Steps
 
-All steps are run from the repository root (`/workspace/SEVA_GUI_MVVM`).
+All steps are run from the repository root (`C:\Users\LunaP\OneDrive - UBC\Dokumente\Chemistry\Potentiostats\GUI Testing\SEVA_GUI_MVVM`).
 
 1) Inspect viewmodel files:
 
@@ -131,6 +142,19 @@ All steps are run from the repository root (`/workspace/SEVA_GUI_MVVM`).
     > pytest -q
     ........                                                                 [100%]
     8 passed in 0.12s
+
+   > python <viewmodel docstring audit script>
+   viewmodels-docstring-check: OK
+
+   Re-execution evidence (this run):
+
+    > python <viewmodel docstring audit script>
+    viewmodels-docstring-check: FAIL
+    - seva\viewmodels\__init__.py: module missing 'Call context:'
+
+    > pytest -q
+    ........                                                                 [100%]
+    8 passed in 0.13s
 
     > python <viewmodel docstring audit script>
     viewmodels-docstring-check: OK
@@ -169,3 +193,4 @@ Change note (2026-02-03 16:40Z): Updated living sections after completing mappin
 Change note (2026-02-03 16:42Z): Marked final milestone complete, added pytest evidence snippet, and updated retrospective to reflect completion.
 Change note (2026-02-03 16:47Z): Recorded scoped-commit outcomes and noted unrelated dirty-tree context discovered during completion.
 Change note (2026-02-04 01:33Z): Added post-stabilization validation checkpoint and evidence snippets.
+Change note (2026-02-04 01:53Z): Re-executed the plan, recorded audit-found `__init__.py` module-docstring gap, fixed it, and added fresh validation evidence.
