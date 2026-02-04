@@ -43,6 +43,16 @@ class MainWindowView(tk.Tk):
         on_open_settings: OnVoid = None,
         on_open_data_plotter: OnVoid = None,
     ) -> None:
+        """Create root window, static layout regions, and key bindings.
+
+        Args:
+            on_submit: Callback for run-start action.
+            on_cancel_group: Callback for cancel-group action.
+            on_save_layout: Callback for layout save action.
+            on_load_layout: Callback for layout load action.
+            on_open_settings: Callback for opening settings dialog.
+            on_open_data_plotter: Callback for opening data plotter window.
+        """
         super().__init__()
 
         # ---- Window basics ----
@@ -75,6 +85,7 @@ class MainWindowView(tk.Tk):
     # Toolbar
     # ------------------------------------------------------------------
     def _build_toolbar(self, parent: tk.Widget) -> None:
+        """Build the top toolbar and wire button callbacks."""
         toolbar = ttk.Frame(parent)
         toolbar.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
         toolbar.columnconfigure(tuple(range(10)), weight=0)
@@ -107,6 +118,7 @@ class MainWindowView(tk.Tk):
     # Main Area (split: left WellGrid, right Notebook)
     # ------------------------------------------------------------------
     def _build_main_area(self, parent: tk.Widget) -> None:
+        """Build split layout with well-grid host and notebook tabs."""
         # Static container (no scrollbar for now)
         content = ttk.Frame(parent)
         content.grid(row=1, column=0, sticky="nsew", padx=8, pady=4)
@@ -183,6 +195,7 @@ class MainWindowView(tk.Tk):
     # StatusBar
     # ------------------------------------------------------------------
     def _build_statusbar(self, parent: tk.Widget) -> None:
+        """Build statusbar with run-id, relay indicators, and toast label."""
         status = ttk.Frame(parent)
         status.grid(row=2, column=0, sticky="ew", padx=8, pady=(4, 8))
         status.columnconfigure(1, weight=1)
@@ -207,7 +220,11 @@ class MainWindowView(tk.Tk):
         self.status_message_var.set(text)
 
     def set_run_group_id(self, run_id: Optional[str]) -> None:
-        """Display current RunGroupId (or a dash if None)."""
+        """Display active run-group id.
+
+        Args:
+            run_id: Active run-group id or ``None`` when idle.
+        """
         self.lbl_run_id.configure(text=run_id or "–")
 
     def mount_wellgrid(self, view: tk.Widget) -> None:
@@ -220,10 +237,7 @@ class MainWindowView(tk.Tk):
         pass
 
     def set_relay_status(self, box_id: str, status: str) -> None:
-        """
-        Update relay reachability indicator for a box.
-        status: 'OK' | 'Fail' | 'Unknown'
-        """
+        """Update relay reachability indicator for one box."""
         # Create label lazily
         if box_id not in self._relay_labels:
             lbl = ttk.Label(self._relay_area, text=f"{box_id}: ?")
@@ -235,10 +249,7 @@ class MainWindowView(tk.Tk):
         lbl.configure(text=text)
 
     def show_toast(self, message: str, level: str = "info") -> None:
-        """
-        Lightweight user feedback in the statusbar.
-        level is currently informational; styling could be extended later.
-        """
+        """Show lightweight feedback in the statusbar."""
         self.status_message_var.set(message)
 
     def mount_experiment_panel(self, view: tk.Widget) -> None:

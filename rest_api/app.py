@@ -1,12 +1,21 @@
-# /opt/box/app.py
-"""FastAPI application for device discovery, job control, and artifact access.
+"""Primary FastAPI application for the potentiostat REST service.
 
-Notes
------
-GUI workflows call these endpoints through `seva.adapters` to start runs, poll
-status, cancel jobs, and download result files. This module owns HTTP contracts
-but delegates validation, progress estimation, and storage mapping to helper
-modules.
+This module defines the HTTP contract consumed by GUI adapters in `seva`:
+
+- `seva.adapters.device_rest` for discovery and mode metadata
+- `seva.adapters.job_rest` for validate/start/poll/cancel/download workflows
+- `seva.adapters.firmware_rest` for firmware uploads
+
+The routes here orchestrate job lifecycle state, then delegate specialized work
+to helper modules:
+
+- `validation.py` for payload validation
+- `progress_utils.py` for progress and remaining-time estimates
+- `storage.py` for run-directory naming and lookup
+- `nas_smb.py` for SMB upload and retention operations
+
+Error responses are normalized through `http_error(...)` so GUI ViewModels can
+surface stable error codes/messages without parsing framework-native payloads.
 """
 
 import logging, os, uuid, threading, zipfile, io, pathlib, datetime, platform, subprocess, shutil
@@ -122,16 +131,16 @@ def _detect_pybeep_version() -> str:
     Returns
     -------
     str
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
-    Used by REST route handlers, worker threads, or status snapshot generation.
+    Used by FastAPI routes and background slot worker orchestration.
     
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     if "importlib_metadata" in globals() and importlib_metadata:
         try:
@@ -162,16 +171,16 @@ def _detect_build_identifier() -> str:
     Returns
     -------
     str
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
-    Used by REST route handlers, worker threads, or status snapshot generation.
+    Used by FastAPI routes and background slot worker orchestration.
     
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     env_build = os.getenv("BOX_BUILD") or os.getenv("BOX_BUILD_ID")
     if env_build:
@@ -199,25 +208,25 @@ def _build_error_detail(code: str, message: str, hint: Optional[str] = None) -> 
     Parameters
     ----------
     code : str
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     message : str
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     hint : Optional[str]
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     Dict[str, str]
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
-    Used by REST route handlers, worker threads, or status snapshot generation.
+    Used by FastAPI routes and background slot worker orchestration.
     
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     return {"code": code, "message": message, "hint": hint or ""}
 
@@ -228,27 +237,27 @@ def http_error(status_code: int, code: str, message: str, hint: Optional[str] = 
     Parameters
     ----------
     status_code : int
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     code : str
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     message : str
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     hint : Optional[str]
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     JSONResponse
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
-    Used by REST route handlers, worker threads, or status snapshot generation.
+    Used by FastAPI routes and background slot worker orchestration.
     
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     if status_code == 422:
         log.info("Validation failed [%s]: %s", code, message)
@@ -288,16 +297,16 @@ def discover_devices():
     Returns
     -------
     Any
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
-    Used by REST route handlers, worker threads, or status snapshot generation.
+    Used by FastAPI routes and background slot worker orchestration.
     
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     with DEVICE_SCAN_LOCK:
         DEVICES.clear()
@@ -345,21 +354,21 @@ def _build_run_storage_info(req: JobRequest) -> RunStorageInfo:
     Parameters
     ----------
     req : JobRequest
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     RunStorageInfo
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
-    Used by REST route handlers, worker threads, or status snapshot generation.
+    Used by FastAPI routes and background slot worker orchestration.
     
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     subdir_source = req.subdir
     if _value_or_none(subdir_source) is None:
@@ -469,21 +478,21 @@ def _normalize_group_value(value: Optional[str]) -> Optional[str]:
     Parameters
     ----------
     value : Optional[str]
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     Optional[str]
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
-    Used by REST route handlers, worker threads, or status snapshot generation.
+    Used by FastAPI routes and background slot worker orchestration.
     
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     if value is None:
         return None
@@ -499,21 +508,21 @@ def _derive_group_folder(run_id: str) -> Optional[str]:
     Parameters
     ----------
     run_id : str
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     Optional[str]
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
-    Used by REST route handlers, worker threads, or status snapshot generation.
+    Used by FastAPI routes and background slot worker orchestration.
     
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     try:
         run_dir = _resolve_run_directory(run_id)
@@ -537,21 +546,21 @@ def _job_overview_status(job: JobStatus) -> Literal["queued", "running", "done",
     Parameters
     ----------
     job : JobStatus
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     Literal['queued', 'running', 'done', 'failed', 'cancelled']
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
-    Used by REST route handlers, worker threads, or status snapshot generation.
+    Used by FastAPI routes and background slot worker orchestration.
     
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     slot_states = [slot.status for slot in job.slots]
     if slot_states and all(state == "queued" for state in slot_states):
@@ -565,21 +574,21 @@ def job_snapshot(job: JobStatus) -> JobStatus:
     Parameters
     ----------
     job : JobStatus
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     JobStatus
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
-    Used by REST route handlers, worker threads, or status snapshot generation.
+    Used by FastAPI routes and background slot worker orchestration.
     
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     copy = job.model_copy(deep=True)
 
@@ -618,21 +627,21 @@ async def lifespan(app: FastAPI):
     Parameters
     ----------
     app : FastAPI
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     Any
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
-    Used by REST route handlers, worker threads, or status snapshot generation.
+    Used by FastAPI routes and background slot worker orchestration.
     
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     discover_devices()
     try:
@@ -661,23 +670,23 @@ async def handle_request_validation(
     Parameters
     ----------
     request : Request
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     exc : RequestValidationError
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     Any
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
-    Used by REST route handlers, worker threads, or status snapshot generation.
+    Used by FastAPI routes and background slot worker orchestration.
     
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     errors = exc.errors()
     log.info("Validation 422 path=%s issues=%d", request.url.path, len(errors))
@@ -699,21 +708,21 @@ def require_key(x_api_key: Optional[str]) -> Optional[JSONResponse]:
     Parameters
     ----------
     x_api_key : Optional[str]
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     Optional[JSONResponse]
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
-    Used by REST route handlers, worker threads, or status snapshot generation.
+    Used by FastAPI routes and background slot worker orchestration.
     
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     if API_KEY and x_api_key != API_KEY:
         return http_error(
@@ -737,7 +746,7 @@ def version_info() -> Dict[str, str]:
     Returns
     -------
     Dict[str, str]
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
@@ -746,7 +755,7 @@ def version_info() -> Dict[str, str]:
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     return {
         "api": API_VERSION,
@@ -763,12 +772,12 @@ def health(x_api_key: Optional[str] = Header(None)):
     Parameters
     ----------
     x_api_key : Optional[str]
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     Any
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
@@ -777,7 +786,7 @@ def health(x_api_key: Optional[str] = Header(None)):
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     if auth_error := require_key(x_api_key):
         return auth_error
@@ -792,12 +801,12 @@ def list_devices(x_api_key: Optional[str] = Header(None)):
     Parameters
     ----------
     x_api_key : Optional[str]
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     Any
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
@@ -806,7 +815,7 @@ def list_devices(x_api_key: Optional[str] = Header(None)):
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     if auth_error := require_key(x_api_key):
         return auth_error
@@ -825,12 +834,12 @@ def list_device_status(x_api_key: Optional[str] = Header(None)) -> List[SlotStat
     Parameters
     ----------
     x_api_key : Optional[str]
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     List[SlotStatus]
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
@@ -839,7 +848,7 @@ def list_device_status(x_api_key: Optional[str] = Header(None)) -> List[SlotStat
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     if auth_error := require_key(x_api_key):
         return auth_error
@@ -877,12 +886,12 @@ def list_modes(x_api_key: Optional[str] = Header(None)):
     Parameters
     ----------
     x_api_key : Optional[str]
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     Any
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
@@ -891,7 +900,7 @@ def list_modes(x_api_key: Optional[str] = Header(None)):
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     if auth_error := require_key(x_api_key):
         return auth_error
@@ -915,14 +924,14 @@ def mode_params(mode: str, x_api_key: Optional[str] = Header(None)):
     Parameters
     ----------
     mode : str
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     x_api_key : Optional[str]
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     Any
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
@@ -931,7 +940,7 @@ def mode_params(mode: str, x_api_key: Optional[str] = Header(None)):
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     if auth_error := require_key(x_api_key):
         return auth_error
@@ -984,21 +993,21 @@ def _update_job_status_locked(job: Optional[JobStatus]) -> None:
     Parameters
     ----------
     job : Optional[JobStatus]
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     None
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
-    Used by REST route handlers, worker threads, or status snapshot generation.
+    Used by FastAPI routes and background slot worker orchestration.
     
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     if not job:
         return
@@ -1591,14 +1600,14 @@ def list_run_files(run_id: str, x_api_key: Optional[str] = Header(None)):
     Parameters
     ----------
     run_id : str
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     x_api_key : Optional[str]
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     Any
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
@@ -1607,7 +1616,7 @@ def list_run_files(run_id: str, x_api_key: Optional[str] = Header(None)):
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     if auth_error := require_key(x_api_key):
         return auth_error
@@ -1636,16 +1645,16 @@ def get_run_file(run_id: str, path: str, x_api_key: Optional[str] = Header(None)
     Parameters
     ----------
     run_id : str
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     path : str
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     x_api_key : Optional[str]
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     Any
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
@@ -1654,7 +1663,7 @@ def get_run_file(run_id: str, path: str, x_api_key: Optional[str] = Header(None)
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     if auth_error := require_key(x_api_key):
         return auth_error
@@ -1715,14 +1724,14 @@ def get_run_zip(run_id: str, x_api_key: Optional[str] = Header(None)):
     Parameters
     ----------
     run_id : str
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     x_api_key : Optional[str]
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     Any
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
@@ -1731,7 +1740,7 @@ def get_run_zip(run_id: str, x_api_key: Optional[str] = Header(None)):
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     if auth_error := require_key(x_api_key):
         return auth_error
@@ -1782,14 +1791,14 @@ def nas_setup(req: SMBSetupRequest, x_api_key: Optional[str] = Header(None)):
     Parameters
     ----------
     req : SMBSetupRequest
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     x_api_key : Optional[str]
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     Any
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
@@ -1798,7 +1807,7 @@ def nas_setup(req: SMBSetupRequest, x_api_key: Optional[str] = Header(None)):
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     if auth_error := require_key(x_api_key):
         return auth_error
@@ -1820,12 +1829,12 @@ def nas_health(x_api_key: Optional[str] = Header(None)):
     Parameters
     ----------
     x_api_key : Optional[str]
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     Any
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
@@ -1834,7 +1843,7 @@ def nas_health(x_api_key: Optional[str] = Header(None)):
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     if auth_error := require_key(x_api_key):
         return auth_error
@@ -1847,14 +1856,14 @@ def nas_upload_run(run_id: str, x_api_key: Optional[str] = Header(None)):
     Parameters
     ----------
     run_id : str
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     x_api_key : Optional[str]
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     Any
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
@@ -1863,7 +1872,7 @@ def nas_upload_run(run_id: str, x_api_key: Optional[str] = Header(None)):
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     if auth_error := require_key(x_api_key):
         return auth_error
@@ -1878,12 +1887,12 @@ def rescan(x_api_key: Optional[str] = Header(None)):
     Parameters
     ----------
     x_api_key : Optional[str]
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     Any
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
@@ -1892,7 +1901,7 @@ def rescan(x_api_key: Optional[str] = Header(None)):
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     if auth_error := require_key(x_api_key):
         return auth_error
@@ -1908,14 +1917,14 @@ def flash_firmware(file: UploadFile = File(...), x_api_key: Optional[str] = Head
     Parameters
     ----------
     file : UploadFile
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     x_api_key : Optional[str]
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     Any
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
@@ -1924,7 +1933,7 @@ def flash_firmware(file: UploadFile = File(...), x_api_key: Optional[str] = Head
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     if auth_error := require_key(x_api_key):
         return auth_error
@@ -2028,8 +2037,13 @@ class LatestResponse(BaseModel):
     samples: List[TemperatureSample]
 
 class MockPotentiostatSource:
-    """
-    Mockt 10 Geräte: Sinus + Drift + Noise + Dropouts.
+    """Generate deterministic-looking mock telemetry for 10 device ids.
+
+    Notes
+    -----
+    The telemetry endpoint uses this source to exercise GUI streaming workflows
+    without connecting to real hardware. Samples include drift, noise, and rare
+    dropouts so dashboards can be tested against non-ideal data.
     """
     def __init__(self, device_ids: List[int]) -> None:
         self.device_ids = device_ids
@@ -2077,7 +2091,7 @@ def get_latest():
     Returns
     -------
     Any
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
@@ -2086,7 +2100,7 @@ def get_latest():
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     for d in DEVICE_IDS:
         if d not in latest_by_dev:
@@ -2101,25 +2115,25 @@ def sse_format(event: str, data_obj, event_id: Optional[str] = None) -> str:
     Parameters
     ----------
     event : str
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     data_obj : Any
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     event_id : Optional[str]
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     str
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
-    Used by REST route handlers, worker threads, or status snapshot generation.
+    Used by FastAPI routes and background slot worker orchestration.
     
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     msg = ""
     if event_id is not None:
@@ -2135,12 +2149,12 @@ async def temperature_stream(rate_hz: float = Query(2.0, ge=0.2, le=20.0)):
     Parameters
     ----------
     rate_hz : float
-        Input provided by the caller or framework.
+        Value supplied by the API caller or internal orchestration.
     
     Returns
     -------
     Any
-        Value returned to the caller or HTTP stack.
+        Value returned to the caller or consumed by the route handler.
     
     Notes
     -----
@@ -2149,7 +2163,7 @@ async def temperature_stream(rate_hz: float = Query(2.0, ge=0.2, le=20.0)):
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        Raises HTTPException when request data, auth, or storage resolution fails.
     """
     interval = 1.0 / rate_hz
 

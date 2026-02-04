@@ -1,75 +1,92 @@
-﻿# REST API Workflows
+# REST API Workflows
 
-This document describes service-side workflows used by the GUI.
+This document captures the end-to-end workflows that GUI code triggers in the REST API.
 
-## Scope
+## GUI caller map
 
-- Device discovery and mode lookup
-- Parameter validation endpoint
-- Job lifecycle (start, status, cancel)
-- Run artifact serving (files and zip)
-- NAS/SMB setup, health, and upload
-- Telemetry streaming endpoints
+- `seva/adapters/device_rest.py` -> discovery and mode metadata endpoints.
+- `seva/adapters/job_rest.py` -> validation/start/status/cancel/download endpoints.
+- `seva/adapters/firmware_rest.py` -> firmware upload endpoint.
+- `seva/adapters/discovery_http.py` -> `/health` probe during box discovery.
 
-## Device Discovery and Capability Lookup
+The corresponding usecases include experiment launch/poll/cancel flows and firmware flashing flows in `seva/usecases/`.
 
-1. GUI calls `/devices` (adapter: `seva/adapters/device_rest.py`).
-2. `rest_api/app.py` returns `DeviceInfo` list from in-memory registry.
-3. GUI calls `/modes` and `/modes/{mode}/params` to build mode forms.
+## Workflow 1: Validate -> Start -> Poll -> Download
 
-Operational note: `/admin/rescan` refreshes the registry from connected controllers.
+1. GUI collects form inputs and calls `POST /modes/{mode}/validate`.
+2. `app.py` delegates to `validation.validate_mode_payload(...)`.
+3. On success, GUI posts `POST /jobs` with `JobRequest` payload.
+4. `app.py` validates slots + mode payload presence, sanitizes storage names through `storage.py`, creates run directory, and starts slot worker threads.
+5. GUI polls status via `POST /jobs/status` (bulk) and/or `GET /jobs/{run_id}`.
+6. `job_snapshot(...)` computes server-authoritative `progress_pct` and `remaining_s` via `progress_utils.compute_progress(...)`.
+7. After completion, GUI downloads artifacts via `GET /runs/{run_id}/zip` (or per-file endpoints).
 
-## Validate Mode Parameters
+## Workflow 2: Cancel and cleanup
 
-1. GUI sends candidate payload to `/modes/{mode}/validate`.
-2. `rest_api/app.py` delegates to `rest_api/validation.py`.
-3. API returns `ValidationResult` with `errors` and `warnings`.
+1. GUI sends `POST /jobs/{run_id}/cancel`.
+2. API sets cancellation flag and immediately marks queued slots as cancelled.
+3. Running worker loops observe the cancel flag and attempt controller abort.
+4. API recomputes aggregate job state and frees slot reservations.
+5. Clients observe terminal state via polling endpoints.
 
-Acceptance behavior: GUI can block start when `ok=false` without touching hardware.
+## Workflow 3: NAS setup, health, and upload
 
-## Start Job and Run Slots
+1. GUI posts SMB credentials to `POST /nas/setup`.
+2. `nas_smb.NASManager.setup(...)` writes config/credentials and runs a probe mount.
+3. GUI checks connectivity with `GET /nas/health`.
+4. Upload can be triggered manually via `POST /runs/{run_id}/upload` or by post-run automation in worker code.
+5. Upload worker mounts the share, copies files, verifies counts, and writes `UPLOAD_DONE` marker.
+6. Retention loop removes old locally uploaded runs based on configured retention days.
 
-1. GUI submits `/jobs` with `JobRequest` (selected slots, modes, params, storage naming).
-2. API validates slots and mode-param presence, reserves slots in `SLOT_RUNS`.
-3. API computes `RunStorageInfo` via `rest_api/storage.py` and creates run directory.
-4. API spawns per-slot worker threads to execute mode sequence.
-5. Workers update `JobStatus` / `SlotStatus`; aggregate status is recomputed centrally.
+## Workflow 4: Firmware flashing
 
-Server status is authoritative: clients read `/jobs/{run_id}` or `/jobs` snapshots instead of deriving progress locally.
+1. GUI uploads `.bin` via `POST /firmware/flash`.
+2. API stores file in `/opt/box/firmware` with sanitized filename.
+3. API runs `python auto_flash_linux.py <bin-path>`.
+4. Script sends boot command, flashes with `dfu-util`, and waits for CDC reconnection.
+5. API returns command stdout/stderr and exit code; failures are mapped to typed API error payloads.
 
-## Poll Status (Single and Bulk)
+## Workflow 5: Telemetry stream demo
 
-- `/jobs/{run_id}` returns latest snapshot with computed `progress_pct` and `remaining_s`.
-- `/jobs/status/bulk` returns multiple snapshots in one request.
-- `rest_api/progress_utils.py` computes progress based on timestamps and planned duration.
+1. Client calls `/api/telemetry/temperature/latest` to fetch cache snapshot.
+2. Client opens SSE stream `/api/telemetry/temperature/stream`.
+3. API emits `temp` events and periodic `ping` keepalive events.
+4. `latest_by_dev` cache updates continuously and remains available for snapshot endpoint.
 
-## Cancel Job
+## Sequence diagram
 
-1. GUI sends `/jobs/{run_id}/cancel`.
-2. API sets cancellation flag and updates queued slots immediately.
-3. Worker loops observe the flag and transition running slots to terminal states.
-4. API frees slot reservations once cancellation is complete.
+```mermaid
+sequenceDiagram
+    participant GUI as GUI UseCase/ViewModel
+    participant Adapter as seva.adapters.*
+    participant API as rest_api.app
+    participant Validation as rest_api.validation
+    participant Storage as rest_api.storage
+    participant Worker as Slot Worker Thread
+    participant Device as pyBEEP Controller
+    participant NAS as rest_api.nas_smb
 
-## Browse and Download Artifacts
+    GUI->>Adapter: Start experiment request
+    Adapter->>API: POST /modes/{mode}/validate
+    API->>Validation: validate_mode_payload(mode, params)
+    Validation-->>API: ValidationResult
+    API-->>Adapter: ok/errors/warnings
 
-- `/runs/{run_id}/files`: list relative paths.
-- `/runs/{run_id}/file?path=...`: serve one file with path traversal protection.
-- `/runs/{run_id}/zip`: build in-memory ZIP and return as attachment.
+    GUI->>Adapter: Confirm start
+    Adapter->>API: POST /jobs
+    API->>Storage: sanitize + create run directory
+    API->>Worker: spawn per-slot worker threads
+    Worker->>Device: execute measurement sequence
+    Worker-->>API: slot status updates
 
-`rest_api/storage.py` resolves run directories and enforces consistent mapping.
+    GUI->>Adapter: Poll status
+    Adapter->>API: POST /jobs/status
+    API-->>Adapter: Job snapshots (progress_pct, remaining_s)
 
-## NAS/SMB Setup, Health, and Upload
+    GUI->>Adapter: Download results
+    Adapter->>API: GET /runs/{run_id}/zip
+    API-->>Adapter: ZIP bytes
 
-1. GUI posts `/nas/setup` with SMB settings.
-2. `rest_api/nas_smb.py` stores config and probes connectivity.
-3. API exposes `/nas/health` for status checks.
-4. Upload is triggered automatically after successful runs or manually via `/runs/{run_id}/upload`.
-
-Successful upload writes `UPLOAD_DONE`; retention jobs remove aged local directories.
-
-## Telemetry Stream
-
-- `/api/telemetry/temperature/latest`: latest sample cache snapshot.
-- `/api/telemetry/temperature/stream`: SSE stream with periodic `temp` events and keepalive `ping` events.
-
-This is currently mock data (`MockPotentiostatSource`) for UI streaming workflows.
+    API->>NAS: enqueue_upload(run_id)
+    NAS-->>API: upload accepted / already queued
+```

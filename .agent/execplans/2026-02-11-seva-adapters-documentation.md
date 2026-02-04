@@ -17,27 +17,32 @@ Success is observable when:
 
 ## Progress
 
-- [ ] (2026-02-11 00:00Z) Map adapter implementations to domain ports and GUI usecases.
+- [x] (2026-02-04 00:35Z) Map adapter implementations to domain ports and GUI usecases.
 - [ ] (2026-02-11 00:00Z) Add/expand module docstrings for each adapter file.
 - [ ] (2026-02-11 00:00Z) Add/expand class and function docstrings, including call-chain and error cases.
 - [ ] (2026-02-11 00:00Z) Add inline comments for complex HTTP/IO logic and error translation.
-- [ ] (2026-02-11 00:00Z) Update `docs/classes_seva.md` and `docs/workflows_seva.md` with adapter mapping.
+- [x] (2026-02-04 00:35Z) Update `docs/classes_seva.md` and `docs/workflows_seva.md` with adapter mapping.
 - [ ] (2026-02-11 00:00Z) Final consistency pass for Google style and completeness.
 
 ## Surprises & Discoveries
 
-- Observation: None yet.
-  Evidence: Plan initialization only.
+- Observation: Discovery adapter maps to `DeviceDiscoveryPort` in `seva/domain/discovery.py`, not to `seva/domain/ports.py`.
+  Evidence: `seva/usecases/discover_devices.py` depends on `DeviceDiscoveryPort`, and `seva/adapters/discovery_http.py` implements that protocol.
+- Observation: Existing architecture docs already covered adapter names, but did not explicitly tie each adapter to call chains and endpoint/file-path responsibilities.
+  Evidence: Added explicit adapter-to-usecase mapping and endpoint/file persistence notes in `docs/classes_seva.md` and `docs/workflows_seva.md`.
 
 ## Decision Log
 
 - Decision: Use Google-style docstrings for all files in `seva/adapters`.
   Rationale: User requirement and alignment with GUI subsystem documentation.
   Date/Author: 2026-02-11 / Agent
+- Decision: Treat mapping + docs update as the first completed milestone before editing adapter source files.
+  Rationale: Clarifies call-chain context first, so function-level docstrings can reference real workflows consistently.
+  Date/Author: 2026-02-04 / Agent
 
 ## Outcomes & Retrospective
 
-- Status: Not started. This section will be updated after milestones and completion.
+- Milestone update (2026-02-04): Adapter/port/usecase mapping is now explicit in both architecture docs. Remaining work is concentrated in adapter source files (module/class/function docstrings and inline comments), followed by validation and consistency pass.
 
 ## Context and Orientation
 
@@ -80,7 +85,7 @@ Key files (non-exhaustive):
 
 ## Concrete Steps
 
-All steps are run from the repository root (`/workspace/SEVA_GUI_MVVM`).
+All steps are run from the repository root (`c:\Users\LunaP\OneDrive - UBC\Dokumente\Chemistry\Potentiostats\GUI Testing\SEVA_GUI_MVVM`).
 
 1) Inspect adapter files:
 

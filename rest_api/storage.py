@@ -1,9 +1,11 @@
-"""Run-directory storage helpers used by the REST API.
+"""Filesystem naming and run-directory registry helpers for the REST API.
 
-Notes
------
-`rest_api.app` uses this module to sanitize path segments, persist run-id to
-folder mappings, and resolve artifact paths for download endpoints.
+This module centralizes path normalization for experiment storage. `rest_api.app`
+uses it while handling `/jobs`, `/runs/{run_id}/*`, and retention workflows.
+
+The module maintains an in-memory mapping of `run_id -> run directory` and mirrors
+it to `<RUNS_ROOT>/_run_paths.json` so the API can recover run locations across
+process restarts.
 """
 
 import json
@@ -19,12 +21,22 @@ CLIENT_DATETIME_RE = re.compile(r"[^0-9A-Za-zT_-]+")
 
 
 class RunStorageInfo(NamedTuple):
-    """Sanitized run-directory naming components.
-    
-    Notes
-    -----
-    Participates in REST API helper workflows and transport contracts.
+    """Canonical storage-name parts derived from a start-job request.
+
+    Attributes
+    ----------
+    experiment : str
+        Sanitized experiment folder token.
+    subdir : Optional[str]
+        Optional sanitized grouping subfolder.
+    timestamp_dir : str
+        Filesystem-safe timestamp token used as final run directory name.
+    timestamp_name : str
+        Timestamp token variant used in filenames.
+    filename_prefix : str
+        Prefix used for generated plot/data files.
     """
+
     experiment: str
     subdir: Optional[str]
     timestamp_dir: str
@@ -38,7 +50,17 @@ _RUNS_ROOT: Optional[pathlib.Path] = None
 
 
 def configure_runs_root(root: pathlib.Path) -> None:
-    """Configure the base directory used for run storage helpers."""
+    """Set the root output directory and warm the run-id cache.
+
+    Parameters
+    ----------
+    root : pathlib.Path
+        Base path where run directories are created.
+
+    Side Effects
+    ------------
+    Clears and repopulates :data:`RUN_DIRECTORIES` from persisted index data.
+    """
     global _RUNS_ROOT
     _RUNS_ROOT = root
     with RUN_DIRECTORY_LOCK:
@@ -51,32 +73,29 @@ def configure_runs_root(root: pathlib.Path) -> None:
 
 
 def run_index_path() -> pathlib.Path:
-    """Return the path of the on-disk run directory index."""
+    """Return `<RUNS_ROOT>/_run_paths.json`.
+
+    Returns
+    -------
+    pathlib.Path
+        Path to the JSON file that persists run-id directory mappings.
+    """
     root = _require_root()
     return root / "_run_paths.json"
 
 
 def value_or_none(value: Optional[str]) -> Optional[str]:
-    """Return a trimmed non-empty string or None.
-    
+    """Normalize a possibly empty string to `None`.
+
     Parameters
     ----------
     value : Optional[str]
-        Input provided by the caller or framework.
-    
+        Candidate value from request payloads.
+
     Returns
     -------
     Optional[str]
-        Value returned to the caller or HTTP stack.
-    
-    Notes
-    -----
-    Used internally by REST API workflows and helper utilities.
-    
-    Raises
-    ------
-    HTTPException
-        Raised when request validation or storage checks fail.
+        Trimmed string when non-empty, otherwise `None`.
     """
     if value is None:
         return None
@@ -85,28 +104,24 @@ def value_or_none(value: Optional[str]) -> Optional[str]:
 
 
 def sanitize_path_segment(raw: str, field_name: str) -> str:
-    """Sanitize and validate one filesystem path segment.
-    
+    """Convert arbitrary text into a safe single path segment.
+
     Parameters
     ----------
     raw : str
-        Input provided by the caller or framework.
+        Raw string from the API request.
     field_name : str
-        Input provided by the caller or framework.
-    
+        Field label used in client-facing error messages.
+
     Returns
     -------
     str
-        Value returned to the caller or HTTP stack.
-    
-    Notes
-    -----
-    Used internally by REST API workflows and helper utilities.
-    
+        Sanitized token containing only letters, numbers, `_`, and `-`.
+
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        If the input is empty or collapses to an invalid token.
     """
     trimmed = (raw or "").strip()
     if not trimmed:
@@ -121,26 +136,17 @@ def sanitize_path_segment(raw: str, field_name: str) -> str:
 
 
 def sanitize_optional_segment(value: Optional[str]) -> Optional[str]:
-    """Sanitize an optional subdirectory segment when provided.
-    
+    """Sanitize an optional folder segment.
+
     Parameters
     ----------
     value : Optional[str]
-        Input provided by the caller or framework.
-    
+        Optional input from `subdir` or legacy `folder_name` fields.
+
     Returns
     -------
     Optional[str]
-        Value returned to the caller or HTTP stack.
-    
-    Notes
-    -----
-    Used internally by REST API workflows and helper utilities.
-    
-    Raises
-    ------
-    HTTPException
-        Raised when request validation or storage checks fail.
+        Sanitized segment, or `None` when no meaningful value was provided.
     """
     candidate = value_or_none(value)
     if candidate is None:
@@ -149,26 +155,22 @@ def sanitize_optional_segment(value: Optional[str]) -> Optional[str]:
 
 
 def sanitize_client_datetime(raw: str) -> str:
-    """Normalize client timestamps into filesystem-safe tokens.
-    
+    """Normalize a client timestamp into a filesystem-safe token.
+
     Parameters
     ----------
     raw : str
-        Input provided by the caller or framework.
-    
+        Timestamp sent by GUI clients.
+
     Returns
     -------
     str
-        Value returned to the caller or HTTP stack.
-    
-    Notes
-    -----
-    Used internally by REST API workflows and helper utilities.
-    
+        Normalized token used in run folder and filename creation.
+
     Raises
     ------
     HTTPException
-        Raised when request validation or storage checks fail.
+        If the timestamp is empty or becomes invalid after normalization.
     """
     trimmed = (raw or "").strip()
     if not trimmed:
@@ -190,7 +192,19 @@ def sanitize_client_datetime(raw: str) -> str:
 
 
 def record_run_directory(run_id: str, run_dir: pathlib.Path) -> None:
-    """Persist the mapping between run_id and its output directory."""
+    """Persist a run-id to directory mapping in memory and on disk.
+
+    Parameters
+    ----------
+    run_id : str
+        Server-assigned run identifier.
+    run_dir : pathlib.Path
+        Absolute path to the run output directory.
+
+    Side Effects
+    ------------
+    Updates :data:`RUN_DIRECTORIES` and `_run_paths.json` atomically.
+    """
     try:
         rel = run_dir.relative_to(_require_root())
     except ValueError:
@@ -204,7 +218,17 @@ def record_run_directory(run_id: str, run_dir: pathlib.Path) -> None:
 
 
 def forget_run_directory(run_id: str) -> None:
-    """Remove a run directory mapping from memory and disk."""
+    """Remove a persisted run mapping.
+
+    Parameters
+    ----------
+    run_id : str
+        Identifier to remove from memory and disk index.
+
+    Side Effects
+    ------------
+    Deletes the run-id entry from memory and `_run_paths.json`.
+    """
     with RUN_DIRECTORY_LOCK:
         RUN_DIRECTORIES.pop(run_id, None)
         data = _load_run_index_unlocked()
@@ -221,7 +245,29 @@ def forget_run_directory(run_id: str) -> None:
 
 
 def resolve_run_directory(run_id: str) -> pathlib.Path:
-    """Return the directory for a run or raise HTTP 404 if unknown."""
+    """Resolve a run output directory for artifact endpoints.
+
+    Resolution order is:
+
+    1. In-memory mapping in :data:`RUN_DIRECTORIES`
+    2. Persisted JSON index (`_run_paths.json`)
+    3. Legacy fallback `<RUNS_ROOT>/<run_id>`
+
+    Parameters
+    ----------
+    run_id : str
+        Identifier from `/runs/{run_id}/...` endpoints.
+
+    Returns
+    -------
+    pathlib.Path
+        Existing run directory path.
+
+    Raises
+    ------
+    HTTPException
+        HTTP 404 when no matching directory exists.
+    """
     with RUN_DIRECTORY_LOCK:
         candidate = RUN_DIRECTORIES.get(run_id)
     if candidate and candidate.is_dir():
@@ -246,26 +292,17 @@ def resolve_run_directory(run_id: str) -> pathlib.Path:
 
 
 def _require_root() -> pathlib.Path:
-    """Return the configured runs root or raise when not configured.
-    
-    Parameters
-    ----------
-    None
-        This callable does not receive explicit input parameters.
-    
+    """Return configured runs root.
+
     Returns
     -------
     pathlib.Path
-        Value returned to the caller or HTTP stack.
-    
-    Notes
-    -----
-    Used internally by REST API workflows and helper utilities.
-    
+        Current configured runs root.
+
     Raises
     ------
-    HTTPException
-        Raised when request validation or storage checks fail.
+    RuntimeError
+        If :func:`configure_runs_root` was not called yet.
     """
     if _RUNS_ROOT is None:
         raise RuntimeError("RUNS_ROOT has not been configured yet")
@@ -273,26 +310,13 @@ def _require_root() -> pathlib.Path:
 
 
 def _load_run_index_unlocked() -> Dict[str, str]:
-    """Load persisted run-directory mappings from disk.
-    
-    Parameters
-    ----------
-    None
-        This callable does not receive explicit input parameters.
-    
+    """Load run mappings from disk without acquiring the lock.
+
     Returns
     -------
     Dict[str, str]
-        Value returned to the caller or HTTP stack.
-    
-    Notes
-    -----
-    Used internally by REST API workflows and helper utilities.
-    
-    Raises
-    ------
-    HTTPException
-        Raised when request validation or storage checks fail.
+        Mapping of run id to relative directory path. Invalid or unreadable
+        content degrades to an empty mapping.
     """
     try:
         raw = run_index_path().read_text(encoding="utf-8")
@@ -312,26 +336,16 @@ def _load_run_index_unlocked() -> Dict[str, str]:
 
 
 def _write_run_index_unlocked(data: Dict[str, str]) -> None:
-    """Atomically write run-directory mappings to disk.
-    
+    """Write the run index atomically without acquiring the lock.
+
     Parameters
     ----------
     data : Dict[str, str]
-        Input provided by the caller or framework.
-    
-    Returns
-    -------
-    None
-        Value returned to the caller or HTTP stack.
-    
-    Notes
-    -----
-    Used internally by REST API workflows and helper utilities.
-    
-    Raises
-    ------
-    HTTPException
-        Raised when request validation or storage checks fail.
+        Mapping to persist.
+
+    Side Effects
+    ------------
+    Writes a temporary file and atomically replaces `_run_paths.json`.
     """
     path = run_index_path()
     tmp = path.with_suffix(".tmp")

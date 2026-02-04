@@ -36,6 +36,21 @@ class SettingsDialog(tk.Toplevel):
         on_flash_firmware: OnVoid = None,
         on_close: OnVoid = None,
     ) -> None:
+        """Initialize modal settings dialog and field variables.
+
+        Args:
+            parent: Root window used for modality and centering.
+            boxes: Ordered box ids rendered in connection rows.
+            on_test_connection: Per-box callback for connection tests.
+            on_test_relay: Callback for relay connection test.
+            on_browse_results_dir: Callback for selecting local results dir.
+            on_browse_firmware: Callback for selecting firmware image.
+            on_discover_devices: Callback that runs discovery workflow.
+            on_open_nas_setup: Callback opening NAS setup flow.
+            on_save: Callback receiving a normalized settings payload dict.
+            on_flash_firmware: Callback triggering firmware flashing flow.
+            on_close: Callback invoked when dialog closes.
+        """
         super().__init__(parent)
         self.title("Settings")
         self.transient(parent)
@@ -79,6 +94,7 @@ class SettingsDialog(tk.Toplevel):
 
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
+        """Create all dialog widget groups and footer actions."""
         pad = dict(padx=8, pady=6)
 
         # Connection group
@@ -211,6 +227,7 @@ class SettingsDialog(tk.Toplevel):
 
     # ------------------------------------------------------------------
     def _emit_save(self) -> None:
+        """Collect field values and emit them through ``on_save`` callback."""
         settings = {
             "api_base_urls": {box: self.url_vars[box].get().strip() for box in self._boxes},
             "api_keys": {box: self.key_vars[box].get() for box in self._boxes},
@@ -235,6 +252,7 @@ class SettingsDialog(tk.Toplevel):
                 print(f"SettingsDialog on_save failed: {exc}")
 
     def _on_close_clicked(self) -> None:
+        """Invoke close callback and destroy dialog safely."""
         self._safe(self._on_close)
         try:
             if self.winfo_exists():
@@ -246,16 +264,19 @@ class SettingsDialog(tk.Toplevel):
     # Public setters to initialize dialog fields from VM
     # ------------------------------------------------------------------
     def set_api_base_urls(self, mapping: Dict[BoxId, str]) -> None:
+        """Populate base URL fields from settings viewmodel state."""
         for box, url in (mapping or {}).items():
             if box in self.url_vars:
                 self.url_vars[box].set(url)
 
     def set_api_keys(self, mapping: Dict[BoxId, str]) -> None:
+        """Populate API key fields from settings viewmodel state."""
         for box, key in (mapping or {}).items():
             if box in self.key_vars:
                 self.key_vars[box].set(key)
 
     def set_timeouts(self, request_s: int, download_s: int) -> None:
+        """Set request/download timeout inputs."""
         self.request_timeout_var.set(str(request_s))
         self.download_timeout_var.set(str(download_s))
 
@@ -291,12 +312,14 @@ class SettingsDialog(tk.Toplevel):
         self.firmware_path_var.set(path)
 
     def set_save_enabled(self, enabled: bool) -> None:
+        """Enable or disable the Save button."""
         state = tk.NORMAL if enabled else tk.DISABLED
         self._btn_save.configure(state=state)
 
     # ------------------------------------------------------------------
     @staticmethod
     def _parse_int(text: str, default: int) -> int:
+        """Parse integer input, returning fallback on parse failure."""
         try:
             return int(text)
         except Exception:
@@ -304,6 +327,7 @@ class SettingsDialog(tk.Toplevel):
 
     @staticmethod
     def _center_over_parent(parent: tk.Widget) -> str:
+        """Return geometry string centered over parent window when possible."""
         try:
             px = parent.winfo_rootx()
             py = parent.winfo_rooty()
@@ -318,10 +342,12 @@ class SettingsDialog(tk.Toplevel):
             return "600x650"
 
     def _safe(self, fn: OnVoid) -> None:
+        """Invoke no-arg callback only when provided."""
         if fn:
             fn()
 
     def _safe_box(self, fn: OnBox, box_id: BoxId) -> None:
+        """Invoke box callback only when provided."""
         if fn:
             fn(box_id)
 

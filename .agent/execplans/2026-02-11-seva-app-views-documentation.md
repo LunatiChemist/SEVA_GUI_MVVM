@@ -18,26 +18,32 @@ Success is observable when:
 ## Progress
 
 - [x] (2026-02-04 18:15Z) Mapped UI entrypoints and controller flows to viewmodels/usecases by tracing `seva/app/main.py`, `seva/app/run_flow_presenter.py`, and controller callbacks.
-- [ ] (2026-02-11 00:00Z) Add/expand module docstrings for each file in `seva/app` and `seva/app/views`.
-- [ ] (2026-02-11 00:00Z) Add/expand class/function docstrings with call-chain and error cases.
-- [ ] (2026-02-11 00:00Z) Add inline comments for complex UI layout and event handling.
+- [ ] (2026-02-04 18:41Z) Add/expand module docstrings for each file in `seva/app` and `seva/app/views` (completed: updated controller/presenter + key view modules; remaining: normalize remaining ancillary modules).
+- [ ] (2026-02-04 18:41Z) Add/expand class/function docstrings with call-chain and error cases (completed: public APIs in controller/presenter + major views; remaining: deep helper methods and standalone tooling views).
+- [ ] (2026-02-04 18:41Z) Add inline comments for complex UI layout and event handling (completed: added comments in well-id indexing/layout-sensitive sections; remaining: sweep all view helpers for consistency).
 - [x] (2026-02-04 18:19Z) Updated `docs/workflows_seva.md` with UI entrypoints and view-model/usecase handoffs.
-- [ ] (2026-02-11 00:00Z) Final consistency pass for Google style and completeness.
+- [ ] (2026-02-04 18:41Z) Final consistency pass for Google style and completeness.
 
 ## Surprises & Discoveries
 
 - Observation: The app wiring fans out across toolbar callbacks, per-panel callbacks, and settings-dialog callbacks; documenting by event source is clearer than documenting per class.
   Evidence: New `UI Entrypoints and Handoffs` section in `docs/workflows_seva.md` groups actions by user trigger.
+- Observation: `RunOverviewView` wired a "Copy" button to `_copy_to_clipboard`, but the helper did not exist.
+  Evidence: Added `_copy_to_clipboard()` in `seva/app/views/run_overview_view.py` to match existing button command.
 
 ## Decision Log
 
 - Decision: Use Google-style docstrings for all files in `seva/app` and `seva/app/views`.
   Rationale: User requirement and alignment with GUI subsystem documentation.
   Date/Author: 2026-02-11 / Agent
+- Decision: Prioritize entrypoint-facing and public API docstrings first, then sweep helper methods.
+  Rationale: This delivers usable onboarding value quickly while keeping the plan incremental and testable.
+  Date/Author: 2026-02-04 / Agent
 
 ## Outcomes & Retrospective
 
 - Milestone update (2026-02-04): UI entrypoint mapping is now documented in `docs/workflows_seva.md`; remaining work is docstring/comment normalization in `seva/app` and `seva/app/views`.
+- Milestone update (2026-02-04): Expanded docstrings in controllers/presenter and major views; test suite remains green after changes.
 
 ## Context and Orientation
 
@@ -81,7 +87,7 @@ Key files (non-exhaustive):
 
 ## Concrete Steps
 
-All steps are run from the repository root (`/workspace/SEVA_GUI_MVVM`).
+All steps are run from the repository root (`SEVA_GUI_MVVM`).
 
 1) Inspect app and view files:
 
@@ -103,6 +109,11 @@ All steps are run from the repository root (`/workspace/SEVA_GUI_MVVM`).
 4) Optional validation (documentation only):
 
     pytest -q
+
+Validation evidence:
+
+    ........                                                                 [100%]
+    8 passed in 0.10s
 
 ## Validation and Acceptance
 
@@ -131,4 +142,4 @@ No new dependencies are introduced. Interfaces to highlight include:
 
 ---
 
-Change note (2026-02-04): Completed the entrypoint-mapping milestone and updated workflow documentation with explicit callback-to-usecase handoffs.
+Change note (2026-02-04): Completed entrypoint mapping, expanded documentation across controllers/presenter/key views, and added validation evidence.

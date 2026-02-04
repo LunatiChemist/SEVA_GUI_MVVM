@@ -1,4 +1,8 @@
-"""UI-facing presenter that coordinates run flow actions without view logic."""
+"""Presenter that coordinates run lifecycle workflows for the desktop app.
+
+The presenter owns start/cancel/poll/download orchestration and keeps run
+registry state synchronized with UI viewmodels. It does not render widgets.
+"""
 
 from __future__ import annotations
 
@@ -46,14 +50,19 @@ from ..adapters.storage_local import StorageLocal
 
 @dataclass
 class FlowSession:
-    """Runtime wiring for a tracked run group managed by the app."""
+    """Runtime wiring for one tracked run group.
+
+    Attributes:
+        coordinator: Stateful run-flow coordinator instance.
+        context: Group context produced by coordinator start/attach calls.
+    """
 
     coordinator: RunFlowCoordinator
     context: GroupContext
 
 
 class RunFlowPresenter:
-    """Coordinates start/cancel/poll logic and run registry updates."""
+    """Coordinate start/cancel/poll logic and run registry updates."""
 
     def __init__(
         self,
@@ -73,6 +82,24 @@ class RunFlowPresenter:
         build_plan: BuildExperimentPlan,
         build_storage_meta: BuildStorageMeta,
     ) -> None:
+        """Initialize presenter dependencies and local runtime state.
+
+        Args:
+            win: Root window used for status/toast updates.
+            controller: App controller exposing adapters and use-cases.
+            runs: Persistent runs registry.
+            runs_vm: Viewmodel backing the runs tab.
+            progress_vm: Viewmodel backing run overview/activity tabs.
+            settings_vm: Settings viewmodel for polling/download preferences.
+            storage: Storage adapter used for download/extraction workflows.
+            plate_vm: Plate selection/configuration viewmodel.
+            experiment_vm: Experiment form/state viewmodel.
+            runs_panel: Runs panel view instance.
+            ensure_adapter: Callback that ensures adapter wiring is ready.
+            toast_error: Callback that formats exceptions into UI messages.
+            build_plan: Use-case building a typed experiment plan.
+            build_storage_meta: Use-case building storage metadata.
+        """
         self._log = logging.getLogger(__name__)
         self.win = win
         self.controller = controller
@@ -110,9 +137,11 @@ class RunFlowPresenter:
         return self._last_download_dir
 
     def group_storage_meta_for(self, group_id: str) -> Optional[StorageMeta]:
+        """Return cached storage metadata for a run group."""
         return self._group_storage_meta.get(group_id)
 
     def record_download_dir(self, path: str) -> None:
+        """Remember the most recent download directory for quick-open actions."""
         self._last_download_dir = path
 
     # ------------------------------------------------------------------
@@ -189,6 +218,7 @@ class RunFlowPresenter:
     # Runs panel helpers
     # ------------------------------------------------------------------
     def _refresh_runs_panel(self) -> None:
+        """Push current registry rows and selection into the runs panel view."""
         if not self.runs_panel:
             return
         rows = self.runs_vm.rows()
@@ -199,12 +229,15 @@ class RunFlowPresenter:
             self.runs_panel.select_group(active)
 
     def refresh_runs_panel(self) -> None:
+        """Public wrapper used by app bootstrap and controllers."""
         self._refresh_runs_panel()
 
     def build_download_toast(self, group_id: str, path: str) -> str:
+        """Public wrapper returning standardized download toast text."""
         return self._build_download_toast(group_id, path)
 
     def stop_all_polling(self) -> None:
+        """Stop group polling and device-activity polling."""
         self._stop_polling()
         self._stop_activity_polling()
 
@@ -222,6 +255,7 @@ class RunFlowPresenter:
             messagebox.showwarning("Open Folder", f"Could not open folder:\n{path}")
 
     def on_runs_select(self, group_id: str) -> None:
+        """Handle user selection change in the runs panel."""
         if self.progress_vm.active_group_id == group_id:
             self.runs_vm.set_active_group(group_id)
             self._active_group_id = group_id
@@ -234,6 +268,7 @@ class RunFlowPresenter:
         self.win.set_run_group_id(group_id)
 
     def on_runs_open_folder(self, group_id: str) -> None:
+        """Open downloaded results folder for a selected group if available."""
         entry = self.runs.get(group_id)
         if not entry:
             return
@@ -244,6 +279,7 @@ class RunFlowPresenter:
         self._open_path(path)
 
     def on_runs_cancel(self, group_id: str) -> None:
+        """Prompt then cancel a selected run group."""
         if not self._ensure_adapter() or not self.controller.uc_cancel:
             messagebox.showinfo("Cancel Group", "Cancel use case not available.")
             return
@@ -267,6 +303,7 @@ class RunFlowPresenter:
             messagebox.showerror("Cancel Group", f"Cancel failed:\n{exc}")
 
     def on_runs_delete(self, group_id: str) -> None:
+        """Remove a run entry, optionally canceling first if still active."""
         entry = self.runs.get(group_id)
         if not entry:
             return
@@ -408,6 +445,7 @@ class RunFlowPresenter:
             self._toast_error(exc)
 
     def cancel_active_group(self) -> None:
+        """Cancel the currently active run group through the cancel use-case."""
         if not self._active_group_id or not self._ensure_adapter():
             self.win.show_toast("No active group.")
             return
@@ -424,6 +462,7 @@ class RunFlowPresenter:
             self._toast_error(exc)
 
     def cancel_selected_runs(self) -> None:
+        """Cancel only runs that correspond to currently selected wells."""
         selection = sorted(self.plate_vm.get_selection())
         if not selection:
             self.win.show_toast("Select at least one well.")
@@ -475,11 +514,13 @@ class RunFlowPresenter:
             self.win.set_run_group_id(self._active_group_id or "")
 
     def start_activity_polling(self) -> None:
+        """Start adaptive device-activity polling across configured boxes."""
         self._activity_delay_ms = 2000
         self._activity_signature = None
         self._schedule_activity_poll(self._activity_delay_ms)
 
     def _stop_activity_polling(self) -> None:
+        """Stop the adaptive activity polling channel."""
         self._scheduler.cancel("activity")
 
     def _schedule_activity_poll(self, delay_ms: int) -> None:
@@ -487,6 +528,7 @@ class RunFlowPresenter:
         self._scheduler.schedule("activity", delay, self._on_activity_poll_tick)
 
     def _on_activity_poll_tick(self) -> None:
+        """Poll device activity and adapt next delay based on change signature."""
         if not self.controller.ensure_ready() or not self.controller.uc_poll_device_status:
             self._activity_delay_ms = 10000
             self._schedule_activity_poll(self._activity_delay_ms)

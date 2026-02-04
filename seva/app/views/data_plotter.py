@@ -1,19 +1,7 @@
-"""
-DataPlotter (Popup) – updated UI
---------------------------------
-Tkinter Toplevel window that mirrors the original SEVA data plotting UI, but
-keeps all processing (IR correction, loading/plotting/export) out of the View.
-The View only raises callbacks and exposes setters for the ViewModel.
+"""Popup view for plotting/export controls and per-well result file rows.
 
-What this View provides:
-- Header with RunGroupId + current selection summary
-- Controls row: Fetch/Refresh, Axes (X/Y), Section, Rs (IR), Apply IR, Reset IR,
-  Export CSV/PNG
-- Scrollable list of wells: [Include] [Well] [PNG?] [Path] [Open PNG] [Open Folder]
-- Status line with counters (loaded / corrected)
-- Proper close behavior (WM_DELETE_WINDOW) and reusable instance handling
-
-All comments in English (project guidance).
+The view is UI-only: it renders control widgets, emits callbacks, and applies
+setter data from a dedicated viewmodel/controller.
 """
 from __future__ import annotations
 import tkinter as tk
@@ -49,6 +37,7 @@ class DataPlotter(tk.Toplevel):
         on_toggle_include: Optional[callable] = None,   # (well_id: str, included: bool)
         on_close: OnVoid = None,
     ) -> None:
+        """Create plotter popup widgets and callback bindings."""
         super().__init__(parent)
         self.title("Data Plotter")
         self.transient(parent)
@@ -162,23 +151,28 @@ class DataPlotter(tk.Toplevel):
     # Public setters (called by ViewModel)
     # ------------------------------------------------------------------
     def set_run_info(self, run_group_id: Optional[str], selection_summary: str) -> None:
+        """Render active run id and selection summary labels."""
         self._run_var.set(f"Run: {run_group_id or '–'}")
         self._selection_var.set(f"Selection: {selection_summary or '–'}")
 
     def set_axes_options(self, x_options: List[str], y_options: List[str]) -> None:
+        """Replace available axis options."""
         self._x_combo.configure(values=list(x_options))
         self._y_combo.configure(values=list(y_options))
 
     def set_selected_axes(self, x: str, y: str) -> None:
+        """Set selected x/y axis labels."""
         self._x_var.set(x)
         self._y_var.set(y)
 
     def set_sections(self, options: List[str], selected: Optional[str] = None) -> None:
+        """Replace available section options and optional current selection."""
         self._section_combo.configure(values=list(options))
         if selected is not None:
             self._section_var.set(selected)
 
     def set_ir_params(self, rs_value: str) -> None:
+        """Set the current IR correction value shown in the Rs input."""
         self._rs_var.set(rs_value)
 
     def set_rows(self, mapping: Dict[WellId, Tuple[bool, str, bool]]) -> None:
@@ -212,20 +206,24 @@ class DataPlotter(tk.Toplevel):
             self._rows[wid] = (chk_var, lbl_well, lbl_png, lbl_path, btn_open, btn_folder)
 
     def set_stats(self, loaded: int, corrected: int) -> None:
+        """Update footer counters for loaded/corrected datasets."""
         self._stats_var.set(f"Loaded: {loaded} • Corrected: {corrected}")
 
     # ------------------------------------------------------------------
     # Emit helpers
     # ------------------------------------------------------------------
     def _emit_axes(self) -> None:
+        """Emit currently selected x/y axes."""
         if self._on_axes_changed:
             self._on_axes_changed(self._x_var.get(), self._y_var.get())
 
     def _emit_section(self) -> None:
+        """Emit currently selected section."""
         if self._on_section_changed:
             self._on_section_changed(self._section_var.get())
 
     def _emit_ir_apply(self) -> None:
+        """Emit requested IR correction value."""
         if self._on_apply_ir:
             self._on_apply_ir(self._rs_var.get())
 
@@ -242,6 +240,7 @@ class DataPlotter(tk.Toplevel):
             self._on_toggle_include(well_id, bool(included))
 
     def _on_close_clicked(self) -> None:
+        """Notify owner and close popup."""
         if self._on_close:
             self._on_close()
         self.destroy()

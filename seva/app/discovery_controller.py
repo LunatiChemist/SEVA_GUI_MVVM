@@ -1,4 +1,8 @@
-"""Controller for device discovery workflows."""
+"""Controller that orchestrates network discovery from the settings dialog.
+
+This module bridges settings UI actions to discovery use-cases, then writes
+results back to the settings viewmodel and persistence adapter.
+"""
 
 from __future__ import annotations
 
@@ -20,7 +24,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 class DiscoveryController:
-    """Discovery orchestration for settings workflows."""
+    """Run discovery workflow and update settings state/UI."""
 
     def __init__(
         self,
@@ -31,6 +35,15 @@ class DiscoveryController:
         discovery_uc: DiscoverAndAssignDevices,
         box_ids: Sequence[str],
     ) -> None:
+        """Store discovery dependencies.
+
+        Args:
+            win: Root window used for toast feedback and modal parenting.
+            settings_vm: Settings viewmodel to update with discovered URLs.
+            storage: Persistence port for user settings.
+            discovery_uc: Use-case that discovers and assigns devices.
+            box_ids: Ordered list of supported box identifiers.
+        """
         self._log = logging.getLogger(__name__)
         self.win = win
         self.settings_vm = settings_vm
@@ -39,6 +52,11 @@ class DiscoveryController:
         self.box_ids = list(box_ids)
 
     def discover(self, dialog: Optional["SettingsDialog"] = None) -> None:
+        """Execute discovery and apply results to VM, storage, and dialog.
+
+        Args:
+            dialog: Optional settings dialog to update in-place after discovery.
+        """
         candidates = self._build_discovery_candidates()
         if not candidates:
             self.win.show_toast("No discovery candidates available.")
@@ -98,6 +116,12 @@ class DiscoveryController:
             DiscoveryResultsDialog(self.win, rows)
 
     def _build_discovery_candidates(self) -> List[str]:
+        """Build ordered host/CIDR discovery candidates from known URLs.
+
+        Returns:
+            Deduplicated list of candidate URLs/subnets. Falls back to
+            ``192.168.0.0/24`` when no hints are configured.
+        """
         candidates: List[str] = []
         base_urls = self.settings_vm.api_base_urls or {}
         for url in base_urls.values():

@@ -1,4 +1,9 @@
-"""Central registry for mode normalization, labels, and clipboard rules."""
+"""Central registry for mode normalization, labels, and mode-field ownership.
+
+ViewModels call this registry to determine which form fields belong to each
+mode and which builder class should construct a typed `ModeParams` object.
+Use cases then consume those typed params for payload construction.
+"""
 
 from __future__ import annotations
 
@@ -30,6 +35,7 @@ class ModeRegistry:
         rules: Mapping[str, ModeRule],
         builders: Optional[Mapping[str, type[ModeParams]]] = None,
     ) -> None:
+        """Store normalized rule and builder mappings keyed by canonical mode."""
         self._rules: Dict[str, ModeRule] = {
             self._normalize_key(key): rule for key, rule in rules.items()
         }
@@ -39,6 +45,7 @@ class ModeRegistry:
 
     @classmethod
     def default(cls) -> "ModeRegistry":
+        """Build the default registry used by experiment setup view models."""
         rules = {
             "CV": ModeRule(
                 name="CV",
@@ -80,9 +87,11 @@ class ModeRegistry:
         return cls(rules=rules, builders=builders)
 
     def rules(self) -> Iterable[ModeRule]:
+        """Return all registered rules for iteration and diagnostics."""
         return self._rules.values()
 
     def rule_for(self, mode: str) -> ModeRule:
+        """Return the mode rule for a UI or payload mode token."""
         key = self._normalize_key(mode)
         rule = self._rules.get(key)
         if not rule:
@@ -90,15 +99,18 @@ class ModeRegistry:
         return rule
 
     def label_for(self, mode: str) -> str:
+        """Return a human-readable mode label, falling back to the input token."""
         try:
             return self.rule_for(mode).label
         except ValueError:
             return str(mode)
 
     def clipboard_attr_for(self, mode: str) -> str:
+        """Return the ViewModel clipboard attribute name for the given mode."""
         return self.rule_for(mode).clipboard_attr
 
     def is_mode_field(self, mode: str, field_id: str) -> bool:
+        """Check whether a field id belongs to the specified mode."""
         rule = self.rule_for(mode)
         return (
             field_id in rule.flags
@@ -107,22 +119,27 @@ class ModeRegistry:
         )
 
     def filter_fields(self, mode: str, fields: Mapping[str, str]) -> Dict[str, str]:
+        """Extract mode-owned fields and force mode flags on for payload building."""
         rule = self.rule_for(mode)
         snapshot = {
             fid: val for fid, val in fields.items() if self.is_mode_field(mode, fid)
         }
+        # Ensure downstream builders always see explicit "enabled" flags.
         for flag in rule.flags:
             snapshot[flag] = "1"
         return snapshot
 
     def builder_for(self, mode: str) -> Optional[type[ModeParams]]:
+        """Return the mode parameter builder class, if one is registered."""
         return self._builders.get(self._normalize_key(mode))
 
     def backend_token(self, mode: str) -> str:
+        """Normalize a UI mode label into the backend mode token."""
         return normalize_mode_name(mode)
 
     @staticmethod
     def _normalize_key(mode: str) -> str:
+        """Normalize mapping keys so lookups are case-insensitive and trimmed."""
         return str(mode or "").strip().upper()
 
 

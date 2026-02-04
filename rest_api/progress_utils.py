@@ -1,9 +1,8 @@
-"""Progress and duration helpers for REST job snapshots.
+"""Server-authoritative progress helpers for job status snapshots.
 
-Notes
------
-`rest_api.app` calls these helpers while building `/jobs/*` responses so GUI
-clients can display server-authoritative progress and remaining time estimates.
+`rest_api.app` calls this module while preparing `/jobs`, `/jobs/status`, and
+`/jobs/{run_id}` responses. The GUI must treat these values as authoritative
+instead of synthesizing client-side progress.
 """
 
 from __future__ import annotations

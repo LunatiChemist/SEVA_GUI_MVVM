@@ -1,8 +1,12 @@
-"""Cyclic voltammetry parameter mapping."""
+"""Cyclic voltammetry parameter mapping from UI snapshots to domain payloads.
+
+`build_experiment_plan` and related orchestration code use `CVParams` to
+normalize mode-specific fields before adapters build REST payload bodies.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, Mapping, MutableMapping
 
 from . import ModeParams
@@ -28,7 +32,6 @@ class CVParams(ModeParams):
     end: Any
     scan_rate: Any
     cycles: Any
-
 
     @classmethod
     def from_form(cls, form: Mapping[str, Any]) -> "CVParams":
@@ -59,6 +62,7 @@ class CVParams(ModeParams):
 
     @classmethod
     def _extract_flags(cls, data: Mapping[str, Any]) -> Dict[str, Any]:
+        """Collect mode flags from nested and flat form snapshots."""
         flags: Dict[str, Any] = {}
         nested = data.get("flags")
         if isinstance(nested, MutableMapping):
@@ -72,4 +76,5 @@ class CVParams(ModeParams):
 
     @staticmethod
     def _is_flag_key(key: str) -> bool:
+        """Return whether a field key should be treated as a run flag."""
         return key in _FLAG_KEYS or key.startswith("run_")

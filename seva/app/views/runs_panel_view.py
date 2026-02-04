@@ -18,6 +18,12 @@ class RunsPanelView(ttk.Frame):
     """
 
     def __init__(self, parent, **kwargs):
+        """Build toolbar + runs table.
+
+        Args:
+            parent: Notebook parent widget.
+            **kwargs: Additional frame options forwarded to ``ttk.Frame``.
+        """
         super().__init__(parent, **kwargs)
 
         toolbar = ttk.Frame(self)
@@ -76,6 +82,11 @@ class RunsPanelView(ttk.Frame):
     # Public API
     # ------------------------------------------------------------------
     def set_rows(self, rows: List) -> None:
+        """Replace table rows with registry-derived run summaries.
+
+        Args:
+            rows: Sequence of row DTOs from ``RunsVM.rows()``.
+        """
         selected = self.selected_group_id()
         self.tree.delete(*self.tree.get_children())
         for row in rows:
@@ -98,6 +109,7 @@ class RunsPanelView(ttk.Frame):
         self._update_buttons_state()
 
     def selected_group_id(self) -> Optional[str]:
+        """Return currently selected group id, if any."""
         selection = self.tree.selection()
         if not selection:
             return None
@@ -119,12 +131,14 @@ class RunsPanelView(ttk.Frame):
     # Internal helpers
     # ------------------------------------------------------------------
     def _on_select_changed(self, _event=None) -> None:
+        """Forward selection changes to external callback and update buttons."""
         group_id = self.selected_group_id()
         self._update_buttons_state()
         if group_id and self.on_select:
             self.on_select(group_id)
 
     def _update_buttons_state(self) -> None:
+        """Enable action buttons only when a row is selected."""
         has_selection = self.selected_group_id() is not None
         state = "normal" if has_selection else "disabled"
         for button in (self.btn_open, self.btn_cancel, self.btn_delete):

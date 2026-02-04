@@ -1,9 +1,9 @@
-"""Mode-payload validators for the REST validation endpoint.
+"""Mode-specific payload validation for `POST /modes/{mode}/validate`.
 
-Notes
------
-`rest_api.app` routes `/modes/{mode}/validate` requests to this module so GUI
-clients can validate parameters before starting hardware runs.
+GUI ViewModels call this endpoint through `seva.adapters.device_rest` before
+submitting `POST /jobs`. The validators in this module are intentionally
+hardware-independent: they normalize values, apply safety and shape checks, and
+return structured errors/warnings that can be shown directly in the UI.
 """
 
 from __future__ import annotations

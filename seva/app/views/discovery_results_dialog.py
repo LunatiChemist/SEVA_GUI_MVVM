@@ -17,6 +17,14 @@ class DiscoveryResultsDialog(tk.Toplevel):
     """
     def __init__(self, master, rows: Iterable[Mapping], title: str = "Discovered Devices",
                  on_close: Optional[callable] = None):
+        """Build and show modal results dialog.
+
+        Args:
+            master: Parent window for modality/transient behavior.
+            rows: Iterable of discovery result mappings.
+            title: Window title string.
+            on_close: Optional callback invoked before dialog destroy.
+        """
         super().__init__(master)
         self.title(title)
         self.on_close = on_close
@@ -67,6 +75,7 @@ class DiscoveryResultsDialog(tk.Toplevel):
         self._center_over_master()
 
     def _populate(self, rows: Iterable[Mapping]) -> None:
+        """Render discovery rows into the treeview."""
         self.tree.delete(*self.tree.get_children())
         any_rows = False
         for item in rows:
@@ -82,6 +91,7 @@ class DiscoveryResultsDialog(tk.Toplevel):
             self.tree.insert("", "end", values=("—", "—", "—", "—", "—"))
 
     def _center_over_master(self):
+        """Center dialog over parent when possible; fallback to screen center."""
         try:
             self.update_idletasks()
             if self.master and self.master.winfo_ismapped():
@@ -99,6 +109,7 @@ class DiscoveryResultsDialog(tk.Toplevel):
             pass
 
     def _on_close(self):
+        """Release modal grab, fire callback, and destroy the dialog."""
         try:
             self.grab_release()
         except Exception:
