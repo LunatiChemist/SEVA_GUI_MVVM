@@ -1,0 +1,22 @@
+# Use this for the requirements when starting the REST API
+
+# GUI / Client
+requests
+matplotlib
+Pillow
+numpy
+
+# Server / API
+fastapi
+uvicorn[standard]
+pydantic
+pyserial
+python-multipart
+
+# Potentiostat driver (pyBEEP)
+git+https://github.com/aurelienblanc2/Potentiostat-driver-pyBEEP.git#egg=pyBEEP
+#-e ./vendor/pyBEEP
+
+
+# Tests
+pytest

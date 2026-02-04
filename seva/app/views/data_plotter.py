@@ -1,19 +1,7 @@
-"""
-DataPlotter (Popup) – updated UI
---------------------------------
-Tkinter Toplevel window that mirrors the original SEVA data plotting UI, but
-keeps all processing (IR correction, loading/plotting/export) out of the View.
-The View only raises callbacks and exposes setters for the ViewModel.
+"""Popup view for plotting/export controls and per-well result file rows.
 
-What this View provides:
-- Header with RunGroupId + current selection summary
-- Controls row: Fetch/Refresh, Axes (X/Y), Section, Rs (IR), Apply IR, Reset IR,
-  Export CSV/PNG
-- Scrollable list of wells: [Include] [Well] [PNG?] [Path] [Open PNG] [Open Folder]
-- Status line with counters (loaded / corrected)
-- Proper close behavior (WM_DELETE_WINDOW) and reusable instance handling
-
-All comments in English (project guidance).
+The view is UI-only: it renders control widgets, emits callbacks, and applies
+setter data from a dedicated viewmodel/controller.
 """
 from __future__ import annotations
 import tkinter as tk
@@ -49,6 +37,22 @@ class DataPlotter(tk.Toplevel):
         on_toggle_include: Optional[callable] = None,   # (well_id: str, included: bool)
         on_close: OnVoid = None,
     ) -> None:
+        """Create plotter popup widgets and callback bindings.
+
+        Args:
+            parent: Parent window.
+            on_fetch_data: Callback for refresh action.
+            on_axes_changed: Callback for x/y axis change.
+            on_section_changed: Callback for section dropdown change.
+            on_apply_ir: Callback for IR correction apply action.
+            on_reset_ir: Callback for IR reset action.
+            on_export_csv: Callback for CSV export.
+            on_export_png: Callback for PNG export.
+            on_open_plot: Callback opening per-well PNG.
+            on_open_results_folder: Callback opening per-well folder.
+            on_toggle_include: Callback toggling per-well inclusion.
+            on_close: Callback invoked before popup close.
+        """
         super().__init__(parent)
         self.title("Data Plotter")
         self.transient(parent)
@@ -84,7 +88,7 @@ class DataPlotter(tk.Toplevel):
         controls.pack(fill="x", padx=8, pady=(0, 6))
         controls.columnconfigure(8, weight=1)
 
-        ttk.Button(controls, text="Fetch/Refresh", command=lambda: self._safe(self._on_fetch_data)).grid(row=0, column=0, padx=(0,8))
+        ttk.Button(controls, text="Fetch/Refresh", command=self._on_fetch_data).grid(row=0, column=0, padx=(0,8))
 
         ttk.Label(controls, text="X").grid(row=0, column=1, sticky="e")
         self._x_var = tk.StringVar()
@@ -109,10 +113,10 @@ class DataPlotter(tk.Toplevel):
         ttk.Entry(controls, textvariable=self._rs_var, width=8).grid(row=0, column=8, sticky="w")
 
         ttk.Button(controls, text="Apply IR", command=lambda: self._emit_ir_apply()).grid(row=0, column=9, padx=(12,4))
-        ttk.Button(controls, text="Reset IR", command=lambda: self._safe(self._on_reset_ir)).grid(row=0, column=10)
+        ttk.Button(controls, text="Reset IR", command=self._on_reset_ir).grid(row=0, column=10)
 
-        ttk.Button(controls, text="Export CSV", command=lambda: self._safe(self._on_export_csv)).grid(row=0, column=11, padx=(18,4))
-        ttk.Button(controls, text="Export PNG", command=lambda: self._safe(self._on_export_png)).grid(row=0, column=12)
+        ttk.Button(controls, text="Export CSV", command=self._on_export_csv).grid(row=0, column=11, padx=(18,4))
+        ttk.Button(controls, text="Export PNG", command=self._on_export_png).grid(row=0, column=12)
 
         # ---------------- Body: Scrollable list of wells ----------------
         body = ttk.Frame(self)
@@ -162,28 +166,59 @@ class DataPlotter(tk.Toplevel):
     # Public setters (called by ViewModel)
     # ------------------------------------------------------------------
     def set_run_info(self, run_group_id: Optional[str], selection_summary: str) -> None:
+        """Render active run id and selection summary labels.
+
+        Args:
+            run_group_id: Active run-group id.
+            selection_summary: User-facing selection summary text.
+        """
         self._run_var.set(f"Run: {run_group_id or '–'}")
         self._selection_var.set(f"Selection: {selection_summary or '–'}")
 
     def set_axes_options(self, x_options: List[str], y_options: List[str]) -> None:
+        """Replace available axis options.
+
+        Args:
+            x_options: X-axis option labels.
+            y_options: Y-axis option labels.
+        """
         self._x_combo.configure(values=list(x_options))
         self._y_combo.configure(values=list(y_options))
 
     def set_selected_axes(self, x: str, y: str) -> None:
+        """Set selected x/y axis labels.
+
+        Args:
+            x: Selected x-axis label.
+            y: Selected y-axis label.
+        """
         self._x_var.set(x)
         self._y_var.set(y)
 
     def set_sections(self, options: List[str], selected: Optional[str] = None) -> None:
+        """Replace available section options and optional current selection.
+
+        Args:
+            options: Section option labels.
+            selected: Optional currently selected label.
+        """
         self._section_combo.configure(values=list(options))
         if selected is not None:
             self._section_var.set(selected)
 
     def set_ir_params(self, rs_value: str) -> None:
+        """Set the current IR correction value shown in the Rs input.
+
+        Args:
+            rs_value: Rs value text.
+        """
         self._rs_var.set(rs_value)
 
     def set_rows(self, mapping: Dict[WellId, Tuple[bool, str, bool]]) -> None:
         """Replace well rows.
-        mapping: WellId -> (has_png: bool, path: str, included: bool)
+
+        Args:
+            mapping: ``WellId -> (has_png, path, included)``.
         """
         for c in list(self._rows_frame.winfo_children()):
             c.destroy()
@@ -212,69 +247,65 @@ class DataPlotter(tk.Toplevel):
             self._rows[wid] = (chk_var, lbl_well, lbl_png, lbl_path, btn_open, btn_folder)
 
     def set_stats(self, loaded: int, corrected: int) -> None:
+        """Update footer counters for loaded/corrected datasets.
+
+        Args:
+            loaded: Number of loaded wells.
+            corrected: Number of IR-corrected wells.
+        """
         self._stats_var.set(f"Loaded: {loaded} • Corrected: {corrected}")
 
     # ------------------------------------------------------------------
     # Emit helpers
     # ------------------------------------------------------------------
     def _emit_axes(self) -> None:
+        """Emit currently selected x/y axes."""
         if self._on_axes_changed:
-            try:
-                self._on_axes_changed(self._x_var.get(), self._y_var.get())
-            except Exception as e:
-                print(f"DataPlotter axes callback failed: {e}")
+            self._on_axes_changed(self._x_var.get(), self._y_var.get())
 
     def _emit_section(self) -> None:
+        """Emit currently selected section."""
         if self._on_section_changed:
-            try:
-                self._on_section_changed(self._section_var.get())
-            except Exception as e:
-                print(f"DataPlotter section callback failed: {e}")
+            self._on_section_changed(self._section_var.get())
 
     def _emit_ir_apply(self) -> None:
+        """Emit requested IR correction value."""
         if self._on_apply_ir:
-            try:
-                self._on_apply_ir(self._rs_var.get())
-            except Exception as e:
-                print(f"DataPlotter apply IR failed: {e}")
+            self._on_apply_ir(self._rs_var.get())
 
     def _emit_open_plot(self, well_id: WellId) -> None:
+        """Emit open-plot callback for one well id.
+
+        Args:
+            well_id: Well identifier.
+        """
         if self._on_open_plot:
-            try:
-                self._on_open_plot(well_id)
-            except Exception as e:
-                print(f"DataPlotter open plot failed: {e}")
+            self._on_open_plot(well_id)
 
     def _emit_open_folder(self, well_id: WellId) -> None:
+        """Emit open-folder callback for one well id.
+
+        Args:
+            well_id: Well identifier.
+        """
         if self._on_open_results_folder:
-            try:
-                self._on_open_results_folder(well_id)
-            except Exception as e:
-                print(f"DataPlotter open folder failed: {e}")
+            self._on_open_results_folder(well_id)
 
     def _emit_toggle_include(self, well_id: WellId, included: bool) -> None:
+        """Emit include-toggle callback for one well id.
+
+        Args:
+            well_id: Well identifier.
+            included: Whether the well is included in plotting/export.
+        """
         if self._on_toggle_include:
-            try:
-                self._on_toggle_include(well_id, bool(included))
-            except Exception as e:
-                print(f"DataPlotter toggle include failed: {e}")
+            self._on_toggle_include(well_id, bool(included))
 
     def _on_close_clicked(self) -> None:
+        """Notify owner and close popup."""
         if self._on_close:
-            try:
-                self._on_close()
-            except Exception as e:
-                print(f"DataPlotter on_close failed: {e}")
+            self._on_close()
         self.destroy()
-
-    # ------------------------------------------------------------------
-    def _safe(self, fn: OnVoid) -> None:
-        if fn:
-            try:
-                fn()
-            except Exception as e:
-                print(f"DataPlotter callback failed: {e}")
-
 
 if __name__ == "__main__":
     root = tk.Tk()

@@ -1,19 +1,42 @@
+"""GUI application bootstrap and top-level event wiring.
+
+This module is the composition root of the desktop application. It assembles
+the Tkinter user interface by wiring views, view models, controllers, use
+cases, and concrete infrastructure adapters into one runnable app instance.
+
+Responsibilities of this module include:
+
+- Initializing the main window and core subviews (grid, experiment panel,
+  run overview, channel activity, runs panel, settings dialog entrypoints)
+- Creating and connecting view models to their corresponding views
+- Binding user actions (toolbar commands, panel actions, hotkeys) to
+  controller and use-case orchestration
+- Selecting concrete runtime dependencies (local storage, discovery adapter,
+  relay adapter) and connecting them to orchestration components
+- Coordinating run-flow lifecycle integration (start, cancel, polling,
+  download, registry sync)
+- Keeping UI state synchronized with domain/application state snapshots
+- Centralizing user-facing error formatting and status feedback
+
+The ``App`` class intentionally contains no business logic. It orchestrates
+interaction across layers and delegates domain behavior to use cases.
+
+Application startup is performed via :func:`main`, which instantiates
+``App`` and starts the Tkinter event loop.
+"""
+
 # seva/app/main.py
 from __future__ import annotations
 import logging
 import os
-import random
-import re
 import shutil
-import string
 import subprocess
 import sys
-import tempfile
-from collections import defaultdict
+from pathlib import Path
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from tkinter import filedialog
-from typing import Any, Dict, Set, Optional, Iterable, List, TYPE_CHECKING
+from typing import Dict, Set, Optional, List, TYPE_CHECKING
 
 # ---- Views (UI-only) ----
 from .views.main_window import MainWindowView
@@ -22,59 +45,54 @@ from .views.experiment_panel_view import ExperimentPanelView
 from .views.run_overview_view import RunOverviewView
 from .views.channel_activity_view import ChannelActivityView
 from .views.settings_dialog import SettingsDialog
-from .views.data_plotter import DataPlotter
+from .dataplotter_standalone import DataProcessingGUI
+from .discovery_controller import DiscoveryController
+from .settings_controller import SettingsController
+from .download_controller import DownloadController
+from .views.runs_panel_view import RunsPanelView
 
 # ---- ViewModels ----
 from ..viewmodels.plate_vm import PlateVM
 from ..viewmodels.experiment_vm import ExperimentVM
 from ..viewmodels.progress_vm import ProgressVM
-from ..viewmodels.settings_vm import SettingsVM
+from ..viewmodels.settings_vm import SettingsVM, BOX_IDS
 from ..viewmodels.live_data_vm import LiveDataVM
+from ..viewmodels.runs_vm import RunsVM
 
 # ---- UseCases & Adapter ----
-from ..usecases.start_experiment_batch import (
-    StartBatchResult,
-    StartExperimentBatch,
-    WellValidationResult,
-)
-from ..usecases.validate_start_plan import ValidateStartPlan
-from ..usecases.poll_group_status import PollGroupStatus
-from ..usecases.download_group_results import DownloadGroupResults
-from ..usecases.cancel_group import CancelGroup
-from ..usecases.test_connection import TestConnection
-from ..adapters.job_rest import JobRestAdapter
-from ..adapters.device_rest import DeviceRestAdapter
+from .run_flow_presenter import RunFlowPresenter
 from ..adapters.storage_local import StorageLocal
+from ..adapters.discovery_http import HttpDiscoveryAdapter
 from ..adapters.relay_mock import RelayMock
 from ..usecases.save_plate_layout import SavePlateLayout
 from ..usecases.load_plate_layout import LoadPlateLayout
+from ..usecases.build_experiment_plan import BuildExperimentPlan
+from ..usecases.build_storage_meta import BuildStorageMeta
+from ..domain.runs_registry import RunsRegistry
 from ..domain.ports import UseCaseError
 from ..usecases.test_relay import TestRelay
 from ..usecases.set_electrode_mode import SetElectrodeMode
-from ..adapters.api_errors import (
-    ApiClientError,
-    ApiError,
-    ApiServerError,
-    ApiTimeoutError,
-    extract_error_hint,
-)
+from ..usecases.discover_devices import DiscoverDevices, MergeDiscoveredIntoRegistry
+from ..usecases.discover_and_assign_devices import DiscoverAndAssignDevices
 from ..utils import logging as logging_utils
+from .controller import AppController
 
 if TYPE_CHECKING:
     from ..usecases.cancel_runs import CancelRuns
-
-try:
-    from ..usecases.cancel_runs import CancelRuns as _CancelRunsClass
-except ImportError:
-    _CancelRunsClass = None
 
 logging_utils.configure_root()
 
 
 class App:
-    """Bootstrap: wire Views <-> ViewModels, REST adapter, and simple polling."""
+    """Composition root that wires UI, orchestration, and adapter dependencies."""
 
     def __init__(self) -> None:
+        """Build the full desktop application composition graph.
+        
+        This constructor wires views, view models, controllers, adapters, and
+        use cases, then connects callback chains so user actions can flow from
+        UI widgets into orchestrated use-case calls.
+        """
         self._log = logging.getLogger(__name__)
         # Main window with toolbar callback wiring
         self.win = MainWindowView(
@@ -85,9 +103,13 @@ class App:
             on_open_settings=self._on_open_settings,
             on_open_data_plotter=self._on_open_plotter,
         )
-        self._last_download_dir: Optional[str] = None
         self.win.bind("<Control-Shift-o>", self._on_open_download_folder_hotkey)
         self.win.bind("<Control-Shift-O>", self._on_open_download_folder_hotkey)
+
+        # Registry is the long-lived state bridge between run-flow orchestration
+        # and UI panels that need persisted/active run metadata.
+        # ---- Shared registries ----
+        self.runs = RunsRegistry.instance()
 
         # ---- ViewModels ----
         self.plate_vm = PlateVM(on_selection_changed=self._on_selection_changed)
@@ -97,17 +119,28 @@ class App:
             on_update_channel_activity=self._apply_channel_activity,
         )
         self.settings_vm = SettingsVM()
+        self._discovery_port = HttpDiscoveryAdapter(default_port=8000)
+        self.uc_discover_devices = DiscoverDevices(self._discovery_port)
+        self.uc_merge_discovered = MergeDiscoveredIntoRegistry()
+        self.uc_discover_and_assign = DiscoverAndAssignDevices(
+            self.uc_discover_devices,
+            self.uc_merge_discovered,
+        )
         self.live_vm = LiveDataVM()
+        self.runs_vm = RunsVM(self.runs)
 
+        # Views receive callbacks only; they do not call adapters/use cases directly.
         # ---- Subviews (constructor callbacks; no .configure(...)) ----
+        initial_boxes = tuple(self._configured_boxes())
         self.wellgrid = WellGridView(
             self.win.wellgrid_host,
-            boxes=("A", "B", "C", "D"),
+            boxes=initial_boxes,
             on_select_wells=lambda sel: self.plate_vm.set_selection(sel),
             on_copy_params_from=lambda wid: self.plate_vm.cmd_copy_from(wid),
             on_paste_params_to_selection=self.plate_vm.cmd_paste_to_selection,
             on_toggle_enable_selected=self.plate_vm.cmd_toggle_enable_selection,
             on_reset_selected=self._on_reset_well_config,
+            on_reset_all=self._on_reset_all_wells,
             on_open_plot=lambda wid: self._open_plot_for_well(wid),
         )
         self.wellgrid.pack(fill="both", expand=True)
@@ -134,7 +167,7 @@ class App:
 
         self.run_overview = RunOverviewView(
             self.win.tab_run_overview,
-            boxes=("A", "B", "C", "D"),
+            boxes=initial_boxes,
             on_cancel_group=self._on_cancel_group,
             on_download_group_results=self._on_download_group_results,
             on_download_box_results=self._on_download_box_results,
@@ -143,23 +176,21 @@ class App:
         self.win.mount_run_overview(self.run_overview)
 
         self.activity = ChannelActivityView(
-            self.win.tab_channel_activity, boxes=("A", "B", "C", "D")
+            self.win.tab_channel_activity, boxes=initial_boxes
         )
         self.win.mount_channel_activity(self.activity)
 
-        # ---- REST Adapter & UseCases (lazy init after settings) ----
-        self._job_adapter: Optional[JobRestAdapter] = None
-        self._device_adapter: Optional[DeviceRestAdapter] = None
-        self.uc_start: Optional[StartExperimentBatch] = None
-        self.uc_validate_start_plan: Optional[ValidateStartPlan] = None
-        self.uc_poll: Optional[PollGroupStatus] = None
-        self.uc_download: Optional[DownloadGroupResults] = None
-        self.uc_cancel: Optional[CancelGroup] = None
-        self.uc_cancel_runs: Optional['CancelRuns'] = None
-        self.uc_test_connection: Optional[TestConnection] = None
+        self.runs_panel = RunsPanelView(self.win.tabs)
+        try:
+            # Prefer inserting next to run overview tab for discoverability.
+            idx = self.win.tabs.index(self.win.tab_run_overview) + 1
+            self.win.tabs.insert(idx, self.runs_panel, text="Runs")
+        except Exception:
+            self.win.tabs.add(self.runs_panel, text="Runs")
 
-        # ---- Download metadata per group ----
-        self._group_storage_meta: Dict[str, Dict[str, str]] = {}
+        # Adapter wiring is lazy because URLs/API keys may be loaded from settings.
+        # ---- REST Adapter & UseCases (lazy init after settings) ----
+        self.controller = AppController(self.settings_vm)
 
         # ---- LocalStorage Adapter ----
         self._storage_root = os.environ.get("SEVA_STORAGE_ROOT") or "."
@@ -168,95 +199,137 @@ class App:
 
         self.uc_save_layout = SavePlateLayout(self._storage)
         self.uc_load_layout = LoadPlateLayout(self._storage)
+        self.uc_build_plan = BuildExperimentPlan()
+        self.uc_build_storage_meta = BuildStorageMeta()
+        self.discovery_controller = DiscoveryController(
+            win=self.win,
+            settings_vm=self.settings_vm,
+            storage=self._storage,
+            discovery_uc=self.uc_discover_and_assign,
+            box_ids=BOX_IDS,
+        )
 
         # ---- Relay Adapter & UseCases ----
         self._relay = RelayMock()
         self.uc_test_relay = TestRelay(self._relay)
         self.uc_set_electrode_mode = SetElectrodeMode(self._relay)
 
-        # ---- Polling state ----
-        self._current_group_id: Optional[str] = None
-        self._polling_active: bool = False
+        # Presenter coordinates app-level flow and keeps Runs/Progress panels synchronized.
+        # ---- Run flow coordination ----
+        self.run_flow = RunFlowPresenter(
+            win=self.win,
+            controller=self.controller,
+            runs=self.runs,
+            runs_vm=self.runs_vm,
+            progress_vm=self.progress_vm,
+            settings_vm=self.settings_vm,
+            storage=self._storage,
+            plate_vm=self.plate_vm,
+            experiment_vm=self.experiment_vm,
+            runs_panel=self.runs_panel,
+            ensure_adapter=self._ensure_adapter,
+            toast_error=self._toast_error,
+            build_plan=self.uc_build_plan,
+            build_storage_meta=self.uc_build_storage_meta,
+        )
+        self.settings_controller = SettingsController(
+            win=self.win,
+            settings_vm=self.settings_vm,
+            controller=self.controller,
+            storage=self._storage,
+            test_relay=self.uc_test_relay,
+            ensure_adapter=self._ensure_adapter,
+            toast_error=self._toast_error,
+            on_discover_devices=self._on_discover_devices,
+            apply_logging_preferences=self._apply_logging_preferences,
+            apply_box_configuration=self._apply_box_configuration,
+            stop_all_polling=self.run_flow.stop_all_polling,
+        )
+        self.download_controller = DownloadController(
+            win=self.win,
+            controller=self.controller,
+            run_flow=self.run_flow,
+            settings_vm=self.settings_vm,
+            ensure_adapter=self._ensure_adapter,
+            toast_error=self._toast_error,
+        )
+        self.runs_panel.on_select = self.run_flow.on_runs_select
+        self.runs_panel.on_open = self.run_flow.on_runs_open_folder
+        self.runs_panel.on_cancel = self.run_flow.on_runs_cancel
+        self.runs_panel.on_delete = self.run_flow.on_runs_delete
+        # Initial panel refresh ensures persisted entries are visible before user actions.
+        self.run_flow.refresh_runs_panel()
+        self.run_flow.configure_runs_registry(Path.home() / ".seva" / "runs_registry.json")
+        self.run_flow.start_activity_polling()
 
         # ---- Initial UI state (demo-ish) ----
         self._seed_demo_state()
         self.win.set_status_message("Ready.")
 
     def _load_user_settings(self) -> None:
-        payload: Optional[Dict] = None
+        """Load persisted settings, apply them to the SettingsVM, and sync UI.
+        """
         try:
             payload = self._storage.load_user_settings()
         except Exception as exc:
             self.win.show_toast(f"Could not load settings: {exc}")
-        if payload is not None:
-            try:
-                self.settings_vm.apply_dict(payload)
-            except ValueError as exc:
-                self.win.show_toast(str(exc))
+            return
+        try:
+            self.settings_vm.apply_dict(payload)
+        except ValueError as exc:
+            # Keep app startup resilient: show warning, keep defaults, continue.
+            self.win.show_toast(str(exc))
         self._apply_logging_preferences()
+        self._apply_box_configuration()
 
     def _apply_logging_preferences(self) -> None:
+        """Apply GUI logging preferences and emit effective-level diagnostics.
+        """
         level = logging_utils.apply_gui_preferences(self.settings_vm.debug_logging)
         self._log.debug(
             "Effective GUI log level: %s", logging_utils.level_name(level)
         )
 
+    def _configured_boxes(self) -> List[str]:
+        """Return configured box identifiers, falling back to defaults."""
+        base_urls = self.settings_vm.api_base_urls or {}
+        boxes = [
+            str(box)
+            for box, url in base_urls.items()
+            if isinstance(url, str) and url.strip()
+        ]
+        if boxes:
+            return sorted(boxes)
+        return list(BOX_IDS)
+
+    def _apply_box_configuration(self) -> None:
+        """Update views to reflect the currently configured boxes."""
+        boxes = self._configured_boxes()
+        self.wellgrid.set_boxes(tuple(boxes))
+        self.run_overview.set_boxes(boxes)
+        self.activity.set_boxes(boxes)
+
     # ==================================================================
     # Adapter wiring
     # ==================================================================
     def _ensure_adapter(self) -> bool:
-        """Build the REST adapter and use cases from SettingsVM if not yet present."""
-        if (
-            self._job_adapter
-            and self._device_adapter
-            and (self.uc_cancel_runs or _CancelRunsClass is None)
-        ):
+        """Ensure controller has adapters and use-cases initialized."""
+        if self.controller.ensure_ready():
             return True
-
-        base_urls = {k: v for k, v in (self.settings_vm.box_urls or {}).items() if v}
-        if not base_urls:
-            self.win.show_toast("Configure box URLs in Settings first.")
-            return False
-
-        api_keys = {k: v for k, v in (self.settings_vm.api_keys or {}).items() if v}
-        if self._job_adapter is None:
-            self._job_adapter = JobRestAdapter(
-                base_urls=base_urls,
-                api_keys=api_keys,
-                request_timeout_s=self.settings_vm.request_timeout_s,
-                download_timeout_s=self.settings_vm.download_timeout_s,
-                retries=2,
-            )
-            self.uc_poll = PollGroupStatus(self._job_adapter)
-            self.uc_download = DownloadGroupResults(self._job_adapter)
-            self.uc_cancel = CancelGroup(self._job_adapter)
-
-        if _CancelRunsClass and self._job_adapter and self.uc_cancel_runs is None:
-            self.uc_cancel_runs = _CancelRunsClass(self._job_adapter)
-
-        if self._device_adapter is None:
-            self._device_adapter = DeviceRestAdapter(
-                base_urls=base_urls,
-                api_keys=api_keys,
-                request_timeout_s=self.settings_vm.request_timeout_s,
-                retries=2,
-            )
-
-        if self._job_adapter and self._device_adapter:
-            self.uc_start = StartExperimentBatch(
-                self._job_adapter, self._device_adapter
-            )
-            self.uc_validate_start_plan = ValidateStartPlan(self._device_adapter)
-            self.uc_test_connection = TestConnection(self._device_adapter)
-        return True
+        # UX guardrail: all network actions depend on configured box URLs.
+        self.win.show_toast("Configure box URLs in Settings first.")
+        return False
 
     # ==================================================================
     # Demo data seeding (light)
     # ==================================================================
     def _seed_demo_state(self) -> None:
-        self.wellgrid.set_boxes(("A", "B", "C", "D"))
+        """Initialize views with a neutral empty state after startup wiring.
+        """
+        boxes = tuple(self._configured_boxes())
+        self.wellgrid.set_boxes(boxes)
         self.wellgrid.set_selection([])
-        self.experiment.set_editing_well("–")
+        self.experiment.set_editing_well("-")
         self.experiment.set_electrode_mode("3E")
         # initial empty/idle overview
         self._apply_run_overview({"boxes": {}, "wells": [], "activity": {}})
@@ -266,175 +339,47 @@ class App:
     # Toolbar / Actions
     # ==================================================================
     def _on_submit(self) -> None:
-        try:
-            if not self._ensure_adapter():
-                return
-            # collect selection & plan
-            configured = self.plate_vm.configured()
-            if not configured:
-                self.win.show_toast("No configured wells to start.")
-                return
-
-            # Falls du die Selektion noch für die UI-Toast brauchst:
-            selection = self.plate_vm.get_selection()
-            self.experiment_vm.set_selection(selection)
-            plan = self._build_plan_from_vm(selection)
-            boxes = sorted(
-                {str(wid)[0] for wid in configured if isinstance(wid, str) and wid}
-            )
-            summary = {
-                "wells": len(configured),
-                "boxes": boxes or ["-"],
-                "stream": bool(self.settings_vm.use_streaming),
-            }
-            self._log.info("Submitting start request: %s", summary)
-            self._log.debug("Start selection=%s", sorted(configured))
-
-            if not self.uc_validate_start_plan:
-                raise RuntimeError("Start validation use case is not initialized.")
-            validations = self.uc_validate_start_plan(plan)  # type: ignore[misc]
-            has_invalid = any(not entry.ok for entry in validations)
-            has_warnings = any(entry.ok and entry.warnings for entry in validations)
-
-            if has_invalid or has_warnings:
-                self._handle_start_validations(validations)
-
-            if has_invalid:
-                self.win.show_toast("No runs started. Fix validation errors.")
-                return
-
-            plan["all_or_nothing"] = True
-
-            # Start via UseCase
-            result: StartBatchResult = self.uc_start(plan)  # type: ignore[misc]
-
-            if result.validations != validations:
-                self._handle_start_validations(result.validations)
-
-            if not result.run_group_id:
-                if not result.started_wells:
-                    self.win.show_toast("No runs started. Fix validation errors.")
-                else:
-                    self.win.show_toast("Validation stopped some wells. Nothing started.")
-                return
-
-            group_id = result.run_group_id
-            subruns = result.per_box_runs
-            storage_payload = plan.get("storage") or {}
-            normalized_storage = {
-                "experiment": str(storage_payload.get("experiment_name") or "").strip(),
-                "subdir": str(storage_payload.get("subdir") or "").strip(),
-                "client_datetime": str(storage_payload.get("client_datetime") or "").strip(),
-                "results_dir": str(
-                    storage_payload.get("results_dir") or self.settings_vm.results_dir or ""
-                ).strip()
-                or self.settings_vm.results_dir,
-            }
-            self._group_storage_meta[group_id] = normalized_storage
-            self._log.info(
-                "Start response: group=%s wells=%d boxes=%s",
-                group_id,
-                len(result.started_wells),
-                sorted(subruns.keys()),
-            )
-            self._log.debug("Start run map: %s", subruns)
-
-            self._current_group_id = group_id
-            self.win.set_run_group_id(group_id)
-
-            started_boxes = ", ".join(sorted(subruns.keys()))
-            skipped = sum(1 for entry in result.validations if not entry.ok)
-            started_count = len(result.started_wells)
-            if skipped:
-                self.win.show_toast(
-                    f"Started group {group_id} ({started_count} wells, skipped {skipped})."
-                )
-            else:
-                if started_boxes:
-                    self.win.show_toast(
-                        f"Started group {group_id} on {started_boxes}"
-                    )
-                else:
-                    self.win.show_toast(f"Started group {group_id}.")
-
-            # Mark configured in UI (keep the Demo flow)
-            self.wellgrid.add_configured_wells(result.started_wells)
-
-            # Start polling loop
-            self._start_polling()
-        except Exception as e:
-            # Stop polling and clear group on any start failure
-            self._stop_polling()
-            self._current_group_id = None
-            self._toast_error(e)
+        """Handle toolbar submit triggered by the user."""
+        self.run_flow.start_run()
 
     def _on_cancel_group(self) -> None:
-        if not self._current_group_id or not self._ensure_adapter():
-            self.win.show_toast("No active group.")
-            return
-        try:
-            current = self._current_group_id
-            self._log.info("Cancel requested for group %s", current)
-            self.uc_cancel(current)  # prints notice in adapter
-            self._stop_polling()
-            self._current_group_id = None
-            self.win.set_run_group_id("")        # optional UI cleanup
-            self.win.show_toast("Cancel requested (API not implemented).")
-        except Exception as e:
-            self._toast_error(e)
+        """Forward toolbar cancel-group action to the run-flow presenter.
+        """
+        self.run_flow.cancel_active_group()
 
     def _on_end_selection(self) -> None:
-        selection = sorted(self.plate_vm.get_selection())
-        if not selection:
-            self.win.show_toast("Select at least one well.")
-            return
-        if not self._ensure_adapter():
-            return
-        cancel_runs = self.uc_cancel_runs
-        if cancel_runs is None:
-            self.win.show_toast("Cancel selected runs not available.")
-            return
+        """Cancel only the currently selected runs through presenter orchestration.
+        """
+        self.run_flow.cancel_selected_runs()
 
-        rows = (self.progress_vm.last_snapshot or {}).get("wells") or []
-        selected = set(selection)
-        box_to_runs: Dict[str, Set[str]] = defaultdict(set)
-
-        for row in rows:
-            if not isinstance(row, (list, tuple)) or len(row) < 5:
-                continue
-            well_id = str(row[0] or "").strip()
-            if well_id not in selected:
-                continue
-            run_id = str(row[-1] or "").strip()
-            if not run_id:
-                continue
-            box_id = well_id[:1].upper()
-            if not box_id or not box_id.isalpha():
-                continue
-            box_to_runs[box_id].add(run_id)
-
-        payload = {box: sorted(runs) for box, runs in box_to_runs.items() if runs}
-        if not payload:
-            self.win.show_toast("Selected wells have no active runs.")
-            return
-
-        try:
-            self._log.info(
-                "End selection requested for wells: %s", ", ".join(selection)
-            )
-            cancel_runs(payload)
-            self.win.show_toast("Abort requested for selected runs.")
-        except Exception as exc:
-            self._toast_error(exc, context="Cancel runs")
+    def _suggest_layout_filename(self) -> str:
+        """Return a default layout filename derived from the experiment name."""
+        raw_name = (getattr(self.settings_vm, "experiment_name", "") or "").strip()
+        sanitized = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in raw_name)
+        while "__" in sanitized:
+            sanitized = sanitized.replace("__", "_")
+        sanitized = sanitized.strip("_")
+        if not sanitized:
+            sanitized = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return f"layout_{sanitized}.json"
 
     def _on_save_layout(self) -> None:
+        """Collect current plate/form state and persist it as a layout JSON file.
+        """
         try:
             configured = self.plate_vm.configured()
             if not configured:
                 self.win.show_toast("Nothing to save: no configured wells.")
                 return
-            well_map = self.experiment_vm.build_well_params_map(configured)
-            default_name = f"layout_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+
+            selection = sorted(self.plate_vm.get_selection())
+            if selection:
+                try:
+                    self.experiment_vm.set_selection(set(selection))
+                except Exception:
+                    pass
+
+            default_name = self._suggest_layout_filename()
             initial_dir = os.path.abspath(self._storage_root)
             if not os.path.isdir(initial_dir):
                 initial_dir = os.getcwd()
@@ -448,12 +393,18 @@ class App:
             )
             if not path:
                 return
-            saved_path = self.uc_save_layout(path, configured, well_map)  # type: ignore[misc]
+            saved_path = self.uc_save_layout(  # type: ignore[misc]
+                path,
+                experiment_vm=self.experiment_vm,
+                selection=selection,
+            )
             self.win.show_toast(f"Saved {saved_path.name}")
         except Exception as e:
             self.win.show_toast(str(e))
 
     def _on_load_layout(self) -> None:
+        """Load a saved layout and push restored state back into VMs and views.
+        """
         try:
             initial_dir = os.path.abspath(self._storage_root)
             if not os.path.isdir(initial_dir):
@@ -466,321 +417,74 @@ class App:
             )
             if not path:
                 return
-            data = self.uc_load_layout(path)  # type: ignore[misc]
-            raw_map = data.get("well_params_map") or {}
-            wmap: Dict[str, Dict[str, str]] = {}
-            if isinstance(raw_map, dict):
-                for wid, snapshot in raw_map.items():
-                    wid_str = str(wid)
-                    if isinstance(snapshot, dict):
-                        wmap[wid_str] = dict(snapshot)
-                    else:
-                        wmap[wid_str] = {}
-            selection_raw = data.get("selection")
-            wells_list: List[str] = []
-            if isinstance(selection_raw, list):
-                for item in selection_raw:
-                    wid = str(item)
-                    if wid not in wells_list:
-                        wells_list.append(wid)
-            elif isinstance(selection_raw, str):
-                wells_list = [selection_raw]
-            if not wells_list:
-                wells_list = sorted(wmap.keys())
-            self.experiment_vm.well_params.clear()
-            for wid, snap in wmap.items():
-                self.experiment_vm.save_params_for(wid, snap)
-            configured_wells = set(wmap.keys()) or set(wells_list)
-            self.plate_vm.clear_all_configured()
-            self.plate_vm.mark_configured(configured_wells)
+            data = self.uc_load_layout(  # type: ignore[misc]
+                path,
+                experiment_vm=self.experiment_vm,
+                plate_vm=self.plate_vm,
+            )
+            # Layout payload may omit explicit selection; fallback to configured wells.
+            configured_wells = self.plate_vm.configured()
+            selection_list = list(data.get("selection") or [])
+            if not selection_list and configured_wells:
+                selection_list = sorted(configured_wells)
+
+            # Mirror electrode mode from VM into view
+            try:
+                self.experiment.set_electrode_mode(self.experiment_vm.electrode_mode)
+            except Exception:
+                pass
+
+            # Propagate selection -> view gets updated via _on_selection_changed()
+            self.plate_vm.set_selection(selection_list)
             self.wellgrid.set_configured_wells(configured_wells)
-            if wells_list:
-                first_well = wells_list[0]
-                self.experiment_vm.set_selection({first_well})
-                self.experiment_vm.fields = dict(wmap.get(first_well, {}))
-                self.wellgrid.set_selection([first_well])
-            else:
-                self.experiment_vm.set_selection(set())
+            self.wellgrid.set_selection(selection_list)
+            # Idempotent safety sync to avoid stale form state in edge cases.
+            self._on_selection_changed(set(selection_list))
+
             self.win.show_toast(f"Loaded {os.path.basename(path)}")
         except Exception as e:
             self.win.show_toast(str(e))
 
+    def _on_discover_devices(self, dialog: Optional[SettingsDialog] = None) -> None:
+        """Run discovery flow and surface failures as contextual UI toast.
+
+        Args:
+            dialog: Optional settings dialog to refresh with discovered URLs.
+        """
+        try:
+            self.discovery_controller.discover(dialog)
+        except Exception as exc:
+            self._toast_error(exc, context="Discovery failed")
+
     def _on_open_settings(self) -> None:
-        dlg: Optional[SettingsDialog] = None
+        """Open the settings dialog through the dedicated settings controller.
+        """
+        self.settings_controller.open_dialog()
 
-        def handle_test_connection(box_id: str) -> None:
-            if not dlg:
-                return
-            url_var = dlg.url_vars.get(box_id)
-            if url_var is None:
-                self.win.show_toast(f"Box {box_id}: not available.")
-                return
-            base_url = url_var.get().strip()
-            if not base_url:
-                self.win.show_toast(f"Box {box_id}: URL required for test.")
-                return
-
-            api_key_var = dlg.key_vars.get(box_id)
-            api_key = api_key_var.get().strip() if api_key_var else ""
-            request_timeout = SettingsDialog._parse_int(
-                dlg.request_timeout_var.get(), self.settings_vm.request_timeout_s
-            )
-
-            device_port: Optional[DeviceRestAdapter] = None
-            uc: Optional[TestConnection] = None
-
-            adapter = self._device_adapter
-            if adapter is None:
-                saved_url = (self.settings_vm.box_urls or {}).get(box_id, "").strip()
-                if saved_url:
-                    if self._ensure_adapter():
-                        adapter = self._device_adapter
-            if adapter and getattr(adapter, "base_urls", {}).get(box_id) == base_url:
-                device_port = adapter
-                uc = self.uc_test_connection
-                if uc is None:
-                    uc = TestConnection(device_port)
-                    self.uc_test_connection = uc
-
-            if device_port is None or uc is None:
-                api_map = {box_id: api_key} if api_key else {}
-                device_port = DeviceRestAdapter(
-                    base_urls={box_id: base_url},
-                    api_keys=api_map,
-                    request_timeout_s=request_timeout,
-                    retries=0,
-                )
-                uc = TestConnection(device_port)
-
-            assert uc is not None
-            try:
-                result = uc(box_id)
-            except UseCaseError as err:
-                reason = err.message or str(err)
-                self.win.show_toast(f"Box {box_id}: failed ({reason})")
-                return
-            except Exception as exc:
-                self._toast_error(exc, context=f"Box {box_id}")
-                return
-
-            status = "ok" if result.get("ok") else "failed"
-            devices = result.get("device_count")
-            device_text = (
-                f"devices={devices}" if devices is not None else "devices=?"
-            )
-            health = result.get("health") or {}
-            reason = str(
-                health.get("message")
-                or health.get("detail")
-                or health.get("error")
-                or ""
-            ).strip()
-            detail = device_text if status == "ok" else (reason or device_text)
-            self.win.show_toast(f"Box {box_id}: {status} ({detail})")
-
-        def handle_test_relay() -> None:
-            if not dlg:
-                return
-            ip = dlg.relay_ip_var.get().strip()
-            port_raw = dlg.relay_port_var.get().strip()
-            if not ip:
-                self.win.show_toast("Relay IP required for test.")
-                return
-            if not port_raw:
-                self.win.show_toast("Relay port required for test.")
-                return
-            try:
-                port = int(port_raw)
-            except ValueError:
-                self.win.show_toast("Relay port must be an integer.")
-                return
-            try:
-                ok = self.uc_test_relay(ip, port)
-            except Exception as e:
-                self.win.show_toast(str(e))
-                return
-            message = "Relay test successful." if ok else "Relay test failed."
-            self.win.show_toast(message)
-
-        def handle_browse_results_dir() -> None:
-            if not dlg:
-                return
-            current = dlg.results_dir_var.get().strip()
-            if not current:
-                current = self.settings_vm.results_dir or "."
-            initial_dir = current
-            if initial_dir and not os.path.isdir(initial_dir):
-                home_dir = os.path.expanduser("~")
-                initial_dir = home_dir if os.path.isdir(home_dir) else ""
-            try:
-                selected = filedialog.askdirectory(
-                    parent=dlg,
-                    initialdir=initial_dir or None,
-                    title="Select Results Directory",
-                )
-            except Exception as exc:
-                self.win.show_toast(f"Could not open folder picker: {exc}")
-                return
-            if not selected:
-                return
-            new_dir = os.path.normpath(selected)
-            self.settings_vm.set_results_dir(new_dir)
-            dlg.set_results_dir(new_dir)
-
-        dlg = SettingsDialog(
-            self.win,
-            on_test_connection=handle_test_connection,
-            on_test_relay=handle_test_relay,
-            on_browse_results_dir=handle_browse_results_dir,
-            on_save=self._on_settings_saved,
-            on_close=lambda: None,
-        )
-        # Populate dialog from VM
-        dlg.set_box_urls(self.settings_vm.box_urls)
-        dlg.set_api_keys(self.settings_vm.api_keys)
-        dlg.set_timeouts(
-            self.settings_vm.request_timeout_s, self.settings_vm.download_timeout_s
-        )
-        dlg.set_poll_interval(self.settings_vm.poll_interval_ms)
-        dlg.set_results_dir(self.settings_vm.results_dir)
-        dlg.set_experiment_name(self.settings_vm.experiment_name)
-        dlg.set_subdir(self.settings_vm.subdir)
-        dlg.set_use_streaming(self.settings_vm.use_streaming)
-        dlg.set_debug_logging(self.settings_vm.debug_logging)
-        dlg.set_relay_config(self.settings_vm.relay_ip, self.settings_vm.relay_port)
-        dlg.set_save_enabled(self.settings_vm.is_valid())
-
-    def _on_settings_saved(self, cfg: dict) -> None:
-        payload = dict(cfg or {})
-        raw_dir = str(payload.get("results_dir") or ".").strip() or "."
-        expanded_dir = os.path.expanduser(raw_dir)
-        target_dir = os.path.abspath(expanded_dir)
-
-        if not os.path.isdir(target_dir):
-            self.win.show_toast(f"Results directory does not exist: {raw_dir}")
-            return
-
-        tmp_fd: Optional[int] = None
-        tmp_path: str = ""
-        try:
-            tmp_fd, tmp_path = tempfile.mkstemp(
-                dir=target_dir, prefix="seva_results_dir_", suffix=".tmp"
-            )
-            os.close(tmp_fd)
-            tmp_fd = None
-            os.remove(tmp_path)
-            tmp_path = ""
-        except Exception as exc:
-            if tmp_fd is not None:
-                try:
-                    os.close(tmp_fd)
-                except OSError:
-                    pass
-            if tmp_path and os.path.exists(tmp_path):
-                try:
-                    os.remove(tmp_path)
-                except OSError:
-                    pass
-            self.win.show_toast(f"Results directory not writable: {exc}")
-            return
-
-        payload["results_dir"] = os.path.normpath(expanded_dir)
-
-        try:
-            self.settings_vm.apply_dict(payload)
-            self._storage.save_user_settings(self.settings_vm.to_dict())
-            self._apply_logging_preferences()
-        except Exception as exc:
-            self.win.show_toast(f"Could not save settings: {exc}")
-            return
-
-        # reset adapter to reflect new settings
-        self._job_adapter = None
-        self._device_adapter = None
-        self.uc_test_connection = None
-        self.win.show_toast("Settings saved.")
 
     def _on_open_plotter(self) -> None:
-        dp = DataPlotter(
-            self.win,
-            on_fetch_data=lambda: self.win.show_toast("Fetch (not wired)"),
-            on_axes_changed=lambda x, y: self.win.show_toast(f"Axes: {x}/{y}"),
-            on_section_changed=lambda s: self.win.show_toast(f"Section: {s}"),
-            on_apply_ir=lambda rs: self.win.show_toast(f"Apply IR Rs={rs}"),
-            on_reset_ir=lambda: self.win.show_toast("Reset IR"),
-            on_export_csv=lambda: self.win.show_toast("Export CSV (not wired)"),
-            on_export_png=lambda: self.win.show_toast("Export PNG (not wired)"),
-            on_open_plot=lambda wid: self._open_plot_for_well(wid),
-            on_open_results_folder=lambda wid: self.win.show_toast(
-                f"Open folder for {wid}"
-            ),
-            on_toggle_include=lambda wid, inc: self.win.show_toast(
-                f"{'Include' if inc else 'Exclude'} {wid}"
-            ),
-            on_close=lambda: None,
-        )
-        selection_summary = ", ".join(sorted(self.plate_vm.get_selection())) or "–"
-        dp.set_run_info(self._current_group_id or "—", selection_summary)
+        """Open the standalone data plotter window.
+        """
+        DataProcessingGUI(self.win)
 
     def _on_download_group_results(self) -> None:
-        group_id = self._current_group_id
-        if not group_id or not self._ensure_adapter():
-            self.win.show_toast("No active group.")
-            return
-        storage_meta = self._group_storage_meta.get(group_id)
-        if not storage_meta:
-            self.win.show_toast(
-                "Missing storage metadata for the active group. Start must finish before downloading."
-            )
-            return
-        results_dir = storage_meta.get("results_dir") or self.settings_vm.results_dir
-        if not results_dir:
-            self.win.show_toast("Results directory is not configured for downloads.")
-            return
-        try:
-            out_dir = self.uc_download(
-                group_id,
-                results_dir,
-                storage_meta,
-                cleanup="archive",
-            )  # type: ignore[misc]
-            self._log.info(
-                "Downloaded group %s to %s", group_id, out_dir
-            )
-            resolved_dir = os.path.abspath(out_dir)
-            self._last_download_dir = resolved_dir
-            self.win.show_toast(self._build_download_toast(group_id, resolved_dir))
-        except Exception as e:
-            self._toast_error(e)
+        """Trigger download for the active run group.
+        """
+        self.download_controller.download_group_results()
 
     def _on_download_box_results(self, box_id: str) -> None:
-        # Group ZIPs are per group; per-box filtering could be added in adapter if needed
-        self._on_download_group_results()
+        """Trigger download action scoped from a box action in run overview.
 
-    def _build_download_toast(self, group_id: str, path: str) -> str:
-        short_path = self._shorten_download_path(path)
-        descriptor = ""
-        meta = self._group_storage_meta.get(group_id) if group_id else None
-        if meta:
-            parts = [
-                str(meta.get("experiment") or "").strip(),
-                str(meta.get("subdir") or "").strip(),
-                str(meta.get("client_datetime") or "").strip(),
-            ]
-            descriptor = "/".join([p for p in parts if p])
-        target = f"{descriptor} → {short_path}" if descriptor else short_path
-        if self._can_open_results_folder():
-            return f"Results unpacked to {target} (Ctrl+Shift+O to open)"
-        return f"Results unpacked to {target}"
+        Args:
+            box_id: Selected box identifier from the overview tab.
 
-    def _shorten_download_path(self, path: str, max_len: int = 60) -> str:
-        normalized = os.path.normpath(path)
-        if len(normalized) <= max_len:
-            return normalized
-        suffix_len = max(3, max_len - 3)
-        return f"...{normalized[-suffix_len:]}"
+        The current implementation delegates to group-level download behavior.
+        """
+        self.download_controller.download_box_results(box_id)
 
     def _can_open_results_folder(self) -> bool:
+        """Return whether this runtime platform supports opening folders directly.
+        """
         if sys.platform.startswith("win"):
             return hasattr(os, "startfile")
         if sys.platform == "darwin":
@@ -788,17 +492,30 @@ class App:
         return shutil.which("xdg-open") is not None
 
     def _on_open_download_folder_hotkey(self, event=None):
-        if not self._last_download_dir:
+        """Handle Ctrl+Shift+O and open the most recent download directory.
+
+        Args:
+            event: Tk keybinding event (unused).
+
+        Returns:
+            str: ``"break"`` to stop default key handling.
+        """
+        if not self.run_flow.last_download_dir:
             self.win.show_toast("Nothing downloaded yet.")
             return "break"
         if not self._can_open_results_folder():
             self.win.show_toast("Open folder not supported on this platform.")
             return "break"
-        self._open_results_folder(self._last_download_dir)
+        # Delegate to shared open logic to keep toolbar/hotkey behavior identical.
+        self._open_results_folder(self.run_flow.last_download_dir)
         return "break"
 
     def _open_results_folder(self, path: str) -> None:
-        """Open the download folder using the platform default file browser."""
+        """Open the download folder using the platform default file browser.
+
+        Args:
+            path: Absolute or relative directory path to open.
+        """
         if not path or not os.path.isdir(path):
             return
         try:
@@ -818,35 +535,46 @@ class App:
     # VM ↔ View glue
     # ==================================================================
     def _on_selection_changed(self, sel: Set[str]) -> None:
-        # Show saved params if exactly one well selected
+        """Sync experiment form state to current well selection.
+
+        Args:
+            sel: Selected well identifiers from ``PlateVM``.
+        """
+        # Clear the view first to avoid stale values
+        self.experiment.clear_fields()
+
         if len(sel) == 1:
             wid = next(iter(sel))
+            # Update the "editing well" label in the panel.
+            try:
+                self.experiment.set_editing_well(wid)
+            except Exception:
+                pass
+            # Flatten grouped snapshot and set
             params = self.experiment_vm.get_params_for(wid)
             if params:
+                # View always receives flat fields; VM handles grouped mode storage.
                 self.experiment.set_fields(params)
-            else:
-                self.experiment.clear_fields()
         else:
-            # For multi-select or none: clear fields
-            self.experiment.clear_fields()
+            self.experiment.set_editing_well("–")
 
     def _on_apply_params(self) -> None:
+        """Persist current form values into each selected well snapshot.
+        """
         selection = self.plate_vm.get_selection()
         if not selection:
             self.win.show_toast("No wells selected.")
             return
-
-        # Save params for each selected well
+        # Save grouped per well (only active modes)
         for wid in selection:
             self.experiment_vm.save_params_for(wid, self.experiment_vm.fields)
-
-        # Mark selected wells as configured
         self.plate_vm.mark_configured(selection)
         self.wellgrid.add_configured_wells(selection)
-
         self.win.show_toast("Parameters applied.")
 
     def _on_reset_well_config(self) -> None:
+        """Clear saved parameters only for currently selected wells.
+        """
         selection = self.plate_vm.get_selection()
         if not selection:
             self.win.show_toast("No wells selected.")
@@ -860,15 +588,35 @@ class App:
         self._on_selection_changed(selection)
         self.win.show_toast("Well config reset.")
 
+    def _on_reset_all_wells(self) -> None:
+        """Clear all per-well parameter snapshots and reset selection state.
+        """
+        configured = self.plate_vm.configured()
+        if not configured and not self.plate_vm.get_selection():
+            self.win.show_toast("No wells to reset.")
+            return
+
+        self.experiment_vm.clear_all_params()
+        self.plate_vm.clear_all_configured()
+        self.plate_vm.set_selection([])
+        self.wellgrid.clear_all_configured()
+        self.wellgrid.set_selection([])
+        self.win.show_toast("All wells reset.")
+
     def _mode_label(self, mode: str) -> str:
-        return {
-            "CV": "CV",
-            "DCAC": "DC/AC",
-            "CDL": "CDL",
-            "EIS": "EIS",
-        }.get((mode or "").upper(), mode)
+        """Return user-facing label text for a normalized mode token.
+
+        Args:
+            mode: Normalized mode token such as ``CV`` or ``EIS``.
+        """
+        return self.experiment_vm.mode_registry.label_for(mode)
 
     def _on_copy_mode(self, mode: str) -> None:
+        """Copy mode-specific form values from one selected source well.
+
+        Args:
+            mode: Mode token copied from current form values.
+        """
         selection = self.plate_vm.get_selection()
         if len(selection) == 0:
             self.win.show_toast("Select one well to copy.")
@@ -876,6 +624,7 @@ class App:
         if len(selection) > 1:
             self.win.show_toast("Select exactly one well to copy.")
             return
+        # Copy is intentionally single-source to keep clipboard semantics deterministic.
         well_id = next(iter(selection))
         try:
             snapshot = self.experiment_vm.build_mode_snapshot_for_copy(mode)
@@ -892,6 +641,11 @@ class App:
             self.win.show_toast(str(e))
 
     def _on_paste_mode(self, mode: str) -> None:
+        """Paste mode-specific clipboard values into all selected wells.
+
+        Args:
+            mode: Mode token to paste into selected wells.
+        """
         selection = self.plate_vm.get_selection()
         if not selection:
             self.win.show_toast("No wells selected.")
@@ -914,12 +668,18 @@ class App:
             self.win.show_toast(str(e))
             return
 
+        # Pasting implicitly configures targets; reflect that in VM and grid styling.
         self.plate_vm.mark_configured(selection)
         self.wellgrid.add_configured_wells(selection)
         self._on_selection_changed(selection)
         self.win.show_toast(f"Pasted {self._mode_label(mode)}.")
 
     def _on_electrode_mode_changed(self, mode: str) -> None:
+        """Apply electrode-mode change to VM first, then relay use case.
+
+        Args:
+            mode: Normalized electrode mode token (``2E`` or ``3E``).
+        """
         try:
             self.experiment_vm.set_electrode_mode(mode)
             self.uc_set_electrode_mode(mode)
@@ -928,7 +688,13 @@ class App:
             self.win.show_toast(str(e))
 
     def _apply_run_overview(self, dto: Dict) -> None:
+        """Render presenter-provided run overview DTO into the overview view.
+
+        Args:
+            dto: View DTO with box metadata and well table rows.
+        """
         boxes = dto.get("boxes", {}) or {}
+        # DTO is presenter-owned; this method only adapts shape for concrete widgets.
         for b, meta in boxes.items():
             # subrun may be a CSV string or a list; normalize to CSV for the view
             sub = meta.get("subrun")
@@ -941,298 +707,58 @@ class App:
                 sub_run_id=sub,
             )
         self.run_overview.set_well_rows(dto.get("wells", []) or [])
-        self._apply_channel_activity(dto.get("activity", {}) or {})
 
     def _apply_channel_activity(self, mapping: Dict[str, str]) -> None:
+        """Render channel activity map and updated-at label in the activity view.
+
+        Args:
+            mapping: Mapping of ``well_id -> status`` produced by ``ProgressVM``.
+        """
         self.activity.set_activity(mapping)
-        now_str = time.strftime("%H:%M:%S")
-        self.activity.set_updated_at(f"Updated at {now_str}")
+        label = self.progress_vm.updated_at_label or time.strftime("%H:%M:%S")
+        self.activity.set_updated_at(label)
 
     def _open_plot_for_well(self, well_id: str) -> None:
+        """Placeholder plot action hook for per-well interactions in the grid.
+
+        Args:
+            well_id: Well identifier selected by the user.
+        """
         self.win.show_toast(f"Open PNG for {well_id}")
-
-    # ==================================================================
-    # Polling helpers
-    # ==================================================================
-    def _start_polling(self) -> None:
-        if self._polling_active:
-            return
-        self._polling_active = True
-        self._schedule_poll()
-
-    def _stop_polling(self) -> None:
-        self._polling_active = False
-
-    def _schedule_poll(self) -> None:
-        if not self._polling_active:
-            return
-        interval = max(200, int(self.settings_vm.poll_interval_ms or 750))
-        # use Tk's after to keep UI-thread safe
-        self.win.after(interval, self._poll_once)
-
-    def _poll_once(self) -> None:
-        if (
-            not self._polling_active
-            or not self._current_group_id
-            or not self._ensure_adapter()
-        ):
-            return
-        try:
-            snap = self.uc_poll(self._current_group_id)  # type: ignore[misc]
-            self.progress_vm.apply_snapshot(snap)
-            if snap.get("all_done"):
-                self._stop_polling()
-                self.win.show_toast("All runs completed.")
-                return
-        except Exception as e:
-            self._toast_error(e)
-        finally:
-            self._schedule_poll()
 
     # ==================================================================
     # Error handling helpers
     # ==================================================================
 
     def _toast_error(self, err: Exception, *, context: Optional[str] = None) -> None:
+        """Format an exception into UI-safe text and show it in the toast area.
+
+        Args:
+            err: Exception raised by orchestration/usecase layers.
+            context: Optional prefix for contextualizing the error.
+        """
         message = self._format_error_message(err)
         if context:
             message = f"{context}: {message}"
         self.win.show_toast(message)
 
     def _format_error_message(self, err: Exception) -> str:
+        """Convert exceptions into user-facing text while logging diagnostics.
+
+        Args:
+            err: Exception to convert.
+        """
         if isinstance(err, UseCaseError):
             self._log.warning("UseCase error (%s): %s", err.code, err.message)
             return err.message
-        if isinstance(err, ApiTimeoutError):
-            self._log.warning("API timeout (%s)", getattr(err, "context", ""))
-            return "Request timed out. Check connection."
-        if isinstance(err, ApiClientError):
-            status = err.status or 0
-            hint = err.hint or extract_error_hint(getattr(err, "payload", None))
-            if status == 422:
-                return self._compose_error_message("Invalid parameters", hint)
-            if status == 409:
-                slot = self._extract_slot_hint(err) or hint
-                return self._compose_error_message("Slot busy", slot)
-            if status in (401, 403):
-                return "Auth failed / API key invalid."
-            label = f"Request failed (HTTP {status})" if status else "Request failed"
-            return self._compose_error_message(label, hint)
-        if isinstance(err, ApiServerError):
-            self._log.error(
-                "Server error while calling box (%s)", getattr(err, "context", "")
-            )
-            return "Box error, try again."
-        if isinstance(err, ApiError):
-            self._log.warning("API error (%s): %s", getattr(err, "context", ""), err)
-            return str(err)
         self._log.exception("Unexpected error")
         return str(err)
 
-    def _compose_error_message(self, base: str, hint: Optional[str]) -> str:
-        hint_text = (hint or "").strip()
-        if hint_text:
-            return f"{base}: {hint_text}"
-        if base.endswith("."):
-            return base
-        return f"{base}."
-
-    def _extract_slot_hint(self, err: ApiClientError) -> Optional[str]:
-        payload = getattr(err, "payload", None)
-        slot = self._find_slot(payload)
-        if slot:
-            return slot
-        hint = err.hint or extract_error_hint(payload)
-        if hint:
-            cleaned = hint.replace(",", " ").replace(";", " ")
-            for token in cleaned.split():
-                lower = token.lower()
-                if lower.startswith("slot"):
-                    parts = token.split("=", 1)
-                    return parts[1] if len(parts) == 2 else token
-        return None
-
-    def _find_slot(self, data: Any) -> Optional[str]:
-        if isinstance(data, dict):
-            for key in ("slot", "slot_id", "well", "well_id"):
-                value = data.get(key)
-                if value:
-                    return str(value)
-            for value in data.values():
-                slot = self._find_slot(value)
-                if slot:
-                    return slot
-        elif isinstance(data, list):
-            for item in data:
-                slot = self._find_slot(item)
-                if slot:
-                    return slot
-        return None
-
-    def _handle_start_validations(
-        self, validations: Iterable[WellValidationResult]
-    ) -> None:
-        entries = list(validations)
-        if not entries:
-            return
-
-        invalid = [entry for entry in entries if not entry.ok]
-        warning_candidates = [
-            entry for entry in entries if entry.ok and entry.warnings
-        ]
-
-        def _summarize(
-            entries: List[WellValidationResult], attr: str
-        ) -> str:
-            snippets: List[str] = []
-            for entry in entries:
-                issues = getattr(entry, attr)
-                if not issues:
-                    continue
-                parts: List[str] = []
-                for issue in issues:
-                    if not isinstance(issue, dict):
-                        continue
-                    field = str(issue.get("field", "") or "*")
-                    code = str(issue.get("code", "issue"))
-                    parts.append(f"{field}:{code}")
-                if not parts:
-                    continue
-                snippets.append(f"{entry.well_id} ({entry.mode}): {', '.join(parts)}")
-            if not snippets:
-                return ""
-            preview = "; ".join(snippets[:3])
-            if len(snippets) > 3:
-                preview += f"; +{len(snippets) - 3} more"
-            return preview
-
-        if invalid:
-            summary = _summarize(invalid, "errors")
-            message = (
-                f"Validation blocked wells: {summary}"
-                if summary
-                else "Validation blocked wells."
-            )
-            self.win.show_toast(message)
-
-        if warning_candidates:
-            summary = _summarize(warning_candidates, "warnings")
-            if summary:
-                self.win.show_toast(f"Validation warnings: {summary}")
-
-    # ==================================================================
-    # Plan building
-    # ==================================================================
-
-    @staticmethod
-    def _local_dt_slug() -> str:
-        """Return a slug-safe timestamp based on the local timezone."""
-        return datetime.now().astimezone().strftime("%Y-%m-%dT%H-%M-%S")
-
-    @staticmethod
-    def _slug(value: str) -> str:
-        """Normalize text to a lowercase slug with underscores."""
-        text = str(value or "").lower()
-        cleaned = re.sub(r"[^a-z0-9_]+", "_", text)
-        cleaned = re.sub(r"_+", "_", cleaned).strip("_")
-        return cleaned
-
-    def _current_client_datetime(self) -> str:
-        """Return a UTC timestamp suitable for the client_datetime payload."""
-        timestamp = datetime.now().replace(microsecond=0)
-        return timestamp.isoformat().replace(":", "-").replace("+00:00", "Z")
-
-    def _build_storage_metadata(self) -> Dict[str, str]:
-        """Collect experiment storage metadata from settings and transient overrides."""
-        experiment_name = (self.settings_vm.experiment_name or "").strip()
-        if not experiment_name:
-            raise RuntimeError("Experiment name must be set in Settings.")
-        subdir = (self.settings_vm.subdir or "").strip()
-        override_dt = (
-            self.experiment_vm.fields.get("storage.client_datetime")
-            if hasattr(self.experiment_vm, "fields")
-            else None
-        )
-        client_datetime = str(override_dt).strip() if override_dt else ""
-        if not client_datetime:
-            client_datetime = self._current_client_datetime()
-        storage = {
-            "experiment_name": experiment_name,
-            "subdir": subdir,
-            "client_datetime": client_datetime,
-            "results_dir": self.settings_vm.results_dir,
-        }
-        return storage
-
-    def _build_plan_from_vm(self, selection: Iterable[str]) -> Dict:
-        """
-        Build a JobRequest-ready plan for StartExperimentBatch.
-        Collects all configured wells and their stored parameters.
-
-        The UseCase will:
-        - Route each configured well to its box prefix,
-        - Generate one JobRequest per well.
-
-        Fields tia_gain / sampling_interval are set to None for now
-        until they are exposed in the Settings UI.
-        """
-        # 1) Always start from all configured wells (not just the active selection)
-        configured = self.plate_vm.configured()
-        if not configured:
-            raise RuntimeError("No configured wells to start.")
-
-        # 2) Gather persisted parameters for those wells
-        well_params_map = self.experiment_vm.build_well_params_map(configured)
-        if not well_params_map:
-            raise RuntimeError("No saved parameters found for configured wells.")
-
-        # 3) Optional global settings / defaults
-        make_plot = False  # default: let backend create plots
-        tia_gain = None  # will be added later via Settings
-        sampling_interval = None  # will be added later via Settings
-
-        # 4) Compose plan dict for the UseCase
-        storage_meta = self._build_storage_metadata()
-        plan = {
-            "selection": sorted(configured),
-            "well_params_map": well_params_map,
-            "make_plot": make_plot,
-            "tia_gain": tia_gain,
-            "sampling_interval": sampling_interval,
-            "storage": storage_meta,
-            # group_id is injected below
-        }
-
-        # 5) Debug convenience (optional)
-        boxes = sorted(
-            {str(wid)[0] for wid in configured if isinstance(wid, str) and wid}
-        )
-        self._log.debug(
-            "Built plan for %d wells across boxes %s",
-            len(configured),
-            ", ".join(boxes) if boxes else "-",
-        )
-
-        experiment_slug = self._slug(storage_meta.get("experiment_name") or "exp")
-        if not experiment_slug:
-            experiment_slug = "exp"
-        subdir_slug = self._slug(storage_meta.get("subdir") or "")
-        datetime_slug = self._slug(self._local_dt_slug())
-        rand_suffix = "".join(
-            random.choices(string.ascii_lowercase + string.digits, k=4)
-        )
-        parts = [
-            experiment_slug,
-            subdir_slug or None,
-            datetime_slug,
-            rand_suffix,
-        ]
-        plan["group_id"] = "grp_" + "__".join(filter(None, parts))
-
-        return plan
+    
 
 
 def main() -> None:
+    """Start the desktop application entrypoint."""
     app = App()
     app.win.mainloop()
 

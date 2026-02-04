@@ -1,3 +1,9 @@
+"""Logging configuration helpers shared by GUI and REST entrypoints.
+
+The functions in this module centralize log-level resolution from environment
+variables and GUI preferences so all components use consistent logging behavior.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -11,6 +17,15 @@ _DEBUG_FLAGS = ("SEVA_DEBUG_LOGGING", "SEVA_GUI_DEBUG", "SEVA_DEBUG")
 
 
 def _coerce_level(value: Optional[str], fallback: int) -> int:
+    """Parse a logging level token and fall back when parsing fails.
+
+    Args:
+        value (Optional[str]): Candidate level token (name or numeric string).
+        fallback (int): Level used when parsing does not yield a valid value.
+
+    Returns:
+        int: Effective logging level constant.
+    """
     if not value:
         return fallback
     text = value.strip()
@@ -30,12 +45,26 @@ def _coerce_level(value: Optional[str], fallback: int) -> int:
 
 
 def _env_truthy(value: Optional[str]) -> bool:
+    """Return whether an environment value should be treated as enabled.
+
+    Args:
+        value (Optional[str]): Raw environment value.
+
+    Returns:
+        bool: ``True`` for known truthy tokens, otherwise ``False``.
+    """
     if value is None:
         return False
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _resolve_env_level() -> Optional[int]:
+    """Resolve log level from environment variables in precedence order.
+
+    Returns:
+        Optional[int]: Explicit level from env vars, debug level from flags, or
+            ``None`` when no override exists.
+    """
     for var in _LEVEL_ENV_VARS:
         value = os.getenv(var)
         if value:

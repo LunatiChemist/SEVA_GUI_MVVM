@@ -1,24 +1,47 @@
+"""REST adapter implementing ``JobPort`` run lifecycle operations.
+
+This adapter maps typed ``ExperimentPlan`` input into backend job requests,
+stores run-group bookkeeping needed for polling/cancel/download, and returns
+server-authoritative snapshots.
+
+Dependencies:
+    - ``RetryingSession``/``HttpConfig`` for shared HTTP behavior.
+    - ``api_errors`` helpers for typed non-2xx handling.
+    - Domain mapping helpers for well/slot conversion.
+
+Call context:
+    - ``StartExperimentBatch`` calls ``start_batch``.
+    - ``PollGroupStatus`` calls ``poll_group``.
+    - ``CancelGroup`` and ``CancelRuns`` call cancel methods.
+    - ``DownloadGroupResults`` calls ``download_group_zip``.
+"""
+
 # seva/adapters/job_rest.py
 from __future__ import annotations
 
 import logging
 import os
-import json
-from dataclasses import dataclass
+from datetime import timezone
 from typing import Dict, Iterable, Tuple, Optional, Any, List, Set
 from uuid import uuid4
 
 import requests
-from requests import exceptions as req_exc
 
 # Domain Port
+from seva.domain.entities import ExperimentPlan
+from seva.domain.util import normalize_mode_name
+from seva.domain.mapping import (
+    build_slot_registry,
+    extract_device_entries,
+    extract_slot_labels,
+)
 from seva.domain.ports import JobPort, RunGroupId, BoxId
 
+from .http_client import HttpConfig, RetryingSession
 from .api_errors import (
     ApiClientError,
     ApiError,
     ApiServerError,
-    ApiTimeoutError,
     build_error_message,
     extract_error_code,
     extract_error_hint,
@@ -26,104 +49,13 @@ from .api_errors import (
 )
 
 
-@dataclass
-class _HttpConfig:
-    request_timeout_s: int = 10
-    download_timeout_s: int = 60
-    retries: int = 2
-
-
-class _RetryingSession:
-    """Tiny requests wrapper with X-API-Key and simple retry.
-    Future: move to infra with exponential backoff + jitter.
-    """
-
-    def __init__(self, api_key: Optional[str], cfg: _HttpConfig) -> None:
-        self.session = requests.Session()
-        self.api_key = api_key
-        self.cfg = cfg
-
-    def _headers(
-        self, accept: str = "application/json", json_body: bool = False
-    ) -> Dict[str, str]:
-        h = {"Accept": accept}
-        if self.api_key:
-            h["X-API-Key"] = self.api_key
-        if json_body:
-            h["Content-Type"] = "application/json"
-        return h
-
-    def get(
-        self,
-        url: str,
-        *,
-        params: Optional[Dict[str, Any]] = None,
-        accept: str = "application/json",
-        timeout: Optional[int] = None,
-        stream: bool = False,
-    ):
-        last_err: Optional[Exception] = None
-        context = f"GET {url}"
-        for _ in range(self.cfg.retries + 1):
-            try:
-                return self.session.get(
-                    url,
-                    params=params,
-                    headers=self._headers(accept=accept),
-                    timeout=timeout or self.cfg.request_timeout_s,
-                    stream=stream,
-                )
-            except (req_exc.Timeout, req_exc.ConnectionError) as exc:
-                last_err = ApiTimeoutError(f"Timeout contacting {url}", context=context)
-            except Exception as exc:
-                last_err = exc
-        if last_err is None:
-            raise ApiError("Unexpected request failure", context=context)
-        if isinstance(last_err, ApiError):
-            raise last_err
-        if isinstance(last_err, req_exc.RequestException):
-            raise ApiError(str(last_err), context=context) from last_err
-        raise last_err
-
-    def post(
-        self,
-        url: str,
-        *,
-        json_body: Optional[Dict[str, Any]] = None,
-        timeout: Optional[int] = None,
-    ):
-        last_err: Optional[Exception] = None
-        context = f"POST {url}"
-        data = None if json_body is None else json.dumps(json_body)
-        for _ in range(self.cfg.retries + 1):
-            try:
-                return self.session.post(
-                    url,
-                    data=data,
-                    headers=self._headers(json_body=json_body is not None),
-                    timeout=timeout or self.cfg.request_timeout_s,
-                )
-            except (req_exc.Timeout, req_exc.ConnectionError) as exc:
-                last_err = ApiTimeoutError(f"Timeout contacting {url}", context=context)
-            except Exception as exc:
-                last_err = exc
-        if last_err is None:
-            raise ApiError("Unexpected request failure", context=context)
-        if isinstance(last_err, ApiError):
-            raise last_err
-        if isinstance(last_err, req_exc.RequestException):
-            raise ApiError(str(last_err), context=context) from last_err
-        raise last_err
-
-
 class JobRestAdapter(JobPort):
-    """REST adapter for your FastAPI boxes.
+    """Run-lifecycle transport adapter for SEVA box APIs.
 
     Endpoints:
-      - POST {base}/jobs               body: {"devices":[1,2], "mode":"CV|CA|LSV|...", "params":{...}}
+      - POST {base}/jobs               body: {"devices":["slot01"], "modes":["CV"], "params_by_mode":{...}}
               -> {"run_id": "..."}
-      - GET  {base}/jobs/{run_id}      -> {"run_id": "...", "started_at": "...",
-                                            "channels":[{"slot":1,"state":"Running"}, ...]}
+      - POST {base}/jobs/status        -> [{"run_id":"...", "status":"running", ...}]
       - GET  {base}/runs/{run_id}/zip  -> application/zip
 
     Notes:
@@ -140,10 +72,22 @@ class JobRestAdapter(JobPort):
         download_timeout_s: int = 60,
         retries: int = 2,
     ) -> None:
+        """Initialize adapter and precompute well/slot registry.
+
+        Args:
+            base_urls: Mapping from ``BoxId`` to base URL.
+            api_keys: Optional mapping from ``BoxId`` to API key.
+            request_timeout_s: Timeout in seconds for API requests.
+            download_timeout_s: Timeout in seconds for ZIP downloads.
+            retries: Retry count for transport failures.
+
+        Side Effects:
+            Builds HTTP sessions and probes ``/devices`` to build slot registry.
+        """
         self._log = logging.getLogger(__name__)
         self.base_urls = dict(base_urls)
         self.api_keys = dict(api_keys or {})
-        self.cfg = _HttpConfig(
+        self.cfg = HttpConfig(
             request_timeout_s=request_timeout_s,
             download_timeout_s=download_timeout_s,
             retries=retries,
@@ -152,15 +96,16 @@ class JobRestAdapter(JobPort):
         self.box_order: List[BoxId] = sorted(self.base_urls.keys())
 
         # Sessions per box
-        self.sessions: Dict[BoxId, _RetryingSession] = {
-            b: _RetryingSession(self.api_keys.get(b), self.cfg)
+        self.sessions: Dict[BoxId, RetryingSession] = {
+            b: RetryingSession(self.api_keys.get(b), self.cfg)
             for b in self.base_urls.keys()
         }
 
         # Client-side group mapping: group_id -> {box -> run_id}
         self._groups: Dict[RunGroupId, Dict[BoxId, str]] = {}
 
-        # Precompute registry well_id <-> (box, slot)
+        # Precompute registry well_id <-> (box, slot) once, then reuse in all
+        # request mapping and download normalization paths.
         self.well_to_slot: Dict[str, Tuple[BoxId, int]] = {}
         self.slot_to_well: Dict[Tuple[BoxId, int], str] = {}
         self._build_registry()
@@ -172,31 +117,45 @@ class JobRestAdapter(JobPort):
     # ---------- Registry ----------
 
     def _build_registry(self) -> None:
-        """Build well_id <-> (box, slot) mapping using fixed box-local offsets.
+        """Build well/slot registry from server-reported device slots.
 
-        Offsets per box letter: A:+0, B:+10, C:+20, D:+30. The well number is
-        `offset + slot_index` (slot_index is 1-based). Examples:
-        - slot01 on box A -> well A1
-        - slot01 on box B -> well B11
-        - slot10 on box D -> well D40
+        Raises:
+            ValueError: If any configured box reports zero available slots.
+
+        Side Effects:
+            Calls ``/devices`` on each configured box and fills ``well_to_slot``
+            and ``slot_to_well`` mapping tables.
         """
-        offsets = {"A": 0, "B": 10, "C": 20, "D": 30}
-        self.well_to_slot.clear()
-        self.slot_to_well.clear()
+        slots_by_box: Dict[BoxId, List[str]] = {}
         for box in self.box_order:
-            box_letter = str(box)[:1].upper()
-            if box_letter not in offsets:
-                raise ValueError(f"Unsupported box id '{box}': expected leading letter in {sorted(offsets)}")
-            offset = offsets[box_letter]
-            for slot in range(1, 11):
-                well_number = offset + slot
-                well_id = f"{box}{well_number}"
-                self.well_to_slot[well_id] = (box, slot)
-                self.slot_to_well[(box, slot)] = well_id
+            payload = self._fetch_devices_payload(box)
+            slots = extract_slot_labels(payload)
+            if not slots:
+                raise ValueError(f"No slots available for box '{box}'.")
+            slots_by_box[box] = slots
+
+        well_to_slot, slot_to_well = build_slot_registry(
+            self.box_order, slots_by_box
+        )
+        self.well_to_slot = well_to_slot
+        self.slot_to_well = slot_to_well
 
     # ---------- JobPort implementation ----------
 
     def health(self, box_id: BoxId) -> Dict:
+        """Read ``/health`` payload for one box.
+
+        Args:
+            box_id: Box identifier to query.
+
+        Returns:
+            Health payload dictionary.
+
+        Raises:
+            ValueError: If no session/base URL is configured for the box.
+            ApiError: For non-2xx HTTP responses.
+            RuntimeError: If response payload is not a JSON object.
+        """
         session = self.sessions.get(box_id)
         if session is None:
             raise ValueError(f"No session configured for box '{box_id}'")
@@ -209,135 +168,145 @@ class JobRestAdapter(JobPort):
         return data
 
     def list_devices(self, box_id: BoxId) -> List[Dict]:
-        session = self.sessions.get(box_id)
-        if session is None:
-            raise ValueError(f"No session configured for box '{box_id}'")
-        url = self._make_url(box_id, "/devices")
-        resp = session.get(url, timeout=self.cfg.request_timeout_s)
-        self._ensure_ok(resp, f"devices[{box_id}]")
-        data = self._json_any(resp)
-        if not isinstance(data, list):
-            raise RuntimeError(f"devices[{box_id}]: expected list response")
+        """Read and normalize ``/devices`` payload.
+
+        Args:
+            box_id: Box identifier to query.
+
+        Returns:
+            List of device dictionaries normalized by domain mapping helpers.
+        """
+        payload = self._fetch_devices_payload(box_id)
         cleaned: List[Dict[str, Any]] = []
-        for item in data:
-            if isinstance(item, dict):
-                cleaned.append(item)
+        for item in extract_device_entries(payload):
+            cleaned.append(dict(item))
         return cleaned
 
-    def start_batch(self, plan: Dict) -> Tuple[RunGroupId, Dict[BoxId, List[str]]]:
-        """
-        Post pre-grouped jobs (built by the UseCase) to each box.
-        Expected plan keys:
-        - jobs: List[Dict] where each job contains:
-            {
-                "box": "A",
-                "well_id": "A1",
-                "wells": ["A1"],
-                "mode": "CV|DC|AC|LSV|EIS|CDL",
-                "params": {...},
-                "tia_gain": int|None,
-                "sampling_interval": float|None,
-                "make_plot": bool,
-            }
-        - (optional) group_id
+    def start_batch(self, plan: ExperimentPlan) -> Tuple[RunGroupId, Dict[BoxId, List[str]]]:
+        """Submit one backend job per planned well and collect run IDs.
+
+        Args:
+            plan: Typed experiment plan produced by plan-building use case.
+
         Returns:
-        (group_id, { box: [run_id, ...] })
+            Tuple of ``(run_group_id, runs_by_box)``.
+
+        Raises:
+            TypeError: If ``plan`` is not an ``ExperimentPlan``.
+            ValueError: If plan metadata/wells are invalid for submission.
+            ApiError: If transport/session/response constraints fail.
+
+        Side Effects:
+            Performs ``POST /jobs`` calls, mutates in-memory group/run caches.
+
+        Call Chain:
+            ``StartExperimentBatch`` -> ``JobRestAdapter.start_batch``.
         """
-        jobs: List[Dict[str, Any]] = plan.get("jobs") or []
-        if not jobs:
-            raise ValueError("start_batch: missing 'jobs' in plan")
+        if not isinstance(plan, ExperimentPlan):
+            raise TypeError(f"start_batch expects ExperimentPlan, got {type(plan).__name__}")
 
-        group_id_raw = plan.get("group_id")
-        if isinstance(group_id_raw, str) and group_id_raw.strip():
-            group_id = group_id_raw
-        else:
-            group_id = str(uuid4())
-        storage_meta: Dict[str, Any] = plan.get("storage") or {}
+        meta = plan.meta
+        client_dt = (
+            meta.client_dt.value.astimezone(timezone.utc)
+            .replace(microsecond=0)
+        )
+        client_dt_text = client_dt.isoformat()
+        if client_dt_text.endswith("+00:00"):
+            client_dt_text = client_dt_text[:-6] + "Z"
 
-        # Prepare mapping: group_id -> box -> [run_id,...]
+        group_id = str(meta.group_id) if str(meta.group_id).strip() else str(uuid4())
+        experiment_name = (meta.experiment or "").strip()
+        if not experiment_name:
+            raise ValueError("start_batch: missing experiment_name in plan meta")
+        subdir = (meta.subdir or "").strip() or None
+
         run_ids: Dict[BoxId, List[str]] = {}
         self._groups[group_id] = {}
 
-        for job in jobs:
-            box: BoxId = job.get("box")
-            wells: List[str] = list(job.get("wells") or [])
-            if not box or not wells:
-                raise ValueError("start_batch: job requires 'box' and non-empty 'wells'")
-            well_id = job.get("well_id") or (wells[0] if wells else None)
+        if not plan.wells:
+            raise ValueError("start_batch: plan contains no wells")
+
+        for well_plan in plan.wells:
+            # Normalize mode tokens early so payloads are stable across UI aliases.
+            normalized_modes = [
+                normalized for mode in (well_plan.modes or [])
+                if (normalized := normalize_mode_name(mode))
+            ]
+            well_id = str(well_plan.well)
             if not well_id:
-                raise ValueError("start_batch: job missing 'well_id' entry")
+                raise ValueError("Experiment plan contains an empty well identifier.")
 
-            # Map wells -> slot labels for this box
-            slots: List[int] = []
-            for wid in wells:
-                tpl = self.well_to_slot.get(wid)
-                if not tpl or tpl[0] != box:
-                    raise ValueError(f"Unknown or mismatched well '{wid}' for box '{box}'")
-                slots.append(tpl[1])
-            devices = [self._slot_label(s) for s in sorted(set(slots))]
+            slot_info = self.well_to_slot.get(well_id)
+            if not slot_info:
+                raise ValueError(f"Unknown well '{well_id}' for any configured box.")
+            box, slot = slot_info
+            devices = [self._slot_label(slot)]
 
-            experiment_name = job.get("experiment_name") or storage_meta.get(
-                "experiment_name"
-            )
-            if isinstance(experiment_name, str):
-                experiment_name = experiment_name.strip()
-            if not experiment_name:
-                raise ValueError("start_batch: missing experiment_name in job plan")
-            subdir = job.get("subdir", storage_meta.get("subdir"))
-            if isinstance(subdir, str):
-                subdir = subdir.strip() or None
-            client_datetime = job.get("client_datetime") or storage_meta.get(
-                "client_datetime"
-            )
-            if isinstance(client_datetime, str):
-                client_datetime = client_datetime.strip()
-            if not client_datetime:
-                raise ValueError("start_batch: missing client_datetime in job plan")
+            params_by_mode: Dict[str, Dict[str, Any]] = {}
+            for mode_name, params_obj in (well_plan.params_by_mode or {}).items():
+                mode_key = str(mode_name)
+                try:
+                    # Keep serialization at adapter boundary: use cases provide
+                    # typed params and adapter emits transport payload dicts.
+                    params_by_mode[mode_key] = params_obj.to_payload()
+                except NotImplementedError as exc:  # pragma: no cover
+                    raise ValueError(
+                        f"Well '{well_id}' mode '{mode_name}' parameters do not support payload serialization."
+                    ) from exc
+                except AttributeError as exc:  # pragma: no cover
+                    raise ValueError(
+                        f"Well '{well_id}' mode '{mode_name}' parameters are missing a to_payload() method."
+                    ) from exc
 
             payload = {
                 "devices": devices,
-                "mode": job.get("mode"),
-                "well_id": well_id,
-                "params": job.get("params") or {},
-                "tia_gain": job.get("tia_gain", None),
-                "sampling_interval": job.get("sampling_interval", None),
-                "make_plot": bool(job.get("make_plot", True)),
+                "modes": normalized_modes,
+                "params_by_mode": params_by_mode,
+                "tia_gain": meta.tia_gain,
+                "sampling_interval": meta.sampling_interval,
+                "make_plot": bool(meta.make_plot),
                 "experiment_name": experiment_name,
                 "subdir": subdir,
-                "client_datetime": client_datetime,
+                "group_id": group_id,
+                "client_datetime": client_dt_text,
             }
 
             url = self._make_url(box, "/jobs")
             if self._log.isEnabledFor(logging.DEBUG):
                 self._log.debug(
-                    "POST start[%s]: well=%s devices=%s mode=%s group=%s",
-                    box,
-                    well_id,
-                    devices,
-                    job.get("mode"),
-                    group_id,
+                    "POST start[%s]: well=%s devices=%s modes=%s group=%s",
+                    box, well_id, devices, payload["modes"], group_id,
                 )
-            resp = self.sessions[box].post(
-                url, json_body=payload, timeout=self.cfg.request_timeout_s
-            )
+            session = self.sessions.get(box)
+            if session is None:
+                raise ApiError(f"No HTTP session configured for box '{box}'", context=f"start[{box}]")
+            resp = session.post(url, json_body=payload, timeout=self.cfg.request_timeout_s)
+
             self._ensure_ok(resp, f"start[{box}]")
             data = self._json(resp)
             run_id_raw = data.get("run_id")
             if not run_id_raw:
-                raise RuntimeError("start_batch: response missing run_id")
+                raise ApiError("Response payload missing run_id", context=f"start[{box}]", payload=data)
             run_id = str(run_id_raw)
 
             self._groups[group_id].setdefault(box, []).append(run_id)
             run_ids.setdefault(box, []).append(run_id)
 
-            normalized = self._normalize_job_status(
-                box, data, fallback_run_id=run_id
-            )
+            normalized = self._normalize_job_status(box, data)
             self._store_run_snapshot(normalized)
 
         return group_id, run_ids
 
     def cancel_run(self, box_id: BoxId, run_id: str) -> None:
+        """Cancel a single run.
+
+        Args:
+            box_id: Box identifier owning the run.
+            run_id: Run identifier.
+
+        Raises:
+            ApiError: If session missing or backend returns non-2xx response.
+        """
         session = self.sessions.get(box_id)
         if session is None:
             raise ApiError(
@@ -347,6 +316,14 @@ class JobRestAdapter(JobPort):
         self._cancel_run_with_session(session, box_id, run_id, ignore_missing=False)
 
     def cancel_runs(self, box_to_run_ids: Dict[BoxId, List[str]]) -> None:
+        """Cancel multiple runs grouped by box ID.
+
+        Args:
+            box_to_run_ids: Mapping of ``box_id`` to run-id list.
+
+        Raises:
+            ApiError: If session missing or any backend cancel call fails.
+        """
         if not box_to_run_ids:
             return
         for box, run_ids in box_to_run_ids.items():
@@ -360,6 +337,7 @@ class JobRestAdapter(JobPort):
                 )
             seen: Set[str] = set()
             for run_id in run_ids:
+                # Deduplicate per-box run IDs to avoid duplicate cancel calls.
                 run_id_str = str(run_id or "").strip()
                 if not run_id_str or run_id_str in seen:
                     continue
@@ -369,6 +347,18 @@ class JobRestAdapter(JobPort):
                 )
 
     def cancel_group(self, run_group_id: RunGroupId) -> None:
+        """Cancel all runs known for a run group.
+
+        Args:
+            run_group_id: Group identifier to cancel.
+
+        Side Effects:
+            Issues per-run cancel requests for all tracked runs in the group.
+
+        Notes:
+            Missing sessions are logged and skipped to preserve best-effort group
+            cancellation behavior.
+        """
         self._log.info("Cancel group %s requested.", run_group_id)
         box_runs = self._groups.get(run_group_id, {})
         if not box_runs:
@@ -387,12 +377,23 @@ class JobRestAdapter(JobPort):
 
     def _cancel_run_with_session(
         self,
-        session: _RetryingSession,
+        session: RetryingSession,
         box: BoxId,
         run_id: str,
         *,
         ignore_missing: bool,
     ) -> None:
+        """Cancel one run using a provided HTTP session.
+
+        Args:
+            session: Pre-resolved session for the target box.
+            box: Box identifier.
+            run_id: Run identifier.
+            ignore_missing: If ``True``, 404 responses are treated as success.
+
+        Raises:
+            ApiError: On transport failure or non-allowed HTTP status.
+        """
         url = self._make_url(box, f"/jobs/{run_id}/cancel")
         try:
             resp = session.post(url, timeout=self.cfg.request_timeout_s)
@@ -406,8 +407,28 @@ class JobRestAdapter(JobPort):
         self._ensure_ok(resp, f"cancel[{box}:{run_id}]")
 
     def poll_group(self, run_group_id: RunGroupId) -> Dict:
-        """Bulk poll run snapshots using POST /jobs/status and cached terminals."""
+        """Poll all runs in a group and emit UI-compatible snapshot payload.
+
+        Args:
+            run_group_id: Group identifier to poll.
+
+        Returns:
+            Snapshot dictionary with ``boxes``, ``wells``, ``activity``, and
+            ``all_done`` fields consumed by ``PollGroupStatus`` normalization.
+
+        Raises:
+            ApiError: On HTTP/session failures.
+            RuntimeError: On invalid response payload shapes.
+
+        Side Effects:
+            Updates run cache and terminal-run tracking sets.
+        """
         box_runs: Dict[BoxId, List[str]] = self._groups.get(run_group_id, {}) or {}
+        if not box_runs:
+            recovered = self._recover_group_runs(run_group_id)
+            if recovered:
+                self._groups[run_group_id] = recovered
+                box_runs = recovered
         snapshot = {"boxes": {}, "wells": [], "activity": {}}
 
         has_runs = False
@@ -476,6 +497,8 @@ class JobRestAdapter(JobPort):
                     "ended_at": data.get("ended_at"),
                     "progress_pct": data.get("progress_pct", 0),
                     "remaining_s": data.get("remaining_s"),
+                    "current_mode": data.get("current_mode") or data.get("mode"),
+                    "remaining_modes": data.get("remaining_modes") or [],
                 }
                 run_entries.append(run_entry)
                 statuses_capitalized.add(run_entry["status"].capitalize())
@@ -504,13 +527,19 @@ class JobRestAdapter(JobPort):
                     )
                     s_msg = slot_info.get("message") or ""
                     snapshot["wells"].append(
-                        (
-                            wid,
-                            s_status,
-                            data.get("progress_pct", 0),
-                            s_msg,
-                            run_entry["run_id"],
-                        )
+                        {
+                            "well": wid,
+                            # Keep explicit UI labels here; use case normalizer
+                            # converts this transport snapshot to domain objects.
+                            "phase": s_status,  # Queued/Running/Done/Error
+                            "progress_pct": data.get("progress_pct", 0),
+                            "remaining_s": data.get("remaining_s"),
+                            "error": s_msg,
+                            "run_id": run_entry["run_id"],
+                            # Include mode context so UI can render active/next.
+                            "current_mode": data.get("current_mode") or data.get("mode"),
+                            "remaining_modes": data.get("remaining_modes") or [],
+                        }
                     )
                     snapshot["activity"][wid] = s_status
 
@@ -540,11 +569,60 @@ class JobRestAdapter(JobPort):
         snapshot["all_done"] = bool(box_runs) and has_runs and all_terminal
         return snapshot
 
-    def download_group_zip(self, run_group_id: RunGroupId, target_dir: str) -> str:
+    def _recover_group_runs(self, run_group_id: RunGroupId) -> Dict[BoxId, List[str]]:
+        """Recover run IDs for a group by querying ``/jobs?group_id=...``.
+
+        Args:
+            run_group_id: Group identifier to recover.
+
+        Returns:
+            Mapping of box IDs to recovered run IDs.
+
+        Side Effects:
+            Performs network requests per configured box.
         """
-        Download all run zips for all boxes in the group into:
-        <target_dir>/<group_id>/<box>/<run_id>.zip
-        Returns the output folder path.
+        recovered: Dict[BoxId, List[str]] = {}
+        group_text = str(run_group_id or "").strip()
+        if not group_text:
+            return recovered
+        for box in self.box_order:
+            session = self.sessions.get(box)
+            if session is None:
+                continue
+            url = self._make_url(box, f"/jobs?group_id={group_text}")
+            resp = session.get(url, timeout=self.cfg.request_timeout_s)
+            self._ensure_ok(resp, f"jobs[{box}]")
+            payload = self._json_any(resp)
+            if not isinstance(payload, list):
+                raise RuntimeError("Invalid JSON response: expected list of jobs")
+            run_ids: List[str] = []
+            for item in payload:
+                if not isinstance(item, dict):
+                    continue
+                run_id_raw = item.get("run_id")
+                if not run_id_raw:
+                    continue
+                run_id = str(run_id_raw)
+                if run_id and run_id not in run_ids:
+                    run_ids.append(run_id)
+            if run_ids:
+                recovered[box] = run_ids
+        if recovered and self._log.isEnabledFor(logging.DEBUG):
+            self._log.debug("Recovered group %s runs=%s", run_group_id, recovered)
+        return recovered
+
+    def download_group_zip(self, run_group_id: RunGroupId, target_dir: str) -> str:
+        """Download all run ZIP artifacts for a run group.
+
+        Args:
+            run_group_id: Group identifier to download.
+            target_dir: Root directory where group folder should be created.
+
+        Returns:
+            Output path ``<target_dir>/<group_id>``.
+
+        Side Effects:
+            Creates directories and writes ZIP files to disk.
         """
         box_runs: Dict[BoxId, List[str]] = self._groups.get(run_group_id, {}) or {}
         out_dir = os.path.join(target_dir, str(run_group_id))
@@ -562,12 +640,14 @@ class JobRestAdapter(JobPort):
                     accept="application/zip",
                 )
                 if resp.status_code == 404:
+                    # Some runs may have been cleaned up server-side; skip quietly.
                     continue
                 self._ensure_ok(resp, f"download[{box}:{run_id}]")
 
                 path = os.path.join(box_dir, f"{run_id}.zip")
                 with open(path, "wb") as f:
                     for chunk in resp.iter_content(chunk_size=8192):
+                        # Stream in chunks to avoid loading large archives in RAM.
                         if chunk:
                             f.write(chunk)
 
@@ -576,6 +656,18 @@ class JobRestAdapter(JobPort):
     # ---------- helpers ----------
 
     def _make_url(self, box: BoxId, path: str) -> str:
+        """Build endpoint URL from configured base URL.
+
+        Args:
+            box: Box identifier.
+            path: Endpoint path beginning with ``/``.
+
+        Returns:
+            Absolute endpoint URL.
+
+        Raises:
+            ValueError: If box base URL is missing.
+        """
         base = self.base_urls.get(box)
         if not base:
             raise ValueError(f"No base URL configured for box '{box}'")
@@ -583,10 +675,40 @@ class JobRestAdapter(JobPort):
             base = base[:-1]
         return f"{base}{path}"
 
+    def _fetch_devices_payload(self, box_id: BoxId) -> Any:
+        """Fetch raw ``/devices`` payload for registry discovery.
+
+        Args:
+            box_id: Box identifier to query.
+
+        Returns:
+            Parsed JSON payload (list/object) returned by backend.
+        """
+        session = self.sessions.get(box_id)
+        if session is None:
+            raise ValueError(f"No session configured for box '{box_id}'")
+        url = self._make_url(box_id, "/devices")
+        resp = session.get(url, timeout=self.cfg.request_timeout_s)
+        self._ensure_ok(resp, f"devices[{box_id}]")
+        return self._json_any(resp)
+
     def _slot_label(self, slot: int) -> str:
+        """Format integer slot index as API slot token.
+
+        Args:
+            slot: Numeric slot index.
+
+        Returns:
+            Zero-padded slot token such as ``slot01``.
+        """
         return f"slot{slot:02d}"
 
     def _store_run_snapshot(self, snapshot: Dict[str, Any]) -> None:
+        """Store run snapshot and update terminal tracking.
+
+        Args:
+            snapshot: Normalized run snapshot dictionary.
+        """
         run_id = snapshot.get("run_id")
         if not run_id:
             return
@@ -599,64 +721,70 @@ class JobRestAdapter(JobPort):
 
     @staticmethod
     def _is_terminal(status: str) -> bool:
+        """Check whether status token represents terminal completion.
+
+        Args:
+            status: Run status token.
+
+        Returns:
+            ``True`` for terminal statuses, else ``False``.
+        """
         normalized = status.lower()
         return normalized in {"done", "failed", "canceled", "cancelled"}
 
     def _normalize_job_status(
-        self, box: BoxId, payload: Dict[str, Any], *, fallback_run_id: Optional[str] = None
+        self, box: BoxId, payload: Dict[str, Any]
     ) -> Dict[str, Any]:
+        """Normalize backend run payload into adapter snapshot schema.
+
+        Args:
+            box: Box identifier associated with payload.
+            payload: Raw JSON object from backend.
+
+        Returns:
+            Normalized snapshot dictionary with stable keys.
+
+        Raises:
+            RuntimeError: If payload shape is invalid.
+        """
         if not isinstance(payload, dict):
             raise RuntimeError("Invalid job status payload: expected object")
-        run_id_raw = payload.get("run_id") or fallback_run_id
+        run_id_raw = payload.get("run_id")
         if not run_id_raw:
             raise RuntimeError("Job status payload missing run_id")
         run_id = str(run_id_raw)
-        status = str(payload.get("status") or "queued").lower()
-        progress_raw = payload.get("progress_pct")
-        try:
-            progress_pct = int(progress_raw)
-        except Exception:
-            progress_pct = 0
-        remaining_raw = payload.get("remaining_s")
-        if isinstance(remaining_raw, (int, float)):
-            remaining_s: Optional[int] = int(remaining_raw)
-        elif remaining_raw is not None:
-            try:
-                remaining_s = int(float(remaining_raw))
-            except Exception:
-                remaining_s = None
-        else:
-            remaining_s = None
-        slots_raw = payload.get("slots") or []
-        slots: List[Dict[str, Any]] = []
-        for slot in slots_raw:
-            if not isinstance(slot, dict):
-                continue
-            slots.append(
-                {
-                    "slot": slot.get("slot"),
-                    "status": str(slot.get("status") or "queued").lower(),
-                    "message": slot.get("message"),
-                    "started_at": slot.get("started_at"),
-                    "ended_at": slot.get("ended_at"),
-                    "files": slot.get("files") or [],
-                }
-            )
+        status = str(payload.get("status") or "queued").lower() or "queued"
+        slots = payload.get("slots") or []
+        current_mode = payload.get("current_mode") or payload.get("mode")
         normalized = {
             "box": box,
             "run_id": run_id,
             "status": status,
             "started_at": payload.get("started_at"),
             "ended_at": payload.get("ended_at"),
-            "progress_pct": progress_pct,
-            "remaining_s": remaining_s,
+            "progress_pct": payload.get("progress_pct") or 0,
+            "remaining_s": payload.get("remaining_s"),
             "slots": slots,
-            "mode": payload.get("mode"),
+            "mode": current_mode,
+            "current_mode": current_mode,
+            "modes": payload.get("modes") or [],
+            "remaining_modes": payload.get("remaining_modes") or [],
         }
         return normalized
 
     @staticmethod
     def _ensure_ok(resp: requests.Response, ctx: str) -> None:
+        """Raise typed adapter errors for non-2xx responses.
+
+        Args:
+            resp: HTTP response.
+            ctx: Context label for diagnostics.
+
+        Raises:
+            ApiClientError: For HTTP 4xx responses.
+            ApiServerError: For HTTP 5xx responses.
+            ApiError: For all other non-2xx responses.
+        """
         if 200 <= resp.status_code < 300:
             return
         status = resp.status_code
@@ -684,6 +812,17 @@ class JobRestAdapter(JobPort):
 
     @staticmethod
     def _json(resp: requests.Response) -> Dict[str, Any]:
+        """Parse object JSON response.
+
+        Args:
+            resp: HTTP response.
+
+        Returns:
+            Parsed JSON object.
+
+        Raises:
+            RuntimeError: If payload is not a JSON object.
+        """
         data = JobRestAdapter._json_any(resp)
         if not isinstance(data, dict):
             raise RuntimeError("Invalid JSON response: expected object")
@@ -691,6 +830,17 @@ class JobRestAdapter(JobPort):
 
     @staticmethod
     def _json_any(resp: requests.Response) -> Any:
+        """Parse arbitrary JSON response payload.
+
+        Args:
+            resp: HTTP response.
+
+        Returns:
+            Parsed JSON value.
+
+        Raises:
+            RuntimeError: If payload is not valid JSON.
+        """
         try:
             return resp.json()
         except Exception:

@@ -1,17 +1,7 @@
-"""
-ChannelActivityView
--------------------
-Read-only tab that shows a compact activity matrix for all boxes (A-D) and
-wells (1..10). It mirrors the visual style of the original GUI: small square
-cells with color-coded status (Idle/Queued/Running/Done/Error). No backend or
-validation logic lives here - this is a pure View with public setters.
+"""Read-only activity matrix view for box/well status rendering.
 
-Usage (from a ViewModel/presenter):
-- call `set_boxes(["A","B"])` to define which boxes are visible
-- call `set_activity({"A1":"Running","A2":"Idle", ...})` to update colors
-- call `set_updated_at("12:03:15")` to update the timestamp label
-
-All comments are in English per project guidance.
+This view renders an A/B/C/... matrix of small status cells and exposes
+setter-style methods used by progress viewmodels. It performs no I/O.
 """
 from __future__ import annotations
 import tkinter as tk
@@ -26,6 +16,12 @@ class ChannelActivityView(ttk.Frame):
     """Compact, scrollable, read-only activity matrix."""
 
     def __init__(self, parent: tk.Widget, *, boxes: Sequence[BoxId] = ("A","B","C","D")) -> None:
+        """Build matrix tab widgets.
+
+        Args:
+            parent: Notebook tab container.
+            boxes: Ordered list of box identifiers to render.
+        """
         super().__init__(parent)
         self._boxes: List[BoxId] = list(boxes)
         self._wells_per_box: int = 10
@@ -34,7 +30,7 @@ class ChannelActivityView(ttk.Frame):
         # Header with last update timestamp
         header = ttk.Frame(self)
         header.pack(fill="x", padx=6, pady=(6, 2))
-        self._updated_var = tk.StringVar(value="Updated: –")
+        self._updated_var = tk.StringVar(value="Updated at --:--:--")
         ttk.Label(header, textvariable=self._updated_var).pack(side="left")
 
         # Scrollable canvas for the matrix
@@ -60,13 +56,18 @@ class ChannelActivityView(ttk.Frame):
 
     # ------------------------------------------------------------------
     def _on_canvas_configure(self, event):
+        """Keep inner matrix width aligned to visible canvas width.
+
+        Args:
+            event: Tk configure event from the canvas.
+        """
         # Ensure the inner frame matches canvas width for nicer horizontal behavior
         bbox = self._canvas.bbox(self._inner_id)
         if bbox:
             self._canvas.itemconfigure(self._inner_id, width=event.width)
 
     def _build_matrix(self) -> None:
-        """Render 4 Labelframes (A–D), each 2 columns × 5 rows of tiny cells."""
+        """Render one labelframe per box, each with 10 cell widgets."""
         # cleanup
         for child in list(self._inner.winfo_children()):
             child.destroy()
@@ -89,11 +90,20 @@ class ChannelActivityView(ttk.Frame):
 
     # ------------------------------------------------------------------
     def set_boxes(self, boxes: Iterable[BoxId]) -> None:
+        """Replace visible box set and rebuild matrix widgets.
+
+        Args:
+            boxes: Ordered iterable of box ids to render.
+        """
         self._boxes = list(boxes)
         self._build_matrix()
 
     def set_activity(self, mapping: Dict[WellId, str]) -> None:
-        """Update cell background colors based on status strings."""
+        """Apply well-status colors to visible cells.
+
+        Args:
+            mapping: Mapping of ``well_id -> status``.
+        """
         for wid, status in mapping.items():
             cell = self._cells.get(wid)
             if not cell:
@@ -101,11 +111,22 @@ class ChannelActivityView(ttk.Frame):
             cell.configure(bg=self._status_to_color(status))
 
     def set_updated_at(self, text: str) -> None:
-        self._updated_var.set(f"Updated: {text}")
+        """Update the timestamp label shown above the matrix.
+
+        Args:
+            text: Timestamp text, usually ``HH:MM:SS``.
+        """
+        label = (text or "").strip() or "--:--:--"
+        self._updated_var.set(f"Updated at {label}")
 
     # ------------------------------------------------------------------
     @staticmethod
     def _status_to_color(status: str) -> str:
+        """Map status token to cell background color.
+
+        Args:
+            status: Status token (for example ``Running`` or ``Error``).
+        """
         mapping = {
             "Idle": "white",
             "Queued": "#e0f7fa",

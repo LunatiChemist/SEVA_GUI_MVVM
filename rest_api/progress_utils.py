@@ -1,3 +1,10 @@
+"""Server-authoritative progress helpers for job status snapshots.
+
+`rest_api.app` calls this module while preparing `/jobs`, `/jobs/status`, and
+`/jobs/{run_id}` responses. The GUI must treat these values as authoritative
+instead of synthesizing client-side progress.
+"""
+
 from __future__ import annotations
 
 import datetime

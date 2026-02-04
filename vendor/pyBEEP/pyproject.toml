@@ -1,0 +1,53 @@
+[project]
+name = "pyBEEP"
+version = "0.1.2"
+description = "Python library for controlling and acquiring data from a custom potentiostat."
+authors = [
+    { name="adpisa" },
+    { name = "Aurelien BLANC", email = "aurelien.blanc@utoronto.ca" }
+]
+readme = "README.md"
+license = { file="LICENSE" }
+keywords = ["potentiostat", "electrochemistry", "chronoamperometry", "chronopotentiometry", "battery", "modbus"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Chemistry"
+]
+requires-python = ">=3.13"
+dependencies = [
+    "minimalmodbus>=2.1.1",
+    "numpy>=2.3.1",
+    "matplotlib>=3.10.3",
+    "pandas>=2.3.1",
+    "pydantic>=2.11.7",
+    "pyserial>=3.5",
+]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.2.0",
+    "pyright>=1.1.403",
+    "pytest>=8.4.1",
+    "pytest-cov>=6.2.1",
+    "ruff>=0.12.3",
+]
+
+[build-system]
+requires = ["setuptools >= 80.9.0", ]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+pyBEEP_GUI = "pyBEEP.gui.main_window:launch_GUI"
+
+[tool.pyright]
+include = ["src"]
+exclude = [".venv"]
+venvPath = "."
+venv = ".venv"
+reportMissingImports = true
+reportMissingTypeStubs = false
+pythonVersion = "3.13"
+typeCheckingMode = "basic"

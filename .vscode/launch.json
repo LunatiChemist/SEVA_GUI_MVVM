@@ -5,8 +5,8 @@
       "name": "SEVA App",
       "type": "debugpy",
       "request": "launch",
-      "module": "seva.app.main", // wichtig: Modul, nicht Datei
-      "cwd": "${workspaceFolder}", // dein Projektroot (SEVA_GUI_MOCKUP)
+      "module": "seva.app.main", // important: module, not file
+      "cwd": "${workspaceFolder}", // your project root (SEVA_GUI_MOCKUP)
       "justMyCode": true
     }
   ]
