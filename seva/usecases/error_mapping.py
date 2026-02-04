@@ -1,6 +1,7 @@
+"""Translate adapter errors into user-facing UseCaseError instances."""
+
 from __future__ import annotations
 
-"""Translate adapter errors into user-facing UseCaseError instances."""
 
 from typing import Any, Optional
 
@@ -20,6 +21,19 @@ def map_api_error(
     default_code: str,
     default_message: Optional[str] = None,
 ) -> UseCaseError:
+    """Map adapter exceptions to stable UseCaseError codes.
+    
+    Args:
+        exc (Exception): Input provided by the caller.
+        default_code (str): Input provided by the caller.
+        default_message (Optional[str]): Input provided by the caller.
+    
+    Returns:
+        UseCaseError: Value returned to the caller.
+    
+    Raises:
+        UseCaseError: Raised when workflow preconditions or adapter calls fail.
+    """
     if isinstance(exc, UseCaseError):
         return exc
     if isinstance(exc, ApiTimeoutError):
@@ -51,6 +65,18 @@ def map_api_error(
 
 
 def _compose_error_message(base: str, hint: Optional[str]) -> str:
+    """Compose a user-facing error message with optional hint text.
+    
+    Args:
+        base (str): Input provided by the caller.
+        hint (Optional[str]): Input provided by the caller.
+    
+    Returns:
+        str: Value returned to the caller.
+    
+    Raises:
+        UseCaseError: Raised when workflow preconditions or adapter calls fail.
+    """
     hint_text = (hint or "").strip()
     if hint_text:
         return f"{base}: {hint_text}"
@@ -60,6 +86,17 @@ def _compose_error_message(base: str, hint: Optional[str]) -> str:
 
 
 def _extract_slot_hint(err: ApiClientError) -> Optional[str]:
+    """Extract slot or well hints from API client errors.
+    
+    Args:
+        err (ApiClientError): Input provided by the caller.
+    
+    Returns:
+        Optional[str]: Value returned to the caller.
+    
+    Raises:
+        UseCaseError: Raised when workflow preconditions or adapter calls fail.
+    """
     payload = getattr(err, "payload", None)
     slot = _find_slot(payload)
     if slot:
@@ -76,6 +113,17 @@ def _extract_slot_hint(err: ApiClientError) -> Optional[str]:
 
 
 def _find_slot(data: Any) -> Optional[str]:
+    """Search nested payload structures for slot or well identifiers.
+    
+    Args:
+        data (Any): Input provided by the caller.
+    
+    Returns:
+        Optional[str]: Value returned to the caller.
+    
+    Raises:
+        UseCaseError: Raised when workflow preconditions or adapter calls fail.
+    """
     if isinstance(data, dict):
         for key in ("slot", "slot_id", "well", "well_id"):
             value = data.get(key)

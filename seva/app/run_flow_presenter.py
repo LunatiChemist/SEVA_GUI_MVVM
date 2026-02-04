@@ -1,6 +1,7 @@
+"""UI-facing presenter that coordinates run flow actions without view logic."""
+
 from __future__ import annotations
 
-"""UI-facing presenter that coordinates run flow actions without view logic."""
 
 import logging
 import os

@@ -1,3 +1,9 @@
+"""View model for live-data plotting controls.
+
+It stores selected wells, axes, and section filters while leaving data loading
+and export I/O to use-case/controller layers.
+"""
+
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Tuple

@@ -1,6 +1,7 @@
+"""Use case for assembling a domain ExperimentPlan from UI-provided inputs."""
+
 from __future__ import annotations
 
-"""Use case for assembling a domain ExperimentPlan from UI-provided inputs."""
 
 from dataclasses import dataclass, field
 from typing import Dict, Mapping, Optional, Tuple

@@ -1,6 +1,7 @@
+"""Normalize adapter run snapshots into the domain GroupSnapshot aggregate."""
+
 from __future__ import annotations
 
-"""Normalize adapter run snapshots into the domain GroupSnapshot aggregate."""
 
 import math
 from dataclasses import dataclass
@@ -32,6 +33,17 @@ class _RunSummary:
 
 
 def _normalize_identifier(value: Any) -> Optional[str]:
+    """Normalize optional identifiers to trimmed tokens.
+    
+    Args:
+        value (Any): Input provided by the caller.
+    
+    Returns:
+        Optional[str]: Value returned to the caller.
+    
+    Raises:
+        ValueError: Raised when normalized values violate domain constraints.
+    """
     if value is None:
         return None
     if isinstance(value, str):
@@ -42,6 +54,17 @@ def _normalize_identifier(value: Any) -> Optional[str]:
 
 
 def _normalize_phase(value: Any) -> str:
+    """Normalize run phase strings to canonical lowercase values.
+    
+    Args:
+        value (Any): Input provided by the caller.
+    
+    Returns:
+        str: Value returned to the caller.
+    
+    Raises:
+        ValueError: Raised when normalized values violate domain constraints.
+    """
     if isinstance(value, str):
         token = value.strip().lower()
         return token or "queued"
@@ -52,6 +75,17 @@ def _normalize_phase(value: Any) -> str:
 
 
 def _coerce_progress(value: Any) -> Optional[ProgressPct]:
+    """Convert dynamic progress values into ProgressPct entities.
+    
+    Args:
+        value (Any): Input provided by the caller.
+    
+    Returns:
+        Optional[ProgressPct]: Value returned to the caller.
+    
+    Raises:
+        ValueError: Raised when normalized values violate domain constraints.
+    """
     if value is None:
         return None
     if isinstance(value, ProgressPct):
@@ -73,6 +107,17 @@ def _coerce_progress(value: Any) -> Optional[ProgressPct]:
 
 
 def _coerce_seconds(value: Any) -> Optional[Seconds]:
+    """Convert dynamic duration values into Seconds entities.
+    
+    Args:
+        value (Any): Input provided by the caller.
+    
+    Returns:
+        Optional[Seconds]: Value returned to the caller.
+    
+    Raises:
+        ValueError: Raised when normalized values violate domain constraints.
+    """
     if value is None:
         return None
     if isinstance(value, Seconds):
@@ -96,6 +141,17 @@ def _coerce_seconds(value: Any) -> Optional[Seconds]:
 
 
 def _clean_error(value: Any) -> Optional[str]:
+    """Normalize optional error text values.
+    
+    Args:
+        value (Any): Input provided by the caller.
+    
+    Returns:
+        Optional[str]: Value returned to the caller.
+    
+    Raises:
+        ValueError: Raised when normalized values violate domain constraints.
+    """
     if value is None:
         return None
     text = str(value).strip()
@@ -103,6 +159,17 @@ def _clean_error(value: Any) -> Optional[str]:
 
 
 def _mean(values: Sequence[float]) -> Optional[float]:
+    """Compute the arithmetic mean for numeric samples.
+    
+    Args:
+        values (Sequence[float]): Input provided by the caller.
+    
+    Returns:
+        Optional[float]: Value returned to the caller.
+    
+    Raises:
+        ValueError: Raised when normalized values violate domain constraints.
+    """
     if not values:
         return None
     return math.fsum(values) / len(values)

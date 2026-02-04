@@ -1,6 +1,7 @@
+"""Central registry for mode normalization, labels, and clipboard rules."""
+
 from __future__ import annotations
 
-"""Central registry for mode normalization, labels, and clipboard rules."""
 
 from dataclasses import dataclass
 from typing import Dict, Iterable, Mapping, Optional, Tuple

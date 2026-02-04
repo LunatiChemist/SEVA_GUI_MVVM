@@ -1,4 +1,13 @@
 # /opt/box/nas_smb.py
+"""SMB/CIFS NAS upload manager for completed runs.
+
+Notes
+-----
+`rest_api.app` uses this manager for `/nas/*` and `/runs/{run_id}/upload`. The
+manager mounts the share, copies run artifacts, verifies uploads, and handles
+retention cleanup.
+"""
+
 from __future__ import annotations
 import datetime as _dt
 import json, logging, os, shlex, shutil, subprocess, threading, time
@@ -13,6 +22,12 @@ import storage  # uses resolve_run_directory & RUNS_ROOT mirroring
 
 @dataclass
 class SMBConfig:
+    """Configuration record for SMB/CIFS uploads.
+    
+    Notes
+    -----
+    Participates in REST API helper workflows and transport contracts.
+    """
     host: str                # e.g. 192.168.1.10 or nas.local
     share: str               # SMB share name, e.g. "experiments"
     username: str

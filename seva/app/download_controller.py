@@ -1,6 +1,7 @@
+"""Controller for download actions initiated from UI."""
+
 from __future__ import annotations
 
-"""Controller for download actions initiated from UI."""
 
 import logging
 import os

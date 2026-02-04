@@ -1,6 +1,7 @@
+"""Coordinator orchestrating the run flow without UI concerns."""
+
 from __future__ import annotations
 
-"""Coordinator orchestrating the run flow without UI concerns."""
 
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone

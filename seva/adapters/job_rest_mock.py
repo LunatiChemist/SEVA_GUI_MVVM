@@ -1,3 +1,9 @@
+"""In-memory `JobPort` test double for offline and unit-test workflows.
+
+The mock mirrors key job lifecycle semantics without network access so use cases
+and view-model logic can be exercised deterministically.
+"""
+
 from __future__ import annotations
 
 import os

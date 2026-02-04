@@ -1,3 +1,9 @@
+"""Experiment form view model for well-scoped parameter editing.
+
+This view model owns editable form fields, per-well snapshots, and mode-aware
+copy/paste behavior without performing network or filesystem operations.
+"""
+
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Mapping, Optional, Set, Iterable

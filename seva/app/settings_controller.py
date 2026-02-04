@@ -1,6 +1,7 @@
+"""Controller for settings dialog actions."""
+
 from __future__ import annotations
 
-"""Controller for settings dialog actions."""
 
 import logging
 import os

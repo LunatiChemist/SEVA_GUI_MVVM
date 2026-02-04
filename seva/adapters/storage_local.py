@@ -1,3 +1,9 @@
+"""Filesystem-backed `StoragePort` implementation for layouts and settings.
+
+Use cases and controllers rely on this adapter for JSON persistence while keeping
+file I/O outside view models and domain logic.
+"""
+
 from __future__ import annotations
 
 import json

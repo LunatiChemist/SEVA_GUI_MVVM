@@ -1,3 +1,9 @@
+"""Use case for persisting plate-layout selections and parameters.
+
+It normalizes selection data from explicit arguments or view models and writes
+the resulting payload through `StoragePort`.
+"""
+
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +17,11 @@ if TYPE_CHECKING:  # pragma: no cover
 
 @dataclass
 class SavePlateLayout:
+    """Use-case callable for persisting layout snapshots.
+    
+    Attributes:
+        Fields are consumed by use-case orchestration code and callers.
+    """
     storage: StoragePort
 
     def __call__(

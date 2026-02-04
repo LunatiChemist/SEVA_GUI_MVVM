@@ -1,3 +1,9 @@
+"""HTTP adapter implementing run lifecycle operations from `JobPort`.
+
+This adapter translates typed experiment plans into `/jobs` payloads, polls
+server-authoritative status, handles cancellation, and downloads run artifacts.
+"""
+
 # seva/adapters/job_rest.py
 from __future__ import annotations
 

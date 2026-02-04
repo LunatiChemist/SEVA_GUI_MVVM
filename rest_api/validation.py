@@ -1,3 +1,11 @@
+"""Mode-payload validators for the REST validation endpoint.
+
+Notes
+-----
+`rest_api.app` routes `/modes/{mode}/validate` requests to this module so GUI
+clients can validate parameters before starting hardware runs.
+"""
+
 from __future__ import annotations
 
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple

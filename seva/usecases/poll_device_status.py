@@ -1,3 +1,9 @@
+"""Use case for polling device-level activity status.
+
+This workflow maps adapter slot payloads to well identifiers and emits typed
+activity snapshots for channel-level UI widgets.
+"""
+
 from __future__ import annotations
 
 from typing import Dict, List, Sequence, Tuple
@@ -6,6 +12,11 @@ from seva.domain.device_activity import DeviceActivitySnapshot, SlotActivityEntr
 from seva.domain.mapping import build_slot_registry, extract_slot_labels, parse_slot_number, resolve_well_id
 from seva.domain.ports import DevicePort
 class PollDeviceStatus:
+    """Use-case callable for channel activity polling.
+    
+    Attributes:
+        Fields are consumed by use-case orchestration code and callers.
+    """
     def __init__(self, device_port: DevicePort) -> None:
         self.device_port = device_port
         self._slot_registry: Dict[Tuple[str, int], str] = {}

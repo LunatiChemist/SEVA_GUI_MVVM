@@ -1,3 +1,9 @@
+"""Discovery-focused use cases built on `DeviceDiscoveryPort`.
+
+`DiscoverDevices` probes candidates, while `MergeDiscoveredIntoRegistry`
+combines discovered results with existing alias-to-url mappings.
+"""
+
 # seva/usecases/discover_devices.py
 from __future__ import annotations
 from typing import Dict, List, Optional

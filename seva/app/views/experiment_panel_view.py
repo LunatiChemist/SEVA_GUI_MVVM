@@ -11,6 +11,11 @@ from typing import Callable, Optional, Dict
 
 
 class ExperimentPanelView(ttk.Frame):
+    """Tkinter frame that renders experiment parameter sections.
+    
+    Attributes:
+        Members are consumed by controllers, presenters, or Tk views.
+    """
     OnVoid = Optional[Callable[[], None]]
     OnChange = Optional[Callable[[str, str], None]]
 

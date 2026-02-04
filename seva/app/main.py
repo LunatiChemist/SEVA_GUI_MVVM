@@ -1,3 +1,9 @@
+"""GUI application bootstrap and top-level event wiring.
+
+This module assembles views, view models, controllers, and use cases into the
+running Tkinter application and defines user-triggered command handlers.
+"""
+
 # seva/app/main.py
 from __future__ import annotations
 import logging
@@ -609,6 +615,17 @@ class App:
 
 
 def main() -> None:
+    """Create the application object and start the Tk main loop.
+    
+    Args:
+        None: This function does not accept explicit arguments.
+    
+    Returns:
+        None: Value returned to callers.
+    
+    Raises:
+        RuntimeError: Raised when UI orchestration encounters unrecoverable errors.
+    """
     app = App()
     app.win.mainloop()
 

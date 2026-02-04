@@ -1,3 +1,11 @@
+"""Run-directory storage helpers used by the REST API.
+
+Notes
+-----
+`rest_api.app` uses this module to sanitize path segments, persist run-id to
+folder mappings, and resolve artifact paths for download endpoints.
+"""
+
 import json
 import pathlib
 import re
@@ -11,6 +19,12 @@ CLIENT_DATETIME_RE = re.compile(r"[^0-9A-Za-zT_-]+")
 
 
 class RunStorageInfo(NamedTuple):
+    """Sanitized run-directory naming components.
+    
+    Notes
+    -----
+    Participates in REST API helper workflows and transport contracts.
+    """
     experiment: str
     subdir: Optional[str]
     timestamp_dir: str
@@ -43,6 +57,27 @@ def run_index_path() -> pathlib.Path:
 
 
 def value_or_none(value: Optional[str]) -> Optional[str]:
+    """Return a trimmed non-empty string or None.
+    
+    Parameters
+    ----------
+    value : Optional[str]
+        Input provided by the caller or framework.
+    
+    Returns
+    -------
+    Optional[str]
+        Value returned to the caller or HTTP stack.
+    
+    Notes
+    -----
+    Used internally by REST API workflows and helper utilities.
+    
+    Raises
+    ------
+    HTTPException
+        Raised when request validation or storage checks fail.
+    """
     if value is None:
         return None
     trimmed = value.strip()
@@ -50,6 +85,29 @@ def value_or_none(value: Optional[str]) -> Optional[str]:
 
 
 def sanitize_path_segment(raw: str, field_name: str) -> str:
+    """Sanitize and validate one filesystem path segment.
+    
+    Parameters
+    ----------
+    raw : str
+        Input provided by the caller or framework.
+    field_name : str
+        Input provided by the caller or framework.
+    
+    Returns
+    -------
+    str
+        Value returned to the caller or HTTP stack.
+    
+    Notes
+    -----
+    Used internally by REST API workflows and helper utilities.
+    
+    Raises
+    ------
+    HTTPException
+        Raised when request validation or storage checks fail.
+    """
     trimmed = (raw or "").strip()
     if not trimmed:
         raise HTTPException(400, f"{field_name} must not be empty")
@@ -63,6 +121,27 @@ def sanitize_path_segment(raw: str, field_name: str) -> str:
 
 
 def sanitize_optional_segment(value: Optional[str]) -> Optional[str]:
+    """Sanitize an optional subdirectory segment when provided.
+    
+    Parameters
+    ----------
+    value : Optional[str]
+        Input provided by the caller or framework.
+    
+    Returns
+    -------
+    Optional[str]
+        Value returned to the caller or HTTP stack.
+    
+    Notes
+    -----
+    Used internally by REST API workflows and helper utilities.
+    
+    Raises
+    ------
+    HTTPException
+        Raised when request validation or storage checks fail.
+    """
     candidate = value_or_none(value)
     if candidate is None:
         return None
@@ -70,6 +149,27 @@ def sanitize_optional_segment(value: Optional[str]) -> Optional[str]:
 
 
 def sanitize_client_datetime(raw: str) -> str:
+    """Normalize client timestamps into filesystem-safe tokens.
+    
+    Parameters
+    ----------
+    raw : str
+        Input provided by the caller or framework.
+    
+    Returns
+    -------
+    str
+        Value returned to the caller or HTTP stack.
+    
+    Notes
+    -----
+    Used internally by REST API workflows and helper utilities.
+    
+    Raises
+    ------
+    HTTPException
+        Raised when request validation or storage checks fail.
+    """
     trimmed = (raw or "").strip()
     if not trimmed:
         raise HTTPException(400, "client_datetime must not be empty")
@@ -146,12 +246,54 @@ def resolve_run_directory(run_id: str) -> pathlib.Path:
 
 
 def _require_root() -> pathlib.Path:
+    """Return the configured runs root or raise when not configured.
+    
+    Parameters
+    ----------
+    None
+        This callable does not receive explicit input parameters.
+    
+    Returns
+    -------
+    pathlib.Path
+        Value returned to the caller or HTTP stack.
+    
+    Notes
+    -----
+    Used internally by REST API workflows and helper utilities.
+    
+    Raises
+    ------
+    HTTPException
+        Raised when request validation or storage checks fail.
+    """
     if _RUNS_ROOT is None:
         raise RuntimeError("RUNS_ROOT has not been configured yet")
     return _RUNS_ROOT
 
 
 def _load_run_index_unlocked() -> Dict[str, str]:
+    """Load persisted run-directory mappings from disk.
+    
+    Parameters
+    ----------
+    None
+        This callable does not receive explicit input parameters.
+    
+    Returns
+    -------
+    Dict[str, str]
+        Value returned to the caller or HTTP stack.
+    
+    Notes
+    -----
+    Used internally by REST API workflows and helper utilities.
+    
+    Raises
+    ------
+    HTTPException
+        Raised when request validation or storage checks fail.
+    """
     try:
         raw = run_index_path().read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -170,6 +312,27 @@ def _load_run_index_unlocked() -> Dict[str, str]:
 
 
 def _write_run_index_unlocked(data: Dict[str, str]) -> None:
+    """Atomically write run-directory mappings to disk.
+    
+    Parameters
+    ----------
+    data : Dict[str, str]
+        Input provided by the caller or framework.
+    
+    Returns
+    -------
+    None
+        Value returned to the caller or HTTP stack.
+    
+    Notes
+    -----
+    Used internally by REST API workflows and helper utilities.
+    
+    Raises
+    ------
+    HTTPException
+        Raised when request validation or storage checks fail.
+    """
     path = run_index_path()
     tmp = path.with_suffix(".tmp")
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -1,6 +1,7 @@
+"""Scheduling helper that owns polling timers for run flows."""
+
 from __future__ import annotations
 
-"""Scheduling helper that owns polling timers for run flows."""
 
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional
@@ -12,6 +13,11 @@ CancelFn = Callable[[str], None]
 
 @dataclass
 class PollHandle:
+    """Polling token container for one active run-group timer.
+    
+    Attributes:
+        Members are consumed by controllers, presenters, or Tk views.
+    """
     group_id: str
     token: str
 

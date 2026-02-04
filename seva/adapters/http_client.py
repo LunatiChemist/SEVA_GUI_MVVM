@@ -1,3 +1,9 @@
+"""Shared HTTP session wrapper with retries and API-key header support.
+
+REST adapters compose `RetryingSession` to centralize timeout handling and avoid
+duplicating request/response plumbing logic.
+"""
+
 from __future__ import annotations
 
 import json
@@ -12,6 +18,11 @@ from .api_errors import ApiError, ApiTimeoutError
 
 @dataclass
 class HttpConfig:
+    """HTTP retry and timeout configuration shared by REST adapters.
+    
+    Attributes:
+        Fields are consumed by adapter call sites and session helpers.
+    """
     request_timeout_s: int = 10
     download_timeout_s: int = 60
     retries: int = 2

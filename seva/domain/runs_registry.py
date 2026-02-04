@@ -1,3 +1,9 @@
+"""Persistent registry for run-group metadata and runtime attachments.
+
+Application controllers and use cases use this singleton to keep track of
+active groups, persisted snapshots, and download completion state.
+"""
+
 from __future__ import annotations
 
 import json

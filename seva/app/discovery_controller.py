@@ -1,6 +1,7 @@
+"""Controller for device discovery workflows."""
+
 from __future__ import annotations
 
-"""Controller for device discovery workflows."""
 
 import logging
 from typing import List, Optional, Sequence, Set, TYPE_CHECKING

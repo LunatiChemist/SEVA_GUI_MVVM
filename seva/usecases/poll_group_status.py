@@ -1,3 +1,9 @@
+"""Use case for polling group status with domain normalization.
+
+It reads server-authoritative snapshots through `JobPort`, normalizes payloads
+into `GroupSnapshot`, and enforces requested group identifiers.
+"""
+
 from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Dict, Mapping
@@ -11,6 +17,11 @@ from seva.domain.snapshot_normalizer import normalize_status
 
 @dataclass
 class PollGroupStatus:
+    """Use-case callable for group-level status polling.
+    
+    Attributes:
+        Fields are consumed by use-case orchestration code and callers.
+    """
     job_port: JobPort
 
     def __call__(self, run_group_id: RunGroupId) -> GroupSnapshot:

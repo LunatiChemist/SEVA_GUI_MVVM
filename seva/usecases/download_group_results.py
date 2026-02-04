@@ -1,3 +1,9 @@
+"""Use case for downloading and normalizing run-group artifacts.
+
+The workflow downloads ZIP archives via `JobPort`, extracts files, maps slot
+folders to well identifiers, and optionally cleans up source archives.
+"""
+
 from __future__ import annotations
 
 import os
@@ -18,6 +24,11 @@ CleanupMode = str
 
 @dataclass
 class DownloadGroupResults:
+    """Use-case callable for downloading and unpacking group results.
+    
+    Attributes:
+        Fields are consumed by use-case orchestration code and callers.
+    """
     job_port: JobPort
 
     def __call__(

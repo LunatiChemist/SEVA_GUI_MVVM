@@ -1,3 +1,9 @@
+"""HTTP-based network discovery adapter for SEVA boxes.
+
+The discovery use case passes host/CIDR candidates to this adapter, which probes
+`/version` and `/health` endpoints in parallel and returns typed results.
+"""
+
 # seva/adapters/discovery_http.py
 from __future__ import annotations
 from typing import Optional, Sequence, List, Iterable
@@ -24,6 +30,17 @@ def _normalize_candidate(x: str, default_port: int) -> str:
     return f"http://{x}:{default_port}"
 
 def _try_expand_cidr(candidate: str) -> Optional[Iterable[str]]:
+    """Expand a CIDR candidate into host addresses when possible.
+    
+    Args:
+        candidate (str): Input provided by the caller.
+    
+    Returns:
+        Optional[Iterable[str]]: Value returned to the caller.
+    
+    Raises:
+        RuntimeError: Raised when payload normalization fails.
+    """
     try:
         network = ipaddress.ip_network(candidate, strict=False)
     except ValueError:

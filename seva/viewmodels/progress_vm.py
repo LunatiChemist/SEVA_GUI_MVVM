@@ -1,3 +1,9 @@
+"""Progress dashboard view model for run and channel activity panels.
+
+It transforms `GroupSnapshot` and registry state into UI-ready rows and emits
+update callbacks consumed by run overview and channel activity views.
+"""
+
 from __future__ import annotations
 
 import time

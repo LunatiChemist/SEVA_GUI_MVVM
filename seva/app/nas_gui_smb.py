@@ -1,3 +1,9 @@
+"""Standalone NAS/SMB setup dialog and API helper client.
+
+Used to configure and test NAS upload endpoints exposed by the REST API without
+running the full GUI workflow.
+"""
+
 # nas_gui_smb.py
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -6,6 +12,11 @@ import json
 
 
 class NASApiAdapter:
+    """HTTP helper client for NAS setup and upload endpoints.
+    
+    Attributes:
+        Members are consumed by controllers, presenters, or Tk views.
+    """
     def __init__(self, base_url: str, api_key: str) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
@@ -51,6 +62,11 @@ class NASApiAdapter:
 
 
 class NASSetupGUI(tk.Toplevel):
+    """Standalone Tk dialog for NAS/SMB setup and manual upload actions.
+    
+    Attributes:
+        Members are consumed by controllers, presenters, or Tk views.
+    """
     def __init__(self, master: tk.Misc | None = None):
         root_window = None
         if master is None:

@@ -1,4 +1,12 @@
 # /opt/box/nas.py
+"""SSH/rsync-based NAS upload manager for completed runs.
+
+Notes
+-----
+The API calls this module after successful jobs. It resolves run directories via
+`rest_api.storage`, uploads files idempotently, and applies retention cleanup.
+"""
+
 from __future__ import annotations
 import datetime as _dt
 import json, logging, os, shlex, shutil, subprocess, threading, time
@@ -14,6 +22,12 @@ import storage
 
 @dataclass
 class NASConfig:
+    """Configuration record for SSH/rsync NAS uploads.
+    
+    Notes
+    -----
+    Participates in REST API helper workflows and transport contracts.
+    """
     host: str
     username: str
     remote_base_dir: str

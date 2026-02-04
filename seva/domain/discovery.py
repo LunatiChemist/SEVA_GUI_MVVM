@@ -1,3 +1,9 @@
+"""Discovery domain contracts shared by use cases and adapters.
+
+The discovery use case returns `DiscoveredBox` records through the
+`DeviceDiscoveryPort` so view models can present reachable SEVA boxes.
+"""
+
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Protocol, Sequence, List

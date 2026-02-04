@@ -1,3 +1,11 @@
+"""Progress and duration helpers for REST job snapshots.
+
+Notes
+-----
+`rest_api.app` calls these helpers while building `/jobs/*` responses so GUI
+clients can display server-authoritative progress and remaining time estimates.
+"""
+
 from __future__ import annotations
 
 import datetime

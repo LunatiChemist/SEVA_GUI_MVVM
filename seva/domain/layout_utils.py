@@ -1,3 +1,8 @@
+"""Helpers for normalizing plate-layout selection payloads.
+
+View models use these utilities before passing layout data into use cases.
+"""
+
 from __future__ import annotations
 
 from typing import Any, Mapping

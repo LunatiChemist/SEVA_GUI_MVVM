@@ -1,6 +1,7 @@
+"""Use case for discovery and assignment of devices to slots."""
+
 from __future__ import annotations
 
-"""Use case for discovery and assignment of devices to slots."""
 
 from dataclasses import dataclass
 from typing import Dict, Iterable, Mapping, Optional, Sequence, Tuple
@@ -13,6 +14,11 @@ from seva.usecases.error_mapping import map_api_error
 
 @dataclass(frozen=True)
 class DiscoveryRequest:
+    """Input payload for discovery-and-assignment orchestration.
+    
+    Attributes:
+        Fields are consumed by use-case orchestration code and callers.
+    """
     candidates: Sequence[str]
     api_key: Optional[str]
     timeout_s: float
@@ -22,6 +28,11 @@ class DiscoveryRequest:
 
 @dataclass(frozen=True)
 class DiscoveryResult:
+    """Output payload for discovery-and-assignment orchestration.
+    
+    Attributes:
+        Fields are consumed by use-case orchestration code and callers.
+    """
     discovered: Tuple[DiscoveredBox, ...]
     normalized_registry: Dict[str, str]
     assigned: Dict[str, str]

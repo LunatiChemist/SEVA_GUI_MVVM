@@ -1,6 +1,7 @@
+"""Domain value objects and aggregates shared across adapters, use-cases, and view models."""
+
 from __future__ import annotations
 
-"""Domain value objects and aggregates shared across adapters, use-cases, and view models."""
 
 from dataclasses import dataclass, field
 from datetime import datetime

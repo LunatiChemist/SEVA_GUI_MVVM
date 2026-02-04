@@ -1,3 +1,9 @@
+"""Mapping helpers between hardware slots and logical well identifiers.
+
+Use cases call these functions when translating `/devices` responses into
+deterministic well assignments used by planning and polling flows.
+"""
+
 from __future__ import annotations
 
 import re

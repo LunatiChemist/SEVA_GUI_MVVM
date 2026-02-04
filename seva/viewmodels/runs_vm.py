@@ -1,3 +1,9 @@
+"""Runs overview view model backed by `RunsRegistry`.
+
+It projects registry entries into lightweight table rows for the runs panel and
+tracks the currently active run group selection.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -10,6 +16,11 @@ from .status_format import registry_status_label
 
 @dataclass
 class RunRow:
+    """Display row model for the runs overview table.
+    
+    Attributes:
+        Fields are consumed by views and controller orchestration glue.
+    """
     group_id: str
     name: str
     status: str

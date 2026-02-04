@@ -1,3 +1,9 @@
+"""HTTP adapter implementing the `DevicePort` contract.
+
+Use cases call this adapter for health, device, and mode metadata while keeping
+HTTP specifics out of orchestration and view-model layers.
+"""
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional

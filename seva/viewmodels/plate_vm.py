@@ -1,3 +1,9 @@
+"""Plate selection view model for the WellGrid UI.
+
+It tracks selected/configured wells and emits user intents via callbacks while
+remaining independent from storage and transport concerns.
+"""
+
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple

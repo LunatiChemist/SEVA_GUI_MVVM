@@ -1,3 +1,8 @@
+"""Small domain utility functions used across planning and adapters.
+
+These helpers keep common normalization rules centralized and testable.
+"""
+
 from __future__ import annotations
 
 from typing import Optional

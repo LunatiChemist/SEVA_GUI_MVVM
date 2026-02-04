@@ -1,3 +1,9 @@
+"""Settings view model and typed runtime configuration container.
+
+The module holds mutable settings state and callback hooks for settings dialogs
+without performing persistence or network actions directly.
+"""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, replace
@@ -24,6 +30,17 @@ class SettingsConfig:
 
 
 def _default_debug_logging() -> bool:
+    """Resolve default debug-logging flag from environment settings.
+    
+    Args:
+        None: This function does not accept explicit arguments.
+    
+    Returns:
+        bool: Value returned to the caller.
+    
+    Raises:
+        ValueError: Raised when status or configuration values are invalid.
+    """
     return env_requests_debug()
 
 

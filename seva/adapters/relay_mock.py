@@ -1,3 +1,9 @@
+"""Test double adapter for relay operations.
+
+Used by relay-related use cases in environments where no physical relay is
+available.
+"""
+
 from __future__ import annotations
 from typing import Literal
 from seva.domain.ports import RelayPort

@@ -1,3 +1,9 @@
+"""Use case for loading persisted plate-layout snapshots.
+
+It reads storage payloads and can apply normalized selection/parameter state to
+experiment and plate view models.
+"""
+
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +18,11 @@ if TYPE_CHECKING:  # pragma: no cover
 
 @dataclass
 class LoadPlateLayout:
+    """Use-case callable for loading and optionally applying saved layouts.
+    
+    Attributes:
+        Fields are consumed by use-case orchestration code and callers.
+    """
     storage: StoragePort
 
     def __call__(

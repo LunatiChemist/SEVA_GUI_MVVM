@@ -1,6 +1,7 @@
+"""Typed storage metadata used to build download paths and registry entries."""
+
 from __future__ import annotations
 
-"""Typed storage metadata used to build download paths and registry entries."""
 
 from dataclasses import dataclass
 from datetime import datetime

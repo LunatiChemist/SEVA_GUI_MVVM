@@ -1,6 +1,7 @@
+"""Datetime parsing helpers for client-provided timestamps."""
+
 from __future__ import annotations
 
-"""Datetime parsing helpers for client-provided timestamps."""
 
 from datetime import datetime
 from typing import Any, Optional
@@ -40,6 +41,17 @@ def parse_client_datetime(value: Any) -> datetime:
 
 
 def _parse_with_fallback(text: str) -> datetime:
+    """Parse non-ISO datetime text with legacy fallback formats.
+    
+    Args:
+        text (str): Input provided by the caller.
+    
+    Returns:
+        datetime: Value returned to the caller.
+    
+    Raises:
+        ValueError: Raised when normalized values violate domain constraints.
+    """
     fallback_formats = (
         "%Y-%m-%d_%H-%M-%S",
         "%Y-%m-%d %H:%M:%S",

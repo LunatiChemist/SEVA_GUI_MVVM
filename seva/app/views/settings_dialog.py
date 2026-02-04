@@ -1,3 +1,9 @@
+"""Settings dialog view for editing runtime configuration.
+
+This UI component exposes callback hooks for save/test/discovery actions and
+contains no persistence or network logic of its own.
+"""
+
 from __future__ import annotations
 
 import tkinter as tk

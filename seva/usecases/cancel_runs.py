@@ -1,3 +1,9 @@
+"""Use case for cancelling selected runs grouped by box.
+
+This module deduplicates run identifiers and delegates per-run cancellation to
+the job adapter port.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,6 +15,11 @@ from ..usecases.error_mapping import map_api_error
 
 @dataclass
 class CancelRuns:
+    """Use-case callable that cancels explicit run identifiers.
+    
+    Attributes:
+        Fields are consumed by use-case orchestration code and callers.
+    """
     job_port: JobPort
 
     def __call__(self, box_to_run_ids: Dict[str, List[str]]) -> None:

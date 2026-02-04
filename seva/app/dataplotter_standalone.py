@@ -1,3 +1,9 @@
+"""Standalone data-plotter UI and charge-integration utilities.
+
+This legacy utility module hosts plotting widgets and helper calculations used
+outside the main run orchestration flow.
+"""
+
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk, simpledialog
 import pandas as pd
@@ -29,6 +35,19 @@ import numpy as np
 from scipy.integrate import simpson as simps
 
 def computeChargePassed(df, min_time, max_time):
+    """Integrate current over a selected time window and report charge metrics.
+    
+    Args:
+        df (Any): Input provided by callers or UI events.
+        min_time (Any): Input provided by callers or UI events.
+        max_time (Any): Input provided by callers or UI events.
+    
+    Returns:
+        Any: Value returned to callers.
+    
+    Raises:
+        RuntimeError: Raised when UI orchestration encounters unrecoverable errors.
+    """
     integrals = {}
 
     # Filter the DataFrame for the specified time interval

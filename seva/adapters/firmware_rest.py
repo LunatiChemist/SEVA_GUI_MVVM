@@ -1,3 +1,9 @@
+"""HTTP adapter implementing firmware flashing operations.
+
+Use cases call this adapter to upload firmware binaries to `/firmware/flash` and
+receive typed error handling consistent with other REST adapters.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

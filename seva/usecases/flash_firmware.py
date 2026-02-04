@@ -1,3 +1,9 @@
+"""Use case for multi-box firmware flashing.
+
+The workflow validates firmware file inputs, executes flashing per target box,
+and returns structured success/failure breakdowns.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -9,12 +15,22 @@ from seva.domain.ports import BoxId, FirmwarePort, UseCaseError
 
 @dataclass
 class FlashFirmwareResult:
+    """Structured result container for firmware flashing outcomes.
+    
+    Attributes:
+        Fields are consumed by use-case orchestration code and callers.
+    """
     successes: Dict[BoxId, Dict[str, Any]] = field(default_factory=dict)
     failures: Dict[BoxId, str] = field(default_factory=dict)
 
 
 @dataclass
 class FlashFirmware:
+    """Use-case callable for firmware flashing per box.
+    
+    Attributes:
+        Fields are consumed by use-case orchestration code and callers.
+    """
     firmware_port: FirmwarePort
 
     def __call__(self, *, box_ids: Iterable[BoxId], firmware_path: str | Path) -> FlashFirmwareResult:

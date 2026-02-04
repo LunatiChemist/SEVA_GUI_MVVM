@@ -1,3 +1,9 @@
+"""Runs-panel view for registry-backed run-group summaries.
+
+The panel renders rows and emits open/cancel/delete/select callbacks to the app
+presenter layer.
+"""
+
 from __future__ import annotations
 
 import tkinter as tk

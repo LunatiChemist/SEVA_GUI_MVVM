@@ -1,3 +1,12 @@
+"""CLI helper to flash potentiostat firmware on Linux hosts.
+
+Notes
+-----
+`/firmware/flash` in `rest_api.app` invokes this script after storing the
+uploaded `.bin` file. The script sends a DFU boot command, flashes via
+`dfu-util`, and waits until the CDC serial port returns.
+"""
+
 import serial #Need pip install pyserial
 import serial.tools.list_ports
 import subprocess
@@ -14,6 +23,27 @@ DFU_PRODUCT = 22099             # PID
 
 def find_com_port():
 
+    """Find the CDC serial port matching the configured USB vendor and product IDs.
+    
+    Parameters
+    ----------
+    None
+        This callable does not receive explicit input parameters.
+    
+    Returns
+    -------
+    Any
+        Value returned to the caller or HTTP stack.
+    
+    Notes
+    -----
+    Used internally by REST API workflows and helper utilities.
+    
+    Raises
+    ------
+    HTTPException
+        Raised when request validation or storage checks fail.
+    """
     ports = serial.tools.list_ports.comports()
 
     if not ports:
@@ -30,6 +60,27 @@ def find_com_port():
 
 def send_command(command):
 
+    """Send a binary command to the controller over the CDC serial link.
+    
+    Parameters
+    ----------
+    command : Any
+        Input provided by the caller or framework.
+    
+    Returns
+    -------
+    Any
+        Value returned to the caller or HTTP stack.
+    
+    Notes
+    -----
+    Used internally by REST API workflows and helper utilities.
+    
+    Raises
+    ------
+    HTTPException
+        Raised when request validation or storage checks fail.
+    """
     try:
         com_port = find_com_port()
         print(f"[USB CDC] Sending {command} command to {com_port}...")
@@ -53,6 +104,27 @@ def send_command(command):
         sys.exit(1)
 
 def wait_for_dfu(timeout=10):
+    """Wait until a DFU-capable USB device appears.
+    
+    Parameters
+    ----------
+    timeout : Any
+        Input provided by the caller or framework.
+    
+    Returns
+    -------
+    Any
+        Value returned to the caller or HTTP stack.
+    
+    Notes
+    -----
+    Used internally by REST API workflows and helper utilities.
+    
+    Raises
+    ------
+    HTTPException
+        Raised when request validation or storage checks fail.
+    """
     print(f"[DFU] Waiting for STM32 DFU device to appear on USB ({timeout}s)...")
     for i in range(timeout):
         try:
@@ -68,6 +140,27 @@ def wait_for_dfu(timeout=10):
     sys.exit(1)
 
 def flash_firmware():
+    """Invoke dfu-util to write firmware to the controller.
+    
+    Parameters
+    ----------
+    None
+        This callable does not receive explicit input parameters.
+    
+    Returns
+    -------
+    Any
+        Value returned to the caller or HTTP stack.
+    
+    Notes
+    -----
+    Used internally by REST API workflows and helper utilities.
+    
+    Raises
+    ------
+    HTTPException
+        Raised when request validation or storage checks fail.
+    """
     print("[DFU] Flashing firmware via USB...")
     flash_cmd = [
         'dfu-util',
@@ -101,6 +194,27 @@ def flash_firmware():
     print("[DFU] Flashing complete")
 
 def wait_for_cdc(timeout=10):
+    """Wait until the flashed controller re-enumerates as CDC serial device.
+    
+    Parameters
+    ----------
+    timeout : Any
+        Input provided by the caller or framework.
+    
+    Returns
+    -------
+    Any
+        Value returned to the caller or HTTP stack.
+    
+    Notes
+    -----
+    Used internally by REST API workflows and helper utilities.
+    
+    Raises
+    ------
+    HTTPException
+        Raised when request validation or storage checks fail.
+    """
     print("[USB CDC] Waiting for new firmware to appear...")
     for _ in range(timeout):
         try:

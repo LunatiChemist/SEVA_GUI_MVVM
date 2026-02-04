@@ -1,3 +1,9 @@
+"""Use case for submitting experiment plans as backend jobs.
+
+This orchestration step calls `JobPort.start_batch`, maps transport failures,
+and returns run-group identifiers with per-box run mappings.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -1,3 +1,9 @@
+"""Typed adapter error model and payload parsing utilities.
+
+REST adapters use these helpers to convert transport failures into stable
+exceptions consumed by use-case level error mapping.
+"""
+
 from __future__ import annotations
 
 from typing import Any, Optional
@@ -90,6 +96,19 @@ def parse_error_payload(resp: Any) -> Any:
 
 
 def build_error_message(ctx: str, status: int, payload: Any) -> str:
+    """Build a human-readable adapter error message from payload details.
+    
+    Args:
+        ctx (str): Input provided by the caller.
+        status (int): Input provided by the caller.
+        payload (Any): Input provided by the caller.
+    
+    Returns:
+        str: Value returned to the caller.
+    
+    Raises:
+        RuntimeError: Raised when payload normalization fails.
+    """
     detail = _payload_detail(payload)
     hint = extract_error_hint(payload)
     if detail and hint and hint != detail:
@@ -102,6 +121,17 @@ def build_error_message(ctx: str, status: int, payload: Any) -> str:
 
 
 def extract_error_code(payload: Any) -> Optional[str]:
+    """Extract a stable error code from API error payloads.
+    
+    Args:
+        payload (Any): Input provided by the caller.
+    
+    Returns:
+        Optional[str]: Value returned to the caller.
+    
+    Raises:
+        RuntimeError: Raised when payload normalization fails.
+    """
     if isinstance(payload, dict):
         value = payload.get("code") or payload.get("error_code")
         if value is None:
@@ -111,6 +141,17 @@ def extract_error_code(payload: Any) -> Optional[str]:
 
 
 def extract_error_hint(payload: Any) -> Optional[str]:
+    """Extract a user-facing hint from API error payloads.
+    
+    Args:
+        payload (Any): Input provided by the caller.
+    
+    Returns:
+        Optional[str]: Value returned to the caller.
+    
+    Raises:
+        RuntimeError: Raised when payload normalization fails.
+    """
     if isinstance(payload, dict):
         value = payload.get("hint") or payload.get("details") or payload.get("message")
         return _payload_detail(value)
@@ -120,6 +161,17 @@ def extract_error_hint(payload: Any) -> Optional[str]:
 
 
 def _payload_detail(payload: Any) -> Optional[str]:
+    """Extract the best available text detail from dynamic payload shapes.
+    
+    Args:
+        payload (Any): Input provided by the caller.
+    
+    Returns:
+        Optional[str]: Value returned to the caller.
+    
+    Raises:
+        RuntimeError: Raised when payload normalization fails.
+    """
     if payload is None:
         return None
     if isinstance(payload, str):

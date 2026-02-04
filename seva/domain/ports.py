@@ -1,3 +1,9 @@
+"""Hexagonal port interfaces and use-case level error contracts.
+
+Adapters implement these protocols, while use cases depend on them to keep I/O
+outside orchestration and view-model layers.
+"""
+
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path

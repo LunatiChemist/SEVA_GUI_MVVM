@@ -1,3 +1,9 @@
+"""Use case for connectivity checks against one box.
+
+It gathers health and device lists through `DevicePort` and returns a structured
+result payload for settings and diagnostics screens.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,6 +15,11 @@ from seva.usecases.error_mapping import map_api_error
 
 @dataclass
 class TestConnection:
+    """Use-case callable for device connection diagnostics.
+    
+    Attributes:
+        Fields are consumed by use-case orchestration code and callers.
+    """
     device_port: DevicePort
 
     def __call__(self, box_id: BoxId) -> Dict[str, Any]:

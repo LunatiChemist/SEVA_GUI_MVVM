@@ -1,3 +1,9 @@
+"""Core application controller for adapter and use-case wiring.
+
+It materializes adapter/use-case instances from current settings and provides
+reusable command entry points for presenter/controller layers.
+"""
+
 from __future__ import annotations
 
 from typing import Optional

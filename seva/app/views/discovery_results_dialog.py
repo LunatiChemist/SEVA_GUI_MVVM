@@ -1,3 +1,9 @@
+"""Dialog view for presenting discovered device rows.
+
+The dialog is UI-only and displays discovery payloads produced by use-case and
+controller layers.
+"""
+
 from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
