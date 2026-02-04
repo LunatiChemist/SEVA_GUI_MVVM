@@ -18,11 +18,12 @@ Success is observable when:
 ## Progress
 
 - [x] (2026-02-04 00:35Z) Map adapter implementations to domain ports and GUI usecases.
-- [ ] (2026-02-11 00:00Z) Add/expand module docstrings for each adapter file.
-- [ ] (2026-02-11 00:00Z) Add/expand class and function docstrings, including call-chain and error cases.
-- [ ] (2026-02-11 00:00Z) Add inline comments for complex HTTP/IO logic and error translation.
+- [x] (2026-02-04 01:04Z) Add/expand module docstrings for each adapter file.
+- [x] (2026-02-04 01:04Z) Add/expand class and function docstrings, including call-chain and error cases.
+- [x] (2026-02-04 01:04Z) Add inline comments for complex HTTP/IO logic and error translation.
 - [x] (2026-02-04 00:35Z) Update `docs/classes_seva.md` and `docs/workflows_seva.md` with adapter mapping.
-- [ ] (2026-02-11 00:00Z) Final consistency pass for Google style and completeness.
+- [x] (2026-02-04 01:26Z) Final consistency pass for Google style and completeness.
+- [x] (2026-02-04 01:26Z) Run validation command (`pytest -q`) and embed evidence snippet.
 
 ## Surprises & Discoveries
 
@@ -30,6 +31,10 @@ Success is observable when:
   Evidence: `seva/usecases/discover_devices.py` depends on `DeviceDiscoveryPort`, and `seva/adapters/discovery_http.py` implements that protocol.
 - Observation: Existing architecture docs already covered adapter names, but did not explicitly tie each adapter to call chains and endpoint/file-path responsibilities.
   Evidence: Added explicit adapter-to-usecase mapping and endpoint/file persistence notes in `docs/classes_seva.md` and `docs/workflows_seva.md`.
+- Observation: Existing adapter files had uneven documentation quality; some helper docstrings used generic placeholders and omitted call-chain/error semantics.
+  Evidence: Rewrote adapter docstrings in all `seva/adapters/*.py` files and added explicit Args/Returns/Raises/Side Effects sections.
+- Observation: Existing tests remain green after documentation-only adapter edits.
+  Evidence: `pytest -q` completed with 8 passing tests.
 
 ## Decision Log
 
@@ -39,10 +44,16 @@ Success is observable when:
 - Decision: Treat mapping + docs update as the first completed milestone before editing adapter source files.
   Rationale: Clarifies call-chain context first, so function-level docstrings can reference real workflows consistently.
   Date/Author: 2026-02-04 / Agent
+- Decision: Validate docstring coverage with a local AST check before final pytest run.
+  Rationale: Fast static confirmation that every class/function/module now has a docstring before broader test execution.
+  Date/Author: 2026-02-04 / Agent
+- Decision: Commit adapter source documentation changes separately from ExecPlan bookkeeping.
+  Rationale: Keep commits focused and reviewable; preserve clean rollback boundaries.
+  Date/Author: 2026-02-04 / Agent
 
 ## Outcomes & Retrospective
 
-- Milestone update (2026-02-04): Adapter/port/usecase mapping is now explicit in both architecture docs. Remaining work is concentrated in adapter source files (module/class/function docstrings and inline comments), followed by validation and consistency pass.
+- Completion update (2026-02-04 01:26Z): Adapter documentation scope is complete. All adapter modules now carry expanded Google-style module/class/function docstrings, complex HTTP/IO/error paths include explanatory comments, and validation passed (`8 passed`). The plan purpose is satisfied: a novice can now trace adapter responsibilities, call contexts, and error behavior end-to-end.
 
 ## Context and Orientation
 
@@ -120,10 +131,18 @@ Documentation changes are safe and repeatable. Revert and reapply documentation-
 
 ## Artifacts and Notes
 
-Expected artifacts:
-
 - Updated docstrings and inline comments in `seva/adapters/*.py`.
 - Updated `docs/classes_seva.md` and `docs/workflows_seva.md` sections for adapters.
+- Validation evidence:
+
+    python - <<'PY'
+    modules=10 classes=13 functions=74
+    docstring-coverage=ok
+    PY
+
+    pytest -q
+    ........                                                                 [100%]
+    8 passed in 0.11s
 
 ## Interfaces and Dependencies
 
@@ -135,3 +154,5 @@ No new dependencies are introduced. Interfaces to highlight include:
 ---
 
 Change note: Initial plan created to cover the adapter subsystem in deep detail.
+Change note (2026-02-04 01:04Z): Marked adapter docstring/comment milestones complete, recorded documentation cleanup discoveries, and added explicit pending validation step with evidence requirement.
+Change note (2026-02-04 01:26Z): Marked final consistency and validation milestones complete, added execution evidence snippets, and recorded completion outcome.
