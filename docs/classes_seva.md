@@ -28,10 +28,35 @@ This document maps the GUI code in `seva/` to MVVM + Hexagonal layers.
 - planning aggregates: `ModeParams`, `PlanMeta`, `WellPlan`, `ExperimentPlan`
 - polling aggregates: `RunStatus`, `BoxSnapshot`, `GroupSnapshot`
 
+Domain invariants enforced in constructors:
+
+- all identity wrappers (`GroupId`, `RunId`, `WellId`, `BoxId`, `ModeName`) reject blank strings
+- timestamp wrappers (`ClientDateTime`, `ServerDateTime`) require timezone-aware `datetime`
+- scalar wrappers (`ProgressPct`, `Seconds`) normalize numeric input and reject out-of-range values
+- `ExperimentPlan` requires at least one `WellPlan`; `GroupSnapshot` validates typed map keys/values
+
+Typical call chain:
+
+- `ExperimentViewModel` field snapshots -> `build_experiment_plan.py` -> `PlanMeta`/`WellPlan`/`ExperimentPlan`
+- `JobPort.poll_group` adapter payload -> `poll_group_status.py` -> `snapshot_normalizer.py` -> `GroupSnapshot`
+
 ### Mode registry and parameters
 
 - `seva/domain/modes.py`: `ModeRegistry` and `ModeRule` own normalization, labels, and mode-specific form filtering.
 - `seva/domain/params/*.py`: typed mode parameter builders (`CVParams`, `ACParams`, `DCParams`, `EISParams`, `CDLParams`) and payload serialization.
+
+Mode registry responsibilities (single source of truth):
+
+- normalize mode keys for lookups (`_normalize_key`) and backend token mapping (`backend_token`)
+- provide UI labels (`label_for`) and clipboard targets (`clipboard_attr_for`)
+- determine mode-owned fields (`is_mode_field`, `filter_fields`) so ViewModels avoid hardcoded field lists
+- map mode names to typed parameter builders (`builder_for`) used by plan construction use cases
+
+Parameter schema mapping examples:
+
+- `CVParams.from_form` reads `cv.*` keys and serializes to compact CV payload fields (`start`, `vertex1`, ...)
+- `ACParams.from_form` reads `ea.*` + `control_mode`, derives `voltage_v`/`current_ma`, and omits empty values
+- each params class extracts run flags (`run_*`, `eval_cdl`) into `ModeParams.flags` for mode toggles
 
 ### Mapping and normalization helpers
 
@@ -58,21 +83,38 @@ This document maps the GUI code in `seva/` to MVVM + Hexagonal layers.
 
 ### Shared transport and error handling
 
-- `http_client.py`: `RetryingSession` and `HttpConfig` centralize API key headers, retries, and timeouts.
-- `api_errors.py`: typed adapter error hierarchy (`ApiClientError`, `ApiServerError`, `ApiTimeoutError`) plus payload parsing helpers.
+- `http_client.py`: `RetryingSession` and `HttpConfig` centralize API-key headers, timeout policy, retry loops, and multipart reset behavior before upload retries.
+- `api_errors.py`: typed adapter error hierarchy (`ApiClientError`, `ApiServerError`, `ApiTimeoutError`) plus payload parsing helpers consumed by use-case error mapping (`seva/usecases/error_mapping.py`).
 
 ### REST adapters implementing ports
 
-- `job_rest.py` (`JobPort`): start, poll, cancel, and download workflows; server status is authoritative.
-- `device_rest.py` (`DevicePort`): health/device list/mode metadata access.
-- `firmware_rest.py` (`FirmwarePort`): firmware upload and flash endpoint.
-- `discovery_http.py` (`DeviceDiscoveryPort`): parallel `/version` + `/health` probing for host/CIDR candidates.
+- `job_rest.py` (`JobPort`): implements run lifecycle transport and payload mapping.
+  - consumed by `StartExperimentBatch`, `PollGroupStatus`, `CancelGroup`, `CancelRuns`, and `DownloadGroupResults` (wired in `seva/app/controller.py`)
+  - translates `ExperimentPlan` wells into `POST /jobs` payloads (`devices`, `modes`, `params_by_mode`, metadata)
+  - polls `POST /jobs/status` and returns server-authoritative snapshot dictionaries for domain normalization
+  - downloads `GET /runs/{run_id}/zip` artifacts and writes grouped ZIP files under `<target>/<group>/<box>/`
+  - raises typed adapter errors from `seva/adapters/api_errors.py`
+- `device_rest.py` (`DevicePort`): implements metadata and capability reads.
+  - consumed by `TestConnection` and `PollDeviceStatus`
+  - calls `/health`, `/devices`, `/devices/status`, `/modes`, `/modes/{mode}/params`
+  - normalizes mode keys and caches mode lists/schemas per box
+  - raises typed adapter errors from `seva/adapters/api_errors.py`
+- `firmware_rest.py` (`FirmwarePort`): implements binary upload to `/firmware/flash`.
+  - consumed by `FlashFirmware`
+  - performs multipart upload with shared retry/timeout policy
+  - raises typed adapter errors from `seva/adapters/api_errors.py`
+- `discovery_http.py` (`DeviceDiscoveryPort`): implements host/base-url/CIDR discovery.
+  - consumed by `DiscoverDevices` and `DiscoverAndAssignDevices`
+  - expands CIDR ranges, probes `/version` for identity and `/health` for enrichment
+  - deduplicates discovered `base_url` values before returning domain `DiscoveredBox` objects
 
 ### Local/test adapters
 
 - `storage_local.py` (`StoragePort`): JSON persistence for layouts and user settings.
-- `job_rest_mock.py`: in-memory `JobPort` implementation for offline tests.
-- `relay_mock.py`: stub `RelayPort` implementation for non-hardware environments.
+  - consumed by `SavePlateLayout`, `LoadPlateLayout`, `RunFlowCoordinator` registry/settings interactions, and app/settings/discovery controllers
+  - enforces `layout_*.json` naming and uses atomic write (`tempfile` + `os.replace`) for `user_settings.json`
+- `job_rest_mock.py`: in-memory `JobPort` implementation for offline tests and deterministic run-state simulation.
+- `relay_mock.py`: stub `RelayPort` implementation consumed by `TestRelay` and `SetElectrodeMode` in non-hardware environments.
 
 ## UseCases (`seva/usecases`)
 
@@ -106,13 +148,38 @@ This document maps the GUI code in `seva/` to MVVM + Hexagonal layers.
 
 ## ViewModels (`seva/viewmodels`)
 
-- `experiment_vm.py`: form field state, per-well parameter snapshots, mode-aware copy/paste.
-- `plate_vm.py`: selected/configured well state and plate-level UI commands.
-- `progress_vm.py`: transforms snapshots into run-overview and channel-activity DTOs.
-- `runs_vm.py`: converts registry entries into runs-panel rows.
-- `settings_vm.py`: typed runtime config plus settings command callbacks.
-- `live_data_vm.py`: live data plot include/axis/section state.
-- `status_format.py`: status normalization and display-label helpers.
+- `experiment_vm.py` (`ExperimentVM`)
+  - bound view: `seva/app/views/experiment_panel_view.py`
+  - app wiring: `App._on_apply_params`, `App._on_copy_mode`, `App._on_paste_mode`, `App._on_selection_changed`
+  - usecase dependency (read-only): `RunFlowPresenter._build_plan_request` consumes `well_params` snapshots
+  - state owned: flat live form (`fields`), grouped per-well snapshots (`well_params`), mode clipboards
+- `plate_vm.py` (`PlateVM`)
+  - bound view: `seva/app/views/well_grid_view.py`
+  - app wiring: selection callback to `App._on_selection_changed`; command intents to app methods
+  - usecase dependency (indirect): `RunFlowPresenter` reads `configured()` and `get_selection()` for start/cancel payloads
+  - state owned: selected wells, configured wells, box-prefix helpers
+- `progress_vm.py` (`ProgressVM`)
+  - bound views: `seva/app/views/run_overview_view.py`, `seva/app/views/channel_activity_view.py`
+  - app wiring: callbacks `App._apply_run_overview` and `App._apply_channel_activity`
+  - usecase dependency: consumes `GroupSnapshot` from `PollGroupStatus`; consumes `DeviceActivitySnapshot` from `PollDeviceStatus`
+  - state owned: active group id, last snapshot cache, derived well/box/activity DTOs
+- `runs_vm.py` (`RunsVM`)
+  - bound view: `seva/app/views/runs_panel_view.py`
+  - app wiring: `RunFlowPresenter._refresh_runs_panel` and selection sync
+  - usecase dependency: projects `RunsRegistry` entries that are fed by `RunFlowCoordinator` events
+  - state owned: currently active group id for runs panel
+- `settings_vm.py` (`SettingsVM`, `SettingsConfig`)
+  - bound view/controller: `seva/app/settings_controller.py` + `SettingsDialog`
+  - app wiring: loaded at startup in `App._load_user_settings`; consumed by `AppController.ensure_ready`
+  - usecase dependency: parameters passed into `BuildStorageMeta`, `StartExperimentBatch`, polling cadence, diagnostics, discovery
+  - state owned: typed runtime config, API URLs/keys, dialog-only fields (`experiment_name`, `subdir`, relay/debug flags)
+- `live_data_vm.py` (`LiveDataVM`)
+  - bound view: standalone plotter (`seva/app/dataplotter_standalone.py`)
+  - usecase dependency: none currently; reserved for future post-processing workflows
+  - state owned: include toggles per well, axes, section filter, IR correction text
+- `status_format.py`
+  - pure helper module used by `ProgressVM` and `RunsVM`
+  - responsibility: normalize/label run phases so views never hardcode status-text mapping
 
 ## App and Views (`seva/app`, `seva/app/views`)
 
