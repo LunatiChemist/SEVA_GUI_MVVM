@@ -20,6 +20,27 @@ class SetElectrodeMode:
     relay: RelayPort
 
     def __call__(self, mode: Literal["2E", "3E"]) -> None:
+        """Set relay electrode mode via the configured relay port.
+
+        Args:
+            mode: Relay mode token accepted by the hardware adapter.
+
+        Returns:
+            None.
+
+        Side Effects:
+            Sends a relay command over the configured adapter implementation.
+
+        Call Chain:
+            Settings action -> ``SetElectrodeMode.__call__`` ->
+            ``RelayPort.set_electrode_mode``.
+
+        Usage:
+            Used by settings diagnostics when the operator toggles 2E/3E.
+
+        Raises:
+            UseCaseError: If relay communication fails.
+        """
         try:
             self.relay.set_electrode_mode(mode)
         except Exception as exc:  # pragma: no cover - defensive

@@ -20,6 +20,27 @@ class CancelGroup:
     job_port: JobPort
 
     def __call__(self, run_group_id: RunGroupId) -> None:
+        """Cancel all runs that belong to a backend group identifier.
+
+        Args:
+            run_group_id: Group id returned from ``StartExperimentBatch``.
+
+        Returns:
+            None.
+
+        Side Effects:
+            Sends a cancellation request through ``JobPort``.
+
+        Call Chain:
+            UI cancel action -> presenter/controller -> ``CancelGroup.__call__`` ->
+            ``JobPort.cancel_group``.
+
+        Usage:
+            Used by "Cancel Group" actions to stop every run in the group.
+
+        Raises:
+            UseCaseError: Adapter failures are mapped to domain error codes.
+        """
         try:
             self.job_port.cancel_group(run_group_id)
         except Exception as e:

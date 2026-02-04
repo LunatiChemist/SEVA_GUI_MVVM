@@ -66,7 +66,16 @@ class FlowHooks:
     on_snapshot: Callable[[GroupSnapshot], None] = _noop
     on_completed: Callable[[Path], None] = _noop
     on_error: Callable[[str], None] = _noop
+
     def __post_init__(self) -> None:
+        """Normalize optional callbacks to no-op functions.
+
+        Returns:
+            None.
+
+        Side Effects:
+            Replaces falsey callback values with ``_noop``.
+        """
         self.on_started = self.on_started or _noop
         self.on_snapshot = self.on_snapshot or _noop
         self.on_completed = self.on_completed or _noop

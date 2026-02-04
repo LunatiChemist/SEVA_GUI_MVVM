@@ -13,11 +13,28 @@ from typing import Dict
 
 @dataclass
 class ApplyIRCorrection:
-    """Use-case callable for iR correction processing.
-    
-    Attributes:
-        Fields are consumed by use-case orchestration code and callers.
-    """
+    """Use-case callable for future iR correction processing."""
+
     def __call__(self, rs_ohm_text: str, files: Dict[str, str]) -> Dict:
-        """Return a lightweight result mapping. No actual math here yet."""
+        """Return a passthrough mapping until processing logic is introduced.
+
+        Args:
+            rs_ohm_text: Raw iR value entered in the UI. Accepted but not used yet.
+            files: Mapping of run identifiers to file paths generated upstream.
+
+        Returns:
+            Dict: Shallow copy of the input ``files`` mapping.
+
+        Side Effects:
+            None.
+
+        Call Chain:
+            Processing trigger -> ``ApplyIRCorrection.__call__`` -> passthrough.
+
+        Usage:
+            Keeps a stable orchestration boundary while real correction is pending.
+
+        Raises:
+            None.
+        """
         return {k: v for k, v in files.items()}

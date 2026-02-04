@@ -19,6 +19,27 @@ class TestRelay:
     relay: RelayPort
 
     def __call__(self, ip: str, port: int) -> bool:
+        """Run relay connectivity diagnostics for one endpoint.
+
+        Args:
+            ip: Relay host/IP configured in settings.
+            port: Relay TCP port configured in settings.
+
+        Returns:
+            bool: ``True`` when relay test succeeds.
+
+        Side Effects:
+            Performs relay communication through ``RelayPort.test``.
+
+        Call Chain:
+            Settings relay test -> ``TestRelay.__call__`` -> ``RelayPort.test``.
+
+        Usage:
+            Verifies relay reachability before mode changes.
+
+        Raises:
+            UseCaseError: If the adapter reports any relay error.
+        """
         try:
             return self.relay.test(ip, port)
         except Exception as exc:  # pragma: no cover - defensive

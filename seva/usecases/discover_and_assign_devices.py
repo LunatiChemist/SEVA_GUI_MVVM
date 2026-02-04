@@ -48,6 +48,29 @@ class DiscoverAndAssignDevices:
     merge: MergeDiscoveredIntoRegistry
 
     def __call__(self, request: DiscoveryRequest) -> DiscoveryResult:
+        """Discover devices, merge URLs, and assign new URLs to empty slots.
+
+        Args:
+            request: Discovery candidates plus current registry and slot ids.
+
+        Returns:
+            DiscoveryResult: Discovered boxes, normalized registry, assignments,
+            skipped URLs, and a summary message for the UI.
+
+        Side Effects:
+            Performs network discovery through ``DiscoverDevices``.
+
+        Call Chain:
+            Settings scan action -> ``DiscoveryController`` ->
+            ``DiscoverAndAssignDevices.__call__``.
+
+        Usage:
+            Auto-populates empty box slots while preserving existing mappings.
+
+        Raises:
+            UseCaseError: If no candidates are provided.
+            UseCaseError: If adapter discovery fails and error mapping applies.
+        """
         candidates = [str(item).strip() for item in request.candidates if str(item).strip()]
         if not candidates:
             raise UseCaseError("NO_CANDIDATES", "No discovery candidates available.")
@@ -107,6 +130,15 @@ class DiscoverAndAssignDevices:
         box_ids: Sequence[str],
         registry: Mapping[str, str],
     ) -> Dict[str, str]:
+        """Return a normalized box-id keyed registry for configured slots.
+
+        Args:
+            box_ids: Configured box identifiers from settings.
+            registry: Existing persisted mapping.
+
+        Returns:
+            Dict[str, str]: Mapping with all ``box_ids`` present.
+        """
         return {
             str(box_id): str(registry.get(box_id, "") or "") for box_id in box_ids
         }
@@ -118,6 +150,17 @@ class DiscoverAndAssignDevices:
         existing_registry: Mapping[str, str],
         merged_registry: Mapping[str, str],
     ) -> Tuple[Dict[str, str], list[str], Dict[str, str]]:
+        """Assign newly discovered URLs into currently empty box slots.
+
+        Args:
+            box_ids: Ordered configured slot identifiers.
+            existing_registry: Current slot-to-url mapping.
+            merged_registry: Alias-to-url registry after discovery merge.
+
+        Returns:
+            Tuple[Dict[str, str], list[str], Dict[str, str]]: Assigned slots,
+            skipped URLs, and the final normalized slot registry.
+        """
         normalized_map = {
             str(box_id): str(existing_registry.get(box_id, "") or "") for box_id in box_ids
         }
@@ -140,6 +183,7 @@ class DiscoverAndAssignDevices:
             if not available_slots:
                 skipped.append(url)
                 continue
+            # Fill slots in settings order to keep assignment deterministic.
             box_id = available_slots.pop(0)
             normalized_map[box_id] = url
             assigned[box_id] = url
@@ -153,6 +197,16 @@ class DiscoverAndAssignDevices:
         assigned: Mapping[str, str],
         skipped: Sequence[str],
     ) -> str:
+        """Build a user-facing summary of discovery and assignment outcomes.
+
+        Args:
+            discovered: Unique discovery hits from the network probe.
+            assigned: Newly assigned ``box_id -> url`` mappings.
+            skipped: URLs that could not be assigned due to no free slots.
+
+        Returns:
+            str: Message suitable for settings status banners/logs.
+        """
         summary_seen: set[tuple[str, Optional[str], Optional[str]]] = set()
         summary_parts: list[str] = []
         for box in discovered:

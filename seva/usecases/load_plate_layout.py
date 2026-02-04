@@ -32,6 +32,29 @@ class LoadPlateLayout:
         experiment_vm: Optional["ExperimentVM"] = None,
         plate_vm: Optional["PlateVM"] = None,
     ) -> Dict:
+        """Load a saved layout and optionally apply it to live viewmodels.
+
+        Args:
+            name: Layout name or path known to ``StoragePort``.
+            experiment_vm: Optional experiment VM target for in-memory updates.
+            plate_vm: Optional plate VM target for configured/selected wells.
+
+        Returns:
+            Dict: Payload containing ``selection`` and ``well_params_map``.
+
+        Side Effects:
+            Reads persisted JSON-like payload and mutates provided VMs.
+
+        Call Chain:
+            Toolbar load action -> ``LoadPlateLayout.__call__`` ->
+            ``StoragePort.load_layout`` -> optional VM apply helpers.
+
+        Usage:
+            Restore prior plate setup without embedding storage logic in views.
+
+        Raises:
+            UseCaseError: If storage access or payload normalization fails.
+        """
         try:
             data = self.storage.load_layout(name)
             selection = list(data.get("selection") or [])
@@ -50,6 +73,20 @@ class LoadPlateLayout:
         selection: List[str],
         well_params_map: Dict[str, Dict],
     ) -> None:
+        """Apply loaded selection and params to the experiment viewmodel.
+
+        Args:
+            experiment_vm: VM that owns active field values and well params.
+            selection: Well ids selected in the stored layout.
+            well_params_map: Per-well parameter snapshots from storage.
+
+        Returns:
+            None.
+
+        Side Effects:
+            Replaces ``experiment_vm.well_params``, updates selection, and
+            hydrates current field values from the first selected well.
+        """
         experiment_vm.well_params.clear()
         for wid, snapshot in well_params_map.items():
             experiment_vm.well_params[str(wid)] = dict(snapshot)
@@ -68,6 +105,19 @@ class LoadPlateLayout:
         selection: List[str],
         well_params_map: Dict[str, Dict],
     ) -> None:
+        """Apply loaded configured/selected wells to the plate viewmodel.
+
+        Args:
+            plate_vm: VM that tracks configured and selected wells in the UI.
+            selection: Wells that should be selected after load.
+            well_params_map: Per-well parameters used to derive configured wells.
+
+        Returns:
+            None.
+
+        Side Effects:
+            Resets configured flags, marks configured wells, and sets selection.
+        """
         configured_wells = list(well_params_map.keys())
         plate_vm.clear_all_configured()
         if configured_wells:

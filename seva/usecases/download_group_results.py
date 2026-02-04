@@ -42,8 +42,30 @@ class DownloadGroupResults:
         """
         Download, unpack, and normalize result archives for a run group.
 
-        Returns the absolute path of the extraction root
-        (<results>/<experiment>/<subdir?>/<client_datetime>).
+        Args:
+            run_group_id: Backend run-group identifier to fetch.
+            target_dir: Fallback root used when storage metadata has no path.
+            storage_meta: Typed metadata created by ``BuildStorageMeta``.
+            cleanup: Archive retention mode (``keep``, ``delete``, ``archive``).
+
+        Returns:
+            str: Absolute extraction path
+            ``<results>/<experiment>/<subdir?>/<client_datetime>``.
+
+        Side Effects:
+            Downloads ZIP archives, extracts files, renames slot folders, and
+            optionally removes or archives source ZIP files.
+
+        Call Chain:
+            Download UI action -> ``DownloadGroupResults.__call__`` ->
+            ``JobPort.download_group_zip``.
+
+        Usage:
+            Used for post-run artifact collection and deterministic folder layout.
+
+        Raises:
+            UseCaseError: On missing metadata, adapter failures, bad archive
+                layout, extraction errors, or cleanup conflicts.
         """
         storage = self._validate_storage_meta(storage_meta)
         results_root = os.path.abspath(storage.results_dir or target_dir or ".")
@@ -92,6 +114,17 @@ class DownloadGroupResults:
     def _validate_storage_meta(
         storage_meta: Optional[StorageMeta]
     ) -> StorageMeta:
+        """Ensure storage metadata contains required plan-level fields.
+
+        Args:
+            storage_meta: Optional metadata object supplied by caller.
+
+        Returns:
+            StorageMeta: Validated metadata used for extraction path building.
+
+        Raises:
+            UseCaseError: If metadata is missing or incomplete.
+        """
         if not storage_meta:
             raise UseCaseError(
                 "MISSING_STORAGE_META",
@@ -113,6 +146,15 @@ class DownloadGroupResults:
     def _build_extraction_root(
         results_root: str, storage: StorageMeta
     ) -> str:
+        """Build deterministic extraction target path from storage metadata.
+
+        Args:
+            results_root: Root output directory for all result files.
+            storage: Validated storage metadata.
+
+        Returns:
+            str: Absolute extraction root path for this run group.
+        """
         experiment = storage.experiment or ""
         subdir = storage.subdir or ""
         client_dt = storage.client_datetime_label()
@@ -124,6 +166,14 @@ class DownloadGroupResults:
 
     @staticmethod
     def _collect_archives(zip_root: str) -> Iterable[str]:
+        """Collect ZIP archive paths recursively under ``zip_root``.
+
+        Args:
+            zip_root: Root directory returned by the adapter download step.
+
+        Returns:
+            Iterable[str]: Full paths for discovered ZIP files.
+        """
         archives = []
         for dirpath, _, filenames in os.walk(zip_root):
             for name in filenames:
@@ -133,6 +183,18 @@ class DownloadGroupResults:
 
     @staticmethod
     def _extract_box(zip_root: str, archive_path: str) -> str:
+        """Infer box id from archive path relative to the download root.
+
+        Args:
+            zip_root: Root directory returned by ``download_group_zip``.
+            archive_path: Full path to one ZIP archive.
+
+        Returns:
+            str: Box identifier inferred from first relative path segment.
+
+        Raises:
+            UseCaseError: If box id cannot be inferred.
+        """
         rel_path = os.path.relpath(archive_path, zip_root)
         parts = rel_path.split(os.sep)
         if not parts:
@@ -150,6 +212,18 @@ class DownloadGroupResults:
 
     @staticmethod
     def _extract_archive(archive_path: str, dest_dir: str) -> None:
+        """Extract one ZIP archive into a target directory.
+
+        Args:
+            archive_path: Source ZIP file path.
+            dest_dir: Destination directory for extraction.
+
+        Returns:
+            None.
+
+        Raises:
+            UseCaseError: If archive is invalid or extraction fails.
+        """
         try:
             with zipfile.ZipFile(archive_path, "r") as zf:
                 zf.extractall(dest_dir)
@@ -169,6 +243,19 @@ class DownloadGroupResults:
         box: str,
         slot_registry: Mapping[Tuple[str, int], str],
     ) -> None:
+        """Rename ``slotNN`` directories to well identifiers for one box.
+
+        Args:
+            root: Box extraction directory to inspect recursively.
+            box: Box identifier associated with extracted archives.
+            slot_registry: Normalized ``(box, slot) -> well`` mapping.
+
+        Returns:
+            None.
+
+        Raises:
+            UseCaseError: If slot mapping is unknown or rename conflicts.
+        """
         pattern = re.compile(r"^slot(\d{2})$", re.IGNORECASE)
         for dirpath, dirnames, _ in os.walk(root, topdown=False):
             for name in dirnames:
@@ -194,6 +281,14 @@ class DownloadGroupResults:
                 os.rename(source, target)
 
     def _require_slot_registry(self) -> Mapping[Tuple[str, int], str]:
+        """Read and validate adapter slot registry used for folder renaming.
+
+        Returns:
+            Mapping[Tuple[str, int], str]: Normalized mapping used downstream.
+
+        Raises:
+            UseCaseError: If adapter registry is missing or empty.
+        """
         registry = getattr(self.job_port, "slot_to_well", None)
         if not isinstance(registry, dict):
             raise UseCaseError(
@@ -211,6 +306,22 @@ class DownloadGroupResults:
     def _cleanup_archives(
         self, zip_root: str, archives: Iterable[str], cleanup: CleanupMode
     ) -> None:
+        """Apply post-extraction archive cleanup policy.
+
+        Args:
+            zip_root: Download root containing raw ZIP files.
+            archives: Archive paths collected before extraction.
+            cleanup: Requested cleanup strategy.
+
+        Returns:
+            None.
+
+        Side Effects:
+            Removes ZIP files or moves them under ``zip_root/archive``.
+
+        Raises:
+            UseCaseError: If mode is invalid or filesystem operations fail.
+        """
         mode = (cleanup or "keep").lower()
         if mode not in {"keep", "delete", "archive"}:
             raise UseCaseError(
@@ -251,6 +362,15 @@ class DownloadGroupResults:
 
     @staticmethod
     def _prune_empty_dirs(root: str, preserve: Optional[Iterable[str]] = None) -> None:
+        """Remove empty directories below ``root`` except preserved paths.
+
+        Args:
+            root: Root directory to prune.
+            preserve: Optional directories that must never be removed.
+
+        Returns:
+            None.
+        """
         preserved = {os.path.abspath(p) for p in (preserve or [])}
         root_abs = os.path.abspath(root)
         for dirpath, dirnames, filenames in os.walk(root_abs, topdown=False):
