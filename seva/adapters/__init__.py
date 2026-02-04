@@ -1,5 +1,14 @@
-"""Adapter implementations for HTTP, storage, discovery, and test doubles.
+"""Adapter package for external I/O implementations.
 
-These modules implement the ports declared in `seva.domain.ports` and are the
-only layer allowed to perform external I/O in the GUI architecture.
+Purpose:
+    Collect concrete implementations for domain ports (HTTP, filesystem,
+    discovery, and test doubles) used by use cases.
+
+Dependencies:
+    Individual submodules depend on ``requests``, filesystem APIs, and domain
+    protocol definitions.
+
+Call context:
+    Imported by app composition modules (for runtime wiring) and by tests (for
+    mocks and transport-level behavior verification).
 """

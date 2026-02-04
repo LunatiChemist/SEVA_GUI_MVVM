@@ -1,7 +1,19 @@
-"""HTTP adapter implementing run lifecycle operations from `JobPort`.
+"""REST adapter implementing ``JobPort`` run lifecycle operations.
 
-This adapter translates typed experiment plans into `/jobs` payloads, polls
-server-authoritative status, handles cancellation, and downloads run artifacts.
+This adapter maps typed ``ExperimentPlan`` input into backend job requests,
+stores run-group bookkeeping needed for polling/cancel/download, and returns
+server-authoritative snapshots.
+
+Dependencies:
+    - ``RetryingSession``/``HttpConfig`` for shared HTTP behavior.
+    - ``api_errors`` helpers for typed non-2xx handling.
+    - Domain mapping helpers for well/slot conversion.
+
+Call context:
+    - ``StartExperimentBatch`` calls ``start_batch``.
+    - ``PollGroupStatus`` calls ``poll_group``.
+    - ``CancelGroup`` and ``CancelRuns`` call cancel methods.
+    - ``DownloadGroupResults`` calls ``download_group_zip``.
 """
 
 # seva/adapters/job_rest.py
@@ -38,7 +50,7 @@ from .api_errors import (
 
 
 class JobRestAdapter(JobPort):
-    """REST adapter for your FastAPI boxes.
+    """Run-lifecycle transport adapter for SEVA box APIs.
 
     Endpoints:
       - POST {base}/jobs               body: {"devices":["slot01"], "modes":["CV"], "params_by_mode":{...}}
@@ -60,6 +72,18 @@ class JobRestAdapter(JobPort):
         download_timeout_s: int = 60,
         retries: int = 2,
     ) -> None:
+        """Initialize adapter and precompute well/slot registry.
+
+        Args:
+            base_urls: Mapping from ``BoxId`` to base URL.
+            api_keys: Optional mapping from ``BoxId`` to API key.
+            request_timeout_s: Timeout in seconds for API requests.
+            download_timeout_s: Timeout in seconds for ZIP downloads.
+            retries: Retry count for transport failures.
+
+        Side Effects:
+            Builds HTTP sessions and probes ``/devices`` to build slot registry.
+        """
         self._log = logging.getLogger(__name__)
         self.base_urls = dict(base_urls)
         self.api_keys = dict(api_keys or {})
@@ -80,7 +104,8 @@ class JobRestAdapter(JobPort):
         # Client-side group mapping: group_id -> {box -> run_id}
         self._groups: Dict[RunGroupId, Dict[BoxId, str]] = {}
 
-        # Precompute registry well_id <-> (box, slot)
+        # Precompute registry well_id <-> (box, slot) once, then reuse in all
+        # request mapping and download normalization paths.
         self.well_to_slot: Dict[str, Tuple[BoxId, int]] = {}
         self.slot_to_well: Dict[Tuple[BoxId, int], str] = {}
         self._build_registry()
@@ -92,7 +117,15 @@ class JobRestAdapter(JobPort):
     # ---------- Registry ----------
 
     def _build_registry(self) -> None:
-        """Build well_id <-> (box, slot) mapping using server-reported slots."""
+        """Build well/slot registry from server-reported device slots.
+
+        Raises:
+            ValueError: If any configured box reports zero available slots.
+
+        Side Effects:
+            Calls ``/devices`` on each configured box and fills ``well_to_slot``
+            and ``slot_to_well`` mapping tables.
+        """
         slots_by_box: Dict[BoxId, List[str]] = {}
         for box in self.box_order:
             payload = self._fetch_devices_payload(box)
@@ -110,6 +143,19 @@ class JobRestAdapter(JobPort):
     # ---------- JobPort implementation ----------
 
     def health(self, box_id: BoxId) -> Dict:
+        """Read ``/health`` payload for one box.
+
+        Args:
+            box_id: Box identifier to query.
+
+        Returns:
+            Health payload dictionary.
+
+        Raises:
+            ValueError: If no session/base URL is configured for the box.
+            ApiError: For non-2xx HTTP responses.
+            RuntimeError: If response payload is not a JSON object.
+        """
         session = self.sessions.get(box_id)
         if session is None:
             raise ValueError(f"No session configured for box '{box_id}'")
@@ -122,6 +168,14 @@ class JobRestAdapter(JobPort):
         return data
 
     def list_devices(self, box_id: BoxId) -> List[Dict]:
+        """Read and normalize ``/devices`` payload.
+
+        Args:
+            box_id: Box identifier to query.
+
+        Returns:
+            List of device dictionaries normalized by domain mapping helpers.
+        """
         payload = self._fetch_devices_payload(box_id)
         cleaned: List[Dict[str, Any]] = []
         for item in extract_device_entries(payload):
@@ -129,6 +183,25 @@ class JobRestAdapter(JobPort):
         return cleaned
 
     def start_batch(self, plan: ExperimentPlan) -> Tuple[RunGroupId, Dict[BoxId, List[str]]]:
+        """Submit one backend job per planned well and collect run IDs.
+
+        Args:
+            plan: Typed experiment plan produced by plan-building use case.
+
+        Returns:
+            Tuple of ``(run_group_id, runs_by_box)``.
+
+        Raises:
+            TypeError: If ``plan`` is not an ``ExperimentPlan``.
+            ValueError: If plan metadata/wells are invalid for submission.
+            ApiError: If transport/session/response constraints fail.
+
+        Side Effects:
+            Performs ``POST /jobs`` calls, mutates in-memory group/run caches.
+
+        Call Chain:
+            ``StartExperimentBatch`` -> ``JobRestAdapter.start_batch``.
+        """
         if not isinstance(plan, ExperimentPlan):
             raise TypeError(f"start_batch expects ExperimentPlan, got {type(plan).__name__}")
 
@@ -154,6 +227,7 @@ class JobRestAdapter(JobPort):
             raise ValueError("start_batch: plan contains no wells")
 
         for well_plan in plan.wells:
+            # Normalize mode tokens early so payloads are stable across UI aliases.
             normalized_modes = [
                 normalized for mode in (well_plan.modes or [])
                 if (normalized := normalize_mode_name(mode))
@@ -172,6 +246,8 @@ class JobRestAdapter(JobPort):
             for mode_name, params_obj in (well_plan.params_by_mode or {}).items():
                 mode_key = str(mode_name)
                 try:
+                    # Keep serialization at adapter boundary: use cases provide
+                    # typed params and adapter emits transport payload dicts.
                     params_by_mode[mode_key] = params_obj.to_payload()
                 except NotImplementedError as exc:  # pragma: no cover
                     raise ValueError(
@@ -222,6 +298,15 @@ class JobRestAdapter(JobPort):
         return group_id, run_ids
 
     def cancel_run(self, box_id: BoxId, run_id: str) -> None:
+        """Cancel a single run.
+
+        Args:
+            box_id: Box identifier owning the run.
+            run_id: Run identifier.
+
+        Raises:
+            ApiError: If session missing or backend returns non-2xx response.
+        """
         session = self.sessions.get(box_id)
         if session is None:
             raise ApiError(
@@ -231,6 +316,14 @@ class JobRestAdapter(JobPort):
         self._cancel_run_with_session(session, box_id, run_id, ignore_missing=False)
 
     def cancel_runs(self, box_to_run_ids: Dict[BoxId, List[str]]) -> None:
+        """Cancel multiple runs grouped by box ID.
+
+        Args:
+            box_to_run_ids: Mapping of ``box_id`` to run-id list.
+
+        Raises:
+            ApiError: If session missing or any backend cancel call fails.
+        """
         if not box_to_run_ids:
             return
         for box, run_ids in box_to_run_ids.items():
@@ -244,6 +337,7 @@ class JobRestAdapter(JobPort):
                 )
             seen: Set[str] = set()
             for run_id in run_ids:
+                # Deduplicate per-box run IDs to avoid duplicate cancel calls.
                 run_id_str = str(run_id or "").strip()
                 if not run_id_str or run_id_str in seen:
                     continue
@@ -253,6 +347,18 @@ class JobRestAdapter(JobPort):
                 )
 
     def cancel_group(self, run_group_id: RunGroupId) -> None:
+        """Cancel all runs known for a run group.
+
+        Args:
+            run_group_id: Group identifier to cancel.
+
+        Side Effects:
+            Issues per-run cancel requests for all tracked runs in the group.
+
+        Notes:
+            Missing sessions are logged and skipped to preserve best-effort group
+            cancellation behavior.
+        """
         self._log.info("Cancel group %s requested.", run_group_id)
         box_runs = self._groups.get(run_group_id, {})
         if not box_runs:
@@ -277,6 +383,17 @@ class JobRestAdapter(JobPort):
         *,
         ignore_missing: bool,
     ) -> None:
+        """Cancel one run using a provided HTTP session.
+
+        Args:
+            session: Pre-resolved session for the target box.
+            box: Box identifier.
+            run_id: Run identifier.
+            ignore_missing: If ``True``, 404 responses are treated as success.
+
+        Raises:
+            ApiError: On transport failure or non-allowed HTTP status.
+        """
         url = self._make_url(box, f"/jobs/{run_id}/cancel")
         try:
             resp = session.post(url, timeout=self.cfg.request_timeout_s)
@@ -290,7 +407,22 @@ class JobRestAdapter(JobPort):
         self._ensure_ok(resp, f"cancel[{box}:{run_id}]")
 
     def poll_group(self, run_group_id: RunGroupId) -> Dict:
-        """Bulk poll run snapshots using POST /jobs/status and cached terminals."""
+        """Poll all runs in a group and emit UI-compatible snapshot payload.
+
+        Args:
+            run_group_id: Group identifier to poll.
+
+        Returns:
+            Snapshot dictionary with ``boxes``, ``wells``, ``activity``, and
+            ``all_done`` fields consumed by ``PollGroupStatus`` normalization.
+
+        Raises:
+            ApiError: On HTTP/session failures.
+            RuntimeError: On invalid response payload shapes.
+
+        Side Effects:
+            Updates run cache and terminal-run tracking sets.
+        """
         box_runs: Dict[BoxId, List[str]] = self._groups.get(run_group_id, {}) or {}
         if not box_runs:
             recovered = self._recover_group_runs(run_group_id)
@@ -397,12 +529,14 @@ class JobRestAdapter(JobPort):
                     snapshot["wells"].append(
                         {
                             "well": wid,
-                            "phase": s_status,  # UI-kompatibles Label (Queued/Running/Done/Error)
+                            # Keep explicit UI labels here; use case normalizer
+                            # converts this transport snapshot to domain objects.
+                            "phase": s_status,  # Queued/Running/Done/Error
                             "progress_pct": data.get("progress_pct", 0),
                             "remaining_s": data.get("remaining_s"),
                             "error": s_msg,
                             "run_id": run_entry["run_id"],
-                            # NEU: Modi
+                            # Include mode context so UI can render active/next.
                             "current_mode": data.get("current_mode") or data.get("mode"),
                             "remaining_modes": data.get("remaining_modes") or [],
                         }
@@ -436,6 +570,17 @@ class JobRestAdapter(JobPort):
         return snapshot
 
     def _recover_group_runs(self, run_group_id: RunGroupId) -> Dict[BoxId, List[str]]:
+        """Recover run IDs for a group by querying ``/jobs?group_id=...``.
+
+        Args:
+            run_group_id: Group identifier to recover.
+
+        Returns:
+            Mapping of box IDs to recovered run IDs.
+
+        Side Effects:
+            Performs network requests per configured box.
+        """
         recovered: Dict[BoxId, List[str]] = {}
         group_text = str(run_group_id or "").strip()
         if not group_text:
@@ -467,10 +612,17 @@ class JobRestAdapter(JobPort):
         return recovered
 
     def download_group_zip(self, run_group_id: RunGroupId, target_dir: str) -> str:
-        """
-        Download all run zips for all boxes in the group into:
-        <target_dir>/<group_id>/<box>/<run_id>.zip
-        Returns the output folder path.
+        """Download all run ZIP artifacts for a run group.
+
+        Args:
+            run_group_id: Group identifier to download.
+            target_dir: Root directory where group folder should be created.
+
+        Returns:
+            Output path ``<target_dir>/<group_id>``.
+
+        Side Effects:
+            Creates directories and writes ZIP files to disk.
         """
         box_runs: Dict[BoxId, List[str]] = self._groups.get(run_group_id, {}) or {}
         out_dir = os.path.join(target_dir, str(run_group_id))
@@ -488,12 +640,14 @@ class JobRestAdapter(JobPort):
                     accept="application/zip",
                 )
                 if resp.status_code == 404:
+                    # Some runs may have been cleaned up server-side; skip quietly.
                     continue
                 self._ensure_ok(resp, f"download[{box}:{run_id}]")
 
                 path = os.path.join(box_dir, f"{run_id}.zip")
                 with open(path, "wb") as f:
                     for chunk in resp.iter_content(chunk_size=8192):
+                        # Stream in chunks to avoid loading large archives in RAM.
                         if chunk:
                             f.write(chunk)
 
@@ -502,6 +656,18 @@ class JobRestAdapter(JobPort):
     # ---------- helpers ----------
 
     def _make_url(self, box: BoxId, path: str) -> str:
+        """Build endpoint URL from configured base URL.
+
+        Args:
+            box: Box identifier.
+            path: Endpoint path beginning with ``/``.
+
+        Returns:
+            Absolute endpoint URL.
+
+        Raises:
+            ValueError: If box base URL is missing.
+        """
         base = self.base_urls.get(box)
         if not base:
             raise ValueError(f"No base URL configured for box '{box}'")
@@ -510,7 +676,14 @@ class JobRestAdapter(JobPort):
         return f"{base}{path}"
 
     def _fetch_devices_payload(self, box_id: BoxId) -> Any:
-        """Fetch raw device payload for registry and device queries."""
+        """Fetch raw ``/devices`` payload for registry discovery.
+
+        Args:
+            box_id: Box identifier to query.
+
+        Returns:
+            Parsed JSON payload (list/object) returned by backend.
+        """
         session = self.sessions.get(box_id)
         if session is None:
             raise ValueError(f"No session configured for box '{box_id}'")
@@ -520,9 +693,22 @@ class JobRestAdapter(JobPort):
         return self._json_any(resp)
 
     def _slot_label(self, slot: int) -> str:
+        """Format integer slot index as API slot token.
+
+        Args:
+            slot: Numeric slot index.
+
+        Returns:
+            Zero-padded slot token such as ``slot01``.
+        """
         return f"slot{slot:02d}"
 
     def _store_run_snapshot(self, snapshot: Dict[str, Any]) -> None:
+        """Store run snapshot and update terminal tracking.
+
+        Args:
+            snapshot: Normalized run snapshot dictionary.
+        """
         run_id = snapshot.get("run_id")
         if not run_id:
             return
@@ -535,12 +721,32 @@ class JobRestAdapter(JobPort):
 
     @staticmethod
     def _is_terminal(status: str) -> bool:
+        """Check whether status token represents terminal completion.
+
+        Args:
+            status: Run status token.
+
+        Returns:
+            ``True`` for terminal statuses, else ``False``.
+        """
         normalized = status.lower()
         return normalized in {"done", "failed", "canceled", "cancelled"}
 
     def _normalize_job_status(
         self, box: BoxId, payload: Dict[str, Any]
     ) -> Dict[str, Any]:
+        """Normalize backend run payload into adapter snapshot schema.
+
+        Args:
+            box: Box identifier associated with payload.
+            payload: Raw JSON object from backend.
+
+        Returns:
+            Normalized snapshot dictionary with stable keys.
+
+        Raises:
+            RuntimeError: If payload shape is invalid.
+        """
         if not isinstance(payload, dict):
             raise RuntimeError("Invalid job status payload: expected object")
         run_id_raw = payload.get("run_id")
@@ -568,6 +774,17 @@ class JobRestAdapter(JobPort):
 
     @staticmethod
     def _ensure_ok(resp: requests.Response, ctx: str) -> None:
+        """Raise typed adapter errors for non-2xx responses.
+
+        Args:
+            resp: HTTP response.
+            ctx: Context label for diagnostics.
+
+        Raises:
+            ApiClientError: For HTTP 4xx responses.
+            ApiServerError: For HTTP 5xx responses.
+            ApiError: For all other non-2xx responses.
+        """
         if 200 <= resp.status_code < 300:
             return
         status = resp.status_code
@@ -595,6 +812,17 @@ class JobRestAdapter(JobPort):
 
     @staticmethod
     def _json(resp: requests.Response) -> Dict[str, Any]:
+        """Parse object JSON response.
+
+        Args:
+            resp: HTTP response.
+
+        Returns:
+            Parsed JSON object.
+
+        Raises:
+            RuntimeError: If payload is not a JSON object.
+        """
         data = JobRestAdapter._json_any(resp)
         if not isinstance(data, dict):
             raise RuntimeError("Invalid JSON response: expected object")
@@ -602,6 +830,17 @@ class JobRestAdapter(JobPort):
 
     @staticmethod
     def _json_any(resp: requests.Response) -> Any:
+        """Parse arbitrary JSON response payload.
+
+        Args:
+            resp: HTTP response.
+
+        Returns:
+            Parsed JSON value.
+
+        Raises:
+            RuntimeError: If payload is not valid JSON.
+        """
         try:
             return resp.json()
         except Exception:

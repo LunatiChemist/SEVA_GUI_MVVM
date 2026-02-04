@@ -1,13 +1,19 @@
-"""In-memory `JobPort` test double for offline and unit-test workflows.
+"""In-memory ``JobPort`` test double for offline workflows.
 
-The mock mirrors key job lifecycle semantics without network access so use cases
-and view-model logic can be exercised deterministically.
+This adapter mimics the run lifecycle exposed by ``JobRestAdapter`` without
+network I/O so use cases can be validated deterministically.
+
+Dependencies:
+    - Domain ``ExperimentPlan`` and ``JobPort`` contracts.
+
+Call context:
+    - Unit/integration tests and local development scenarios that avoid REST API.
 """
 
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
@@ -18,9 +24,10 @@ from seva.domain.util import well_id_to_box
 
 @dataclass
 class JobRestMock(JobPort):
-    """Offline substitute for ``JobRestAdapter`` with deterministic responses."""
+    """Deterministic in-memory implementation of ``JobPort``."""
 
     def __post_init__(self) -> None:
+        """Initialize in-memory run-group registries."""
         self._groups: Dict[RunGroupId, Dict[BoxId, List[str]]] = {}
         self._runs: Dict[Tuple[RunGroupId, BoxId, str], Dict[str, Any]] = {}
 
@@ -29,6 +36,21 @@ class JobRestMock(JobPort):
     def start_batch(
         self, plan: ExperimentPlan
     ) -> Tuple[RunGroupId, Dict[BoxId, List[str]]]:
+        """Create synthetic run IDs for each planned well.
+
+        Args:
+            plan: Typed experiment plan from plan-building use case.
+
+        Returns:
+            Tuple of ``(run_group_id, runs_by_box)`` matching ``JobPort`` contract.
+
+        Raises:
+            TypeError: If ``plan`` is not an ``ExperimentPlan``.
+            ValueError: If well identifiers are missing/invalid.
+
+        Side Effects:
+            Stores run/group records in mock in-memory state.
+        """
         if not isinstance(plan, ExperimentPlan):
             raise TypeError("start_batch requires an ExperimentPlan.")
 
@@ -62,22 +84,46 @@ class JobRestMock(JobPort):
         return group_id, grouped
 
     def cancel_run(self, box_id: BoxId, run_id: str) -> None:
+        """Mark a single mock run as cancelled.
+
+        Args:
+            box_id: Box identifier containing the run.
+            run_id: Run identifier to cancel.
+        """
         for (group_id, box, rid), data in self._runs.items():
             if box == box_id and rid == run_id:
                 data["status"] = "cancelled"
 
     def cancel_runs(self, box_to_run_ids: Dict[BoxId, List[str]]) -> None:
+        """Cancel multiple runs grouped by box.
+
+        Args:
+            box_to_run_ids: Mapping of box IDs to run IDs.
+        """
         for box_id, run_ids in box_to_run_ids.items():
             for run_id in run_ids or []:
                 self.cancel_run(box_id, run_id)
 
     def cancel_group(self, run_group_id: RunGroupId) -> None:
+        """Cancel every run belonging to a run group.
+
+        Args:
+            run_group_id: Group identifier to cancel.
+        """
         for key, data in list(self._runs.items()):
             if key[0] != run_group_id:
                 continue
             data["status"] = "cancelled"
 
     def poll_group(self, run_group_id: RunGroupId) -> Dict[str, Any]:
+        """Return normalized polling snapshot from in-memory run state.
+
+        Args:
+            run_group_id: Group identifier to poll.
+
+        Returns:
+            Snapshot dictionary compatible with ``PollGroupStatus`` expectations.
+        """
         boxes: Dict[BoxId, Dict[str, Any]] = {}
         for box, runs in self._groups.get(run_group_id, {}).items():
             entries: List[Dict[str, Any]] = []
@@ -104,6 +150,18 @@ class JobRestMock(JobPort):
         return {"boxes": boxes, "wells": []}
 
     def download_group_zip(self, run_group_id: RunGroupId, target_dir: str) -> str:
+        """Create empty placeholder ZIP files for each run.
+
+        Args:
+            run_group_id: Group identifier to materialize.
+            target_dir: Root output directory.
+
+        Returns:
+            Output directory path containing group/box ZIP placeholders.
+
+        Side Effects:
+            Creates directories and zero-byte ``.zip`` files on disk.
+        """
         out_dir = os.path.join(target_dir, str(run_group_id))
         os.makedirs(out_dir, exist_ok=True)
         for box, runs in self._groups.get(run_group_id, {}).items():
@@ -127,6 +185,18 @@ class JobRestMock(JobPort):
         status: str,
         started_at: Optional[str] = None,
     ) -> None:
+        """Mutate a mock run entry for test assertions.
+
+        Args:
+            run_group_id: Group identifier.
+            box_id: Box identifier.
+            run_id: Run identifier.
+            status: New status token.
+            started_at: Optional ISO timestamp string.
+
+        Side Effects:
+            Creates the run record when missing and updates stored fields.
+        """
         key = (run_group_id, box_id, run_id)
         if key not in self._runs:
             self._runs[key] = {"run_id": run_id}

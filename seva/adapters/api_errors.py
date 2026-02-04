@@ -1,7 +1,14 @@
-"""Typed adapter error model and payload parsing utilities.
+"""Typed adapter error classes and error-payload helpers.
 
-REST adapters use these helpers to convert transport failures into stable
-exceptions consumed by use-case level error mapping.
+This module defines the adapter-layer exception taxonomy used by HTTP adapters
+before use cases translate those failures into ``UseCaseError`` instances.
+
+Dependencies:
+    No external dependencies beyond Python typing primitives.
+
+Call context:
+    - Raised by REST adapters in ``seva/adapters/*.py``.
+    - Read by ``seva/usecases/error_mapping.py`` for user-facing translation.
 """
 
 from __future__ import annotations
@@ -10,7 +17,15 @@ from typing import Any, Optional
 
 
 class ApiError(RuntimeError):
-    """Base class for REST adapter failures."""
+    """Base exception for adapter failures.
+
+    Attributes:
+        status: Optional HTTP status code when available.
+        code: Optional backend-provided stable error code.
+        hint: Optional backend-provided user guidance.
+        payload: Original parsed payload (dict/string/other) for diagnostics.
+        context: Call-site identifier such as ``start[box1]``.
+    """
 
     def __init__(
         self,
@@ -22,6 +37,16 @@ class ApiError(RuntimeError):
         payload: Any = None,
         context: Optional[str] = None,
     ) -> None:
+        """Initialize a base adapter error.
+
+        Args:
+            message: Human-readable summary.
+            status: HTTP status code when available.
+            code: Stable backend error code when available.
+            hint: Optional user-facing hint text.
+            payload: Parsed response payload for diagnostics.
+            context: Adapter context string identifying the failing operation.
+        """
         super().__init__(message)
         self.status = status
         self.code = code
@@ -31,7 +56,7 @@ class ApiError(RuntimeError):
 
 
 class ApiClientError(ApiError):
-    """HTTP 4xx from the Box API."""
+    """Adapter error for client-side HTTP failures (4xx)."""
 
     def __init__(
         self,
@@ -43,6 +68,16 @@ class ApiClientError(ApiError):
         payload: Any = None,
         context: Optional[str] = None,
     ) -> None:
+        """Initialize a 4xx adapter error.
+
+        Args:
+            message: Human-readable summary.
+            status: HTTP status code in the 4xx range.
+            code: Stable backend error code when available.
+            hint: Optional user-facing hint text.
+            payload: Parsed response payload for diagnostics.
+            context: Adapter context string identifying the failing operation.
+        """
         super().__init__(
             message,
             status=status,
@@ -54,7 +89,7 @@ class ApiClientError(ApiError):
 
 
 class ApiServerError(ApiError):
-    """HTTP 5xx from the Box API."""
+    """Adapter error for server-side HTTP failures (5xx)."""
 
     def __init__(
         self,
@@ -64,6 +99,14 @@ class ApiServerError(ApiError):
         payload: Any = None,
         context: Optional[str] = None,
     ) -> None:
+        """Initialize a 5xx adapter error.
+
+        Args:
+            message: Human-readable summary.
+            status: HTTP status code in the 5xx range.
+            payload: Parsed response payload for diagnostics.
+            context: Adapter context string identifying the failing operation.
+        """
         super().__init__(
             message,
             status=status,
@@ -73,7 +116,7 @@ class ApiServerError(ApiError):
 
 
 class ApiTimeoutError(ApiError):
-    """Transport level timeout or connectivity failure."""
+    """Adapter error for timeout/connectivity failures before HTTP response."""
 
     def __init__(
         self,
@@ -81,11 +124,24 @@ class ApiTimeoutError(ApiError):
         *,
         context: Optional[str] = None,
     ) -> None:
+        """Initialize a transport timeout error.
+
+        Args:
+            message: Human-readable summary.
+            context: Adapter context string identifying the failing operation.
+        """
         super().__init__(message, context=context)
 
 
 def parse_error_payload(resp: Any) -> Any:
-    """Best-effort extraction of error payload without raising."""
+    """Parse an error payload without raising parsing exceptions.
+
+    Args:
+        resp: Response-like object with ``json()`` and optional ``text``.
+
+    Returns:
+        Parsed JSON payload, truncated text snippet, or ``None``.
+    """
     try:
         return resp.json()
     except Exception:
@@ -96,18 +152,15 @@ def parse_error_payload(resp: Any) -> Any:
 
 
 def build_error_message(ctx: str, status: int, payload: Any) -> str:
-    """Build a human-readable adapter error message from payload details.
-    
+    """Build a user-facing message from error context and payload details.
+
     Args:
-        ctx (str): Input provided by the caller.
-        status (int): Input provided by the caller.
-        payload (Any): Input provided by the caller.
-    
+        ctx: Adapter context string (operation name and box/run scope).
+        status: HTTP status code.
+        payload: Parsed payload or text snippet from the response.
+
     Returns:
-        str: Value returned to the caller.
-    
-    Raises:
-        RuntimeError: Raised when payload normalization fails.
+        Display-ready message used for adapter exceptions.
     """
     detail = _payload_detail(payload)
     hint = extract_error_hint(payload)
@@ -121,16 +174,13 @@ def build_error_message(ctx: str, status: int, payload: Any) -> str:
 
 
 def extract_error_code(payload: Any) -> Optional[str]:
-    """Extract a stable error code from API error payloads.
-    
+    """Extract backend error code from payload dictionaries.
+
     Args:
-        payload (Any): Input provided by the caller.
-    
+        payload: Parsed response payload.
+
     Returns:
-        Optional[str]: Value returned to the caller.
-    
-    Raises:
-        RuntimeError: Raised when payload normalization fails.
+        Error code text if available, otherwise ``None``.
     """
     if isinstance(payload, dict):
         value = payload.get("code") or payload.get("error_code")
@@ -141,16 +191,13 @@ def extract_error_code(payload: Any) -> Optional[str]:
 
 
 def extract_error_hint(payload: Any) -> Optional[str]:
-    """Extract a user-facing hint from API error payloads.
-    
+    """Extract user-facing hint text from dynamic payload shapes.
+
     Args:
-        payload (Any): Input provided by the caller.
-    
+        payload: Parsed response payload.
+
     Returns:
-        Optional[str]: Value returned to the caller.
-    
-    Raises:
-        RuntimeError: Raised when payload normalization fails.
+        Hint text if available, otherwise ``None``.
     """
     if isinstance(payload, dict):
         value = payload.get("hint") or payload.get("details") or payload.get("message")
@@ -161,16 +208,13 @@ def extract_error_hint(payload: Any) -> Optional[str]:
 
 
 def _payload_detail(payload: Any) -> Optional[str]:
-    """Extract the best available text detail from dynamic payload shapes.
-    
+    """Extract detail text from strings or common dictionary keys.
+
     Args:
-        payload (Any): Input provided by the caller.
-    
+        payload: Parsed payload value.
+
     Returns:
-        Optional[str]: Value returned to the caller.
-    
-    Raises:
-        RuntimeError: Raised when payload normalization fails.
+        Best available detail text, or ``None``.
     """
     if payload is None:
         return None

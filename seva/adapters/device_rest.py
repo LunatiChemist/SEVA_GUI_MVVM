@@ -1,7 +1,15 @@
-"""HTTP adapter implementing the `DevicePort` contract.
+"""REST adapter implementing ``DevicePort``.
 
-Use cases call this adapter for health, device, and mode metadata while keeping
-HTTP specifics out of orchestration and view-model layers.
+This adapter reads box metadata and mode capabilities from backend endpoints.
+
+Dependencies:
+    - ``RetryingSession``/``HttpConfig`` for shared HTTP policy.
+    - ``api_errors`` for typed non-2xx handling.
+    - Domain mapping helpers for device entry normalization.
+
+Call context:
+    - ``TestConnection`` use case for health/device diagnostics.
+    - ``PollDeviceStatus`` use case for activity snapshots.
 """
 
 from __future__ import annotations
@@ -26,7 +34,7 @@ from .http_client import HttpConfig, RetryingSession
 
 
 class DeviceRestAdapter(DevicePort):
-    """REST adapter that exposes device and capability metadata endpoints."""
+    """Transport implementation for device/capability metadata queries."""
 
     def __init__(
         self,
@@ -36,6 +44,17 @@ class DeviceRestAdapter(DevicePort):
         request_timeout_s: int = 10,
         retries: int = 2,
     ) -> None:
+        """Create adapter with per-box URLs and optional API keys.
+
+        Args:
+            base_urls: Mapping from ``BoxId`` to base URL.
+            api_keys: Optional mapping from ``BoxId`` to API key.
+            request_timeout_s: Default timeout for requests.
+            retries: Retry count for transport failures.
+
+        Raises:
+            ValueError: If ``base_urls`` is empty.
+        """
         if not base_urls:
             raise ValueError("DeviceRestAdapter requires at least one box URL")
 
@@ -50,6 +69,19 @@ class DeviceRestAdapter(DevicePort):
         self._mode_schema_cache: Dict[BoxId, Dict[str, Dict[str, Any]]] = {}
 
     def health(self, box_id: BoxId) -> Dict[str, Any]:
+        """Read ``/health`` payload for one box.
+
+        Args:
+            box_id: Box identifier to query.
+
+        Returns:
+            Parsed JSON object from health endpoint.
+
+        Raises:
+            ValueError: If box/session is not configured.
+            ApiError: For non-2xx HTTP responses.
+            RuntimeError: If response JSON shape is unexpected.
+        """
         url = self._make_url(box_id, "/health")
         resp = self._session(box_id).get(url)
         self._ensure_ok(resp, f"health[{box_id}]")
@@ -59,6 +91,14 @@ class DeviceRestAdapter(DevicePort):
         return data
 
     def list_devices(self, box_id: BoxId) -> List[Dict[str, Any]]:
+        """Read and normalize ``/devices`` payload.
+
+        Args:
+            box_id: Box identifier to query.
+
+        Returns:
+            List of normalized device-entry dictionaries.
+        """
         url = self._make_url(box_id, "/devices")
         resp = self._session(box_id).get(url)
         self._ensure_ok(resp, f"devices[{box_id}]")
@@ -66,6 +106,17 @@ class DeviceRestAdapter(DevicePort):
         return [dict(entry) for entry in extract_device_entries(data)]
 
     def list_device_status(self, box_id: BoxId) -> List[Dict[str, Any]]:
+        """Read ``/devices/status`` payload.
+
+        Args:
+            box_id: Box identifier to query.
+
+        Returns:
+            List of status-entry dictionaries.
+
+        Raises:
+            RuntimeError: If response is not a JSON list.
+        """
         url = self._make_url(box_id, "/devices/status")
         resp = self._session(box_id).get(url)
         self._ensure_ok(resp, f"devices/status[{box_id}]")
@@ -75,6 +126,17 @@ class DeviceRestAdapter(DevicePort):
         return [dict(entry) for entry in data if isinstance(entry, dict)]
 
     def get_modes(self, box_id: BoxId) -> List[str]:
+        """Read supported modes for a box with cache reuse.
+
+        Args:
+            box_id: Box identifier to query.
+
+        Returns:
+            Uppercased mode token list.
+
+        Side Effects:
+            Populates in-memory mode cache by ``box_id``.
+        """
         cached = self._mode_list_cache.get(box_id)
         if cached is not None:
             return list(cached)
@@ -88,6 +150,18 @@ class DeviceRestAdapter(DevicePort):
         return list(modes)
 
     def get_mode_schema(self, box_id: BoxId, mode: str) -> Dict[str, Any]:
+        """Read parameter schema for one mode with cache reuse.
+
+        Args:
+            box_id: Box identifier to query.
+            mode: User/domain mode token.
+
+        Returns:
+            Schema dictionary returned by backend.
+
+        Side Effects:
+            Populates in-memory mode-schema cache by ``box_id`` and mode key.
+        """
         mode_key = self._normalize_mode_key(mode)
         cache = self._mode_schema_cache.setdefault(box_id, {})
         if mode_key in cache:
@@ -109,12 +183,35 @@ class DeviceRestAdapter(DevicePort):
     # Helpers
     # ------------------------------------------------------------------
     def _session(self, box_id: BoxId) -> RetryingSession:
+        """Return configured session for a box.
+
+        Args:
+            box_id: Box identifier.
+
+        Returns:
+            Session configured for the box.
+
+        Raises:
+            ValueError: If no session was configured for box.
+        """
         try:
             return self.sessions[box_id]
         except KeyError as exc:
             raise ValueError(f"No session configured for box '{box_id}'") from exc
 
     def _make_url(self, box_id: BoxId, path: str) -> str:
+        """Build endpoint URL from box base URL and path.
+
+        Args:
+            box_id: Box identifier.
+            path: Endpoint path beginning with ``/``.
+
+        Returns:
+            Absolute endpoint URL.
+
+        Raises:
+            ValueError: If box base URL is missing.
+        """
         base = self.base_urls.get(box_id)
         if not base:
             raise ValueError(f"No base URL configured for box '{box_id}'")
@@ -124,6 +221,17 @@ class DeviceRestAdapter(DevicePort):
 
     @staticmethod
     def _normalize_mode_key(mode: str) -> str:
+        """Normalize mode token for endpoint addressing.
+
+        Args:
+            mode: Raw mode token.
+
+        Returns:
+            Uppercased non-empty mode key.
+
+        Raises:
+            ValueError: If mode is empty after trimming.
+        """
         cleaned = str(mode or "").strip()
         if not cleaned:
             raise ValueError("Mode must be a non-empty string.")
@@ -131,6 +239,18 @@ class DeviceRestAdapter(DevicePort):
 
     @staticmethod
     def _normalize_modes(data: Any, *, ctx: str) -> List[str]:
+        """Normalize backend mode list payload.
+
+        Args:
+            data: JSON payload from backend.
+            ctx: Context label for error diagnostics.
+
+        Returns:
+            Uppercased non-empty mode tokens.
+
+        Raises:
+            RuntimeError: If payload shape is invalid or empty.
+        """
         if not isinstance(data, list):
             raise RuntimeError(f"{ctx}: expected list response")
 
@@ -141,6 +261,17 @@ class DeviceRestAdapter(DevicePort):
 
     @staticmethod
     def _ensure_ok(resp: requests.Response, ctx: str) -> None:
+        """Raise typed adapter errors for non-2xx responses.
+
+        Args:
+            resp: HTTP response.
+            ctx: Context label for diagnostics.
+
+        Raises:
+            ApiClientError: For HTTP 4xx responses.
+            ApiServerError: For HTTP 5xx responses.
+            ApiError: For all other non-2xx responses.
+        """
         if 200 <= resp.status_code < 300:
             return
         status = resp.status_code
@@ -168,6 +299,17 @@ class DeviceRestAdapter(DevicePort):
 
     @staticmethod
     def _json_any(resp: requests.Response) -> Any:
+        """Parse arbitrary JSON from response.
+
+        Args:
+            resp: HTTP response.
+
+        Returns:
+            Parsed JSON payload.
+
+        Raises:
+            RuntimeError: If payload is not valid JSON.
+        """
         try:
             return resp.json()
         except Exception:
