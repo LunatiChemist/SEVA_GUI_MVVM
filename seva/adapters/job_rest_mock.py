@@ -13,6 +13,7 @@ Call context:
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
@@ -30,6 +31,7 @@ class JobRestMock(JobPort):
         """Initialize in-memory run-group registries."""
         self._groups: Dict[RunGroupId, Dict[BoxId, List[str]]] = {}
         self._runs: Dict[Tuple[RunGroupId, BoxId, str], Dict[str, Any]] = {}
+        self._group_started: Dict[RunGroupId, float] = {}
 
     # ---------- JobPort ----------
 
@@ -57,6 +59,7 @@ class JobRestMock(JobPort):
         group_id: RunGroupId = str(plan.meta.group_id)
         grouped: Dict[BoxId, List[str]] = {}
         self._groups[group_id] = {}
+        self._group_started[group_id] = time.time()
 
         for well_plan in plan.wells:
             well_id = str(well_plan.well).strip()
@@ -125,6 +128,9 @@ class JobRestMock(JobPort):
             Snapshot dictionary compatible with ``PollGroupStatus`` expectations.
         """
         boxes: Dict[BoxId, Dict[str, Any]] = {}
+        started = self._group_started.get(run_group_id, time.time())
+        elapsed = max(0.0, time.time() - started)
+        progress = min(100.0, (elapsed / 60.0) * 100.0)
         for box, runs in self._groups.get(run_group_id, {}).items():
             entries: List[Dict[str, Any]] = []
             statuses = set()
@@ -137,6 +143,7 @@ class JobRestMock(JobPort):
                         "run_id": record.get("run_id", run_id),
                         "status": status,
                         "started_at": record.get("started_at"),
+                        "progress_pct": progress,
                     }
                 )
             if not statuses:
