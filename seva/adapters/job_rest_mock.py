@@ -14,11 +14,21 @@ from __future__ import annotations
 
 import os
 import time
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
-from seva.domain.entities import ExperimentPlan
+from seva.domain.entities import (
+    ClientDateTime,
+    ExperimentPlan,
+    GroupId,
+    ModeName,
+    PlanMeta,
+    WellId,
+    WellPlan,
+)
+from seva.domain.params import CVParams
 from seva.domain.ports import BoxId, JobPort, RunGroupId
 from seva.domain.util import well_id_to_box
 
@@ -32,6 +42,34 @@ class JobRestMock(JobPort):
         self._groups: Dict[RunGroupId, Dict[BoxId, List[str]]] = {}
         self._runs: Dict[Tuple[RunGroupId, BoxId, str], Dict[str, Any]] = {}
         self._group_started: Dict[RunGroupId, float] = {}
+
+    @classmethod
+    def example_plan(cls) -> ExperimentPlan:
+        """Return a tiny valid ``ExperimentPlan`` for demos and notebook snippets."""
+        now = datetime.now(timezone.utc)
+        plan_meta = PlanMeta(
+            experiment="Notebook Demo",
+            subdir="training",
+            client_dt=ClientDateTime(now),
+            group_id=GroupId("demo-group"),
+        )
+        cv_mode = ModeName("CV")
+        well_plan = WellPlan(
+            well=WellId("A1"),
+            modes=[cv_mode],
+            params_by_mode={
+                cv_mode: CVParams(
+                    start=-0.2,
+                    vertex1=0.3,
+                    vertex2=-0.3,
+                    end=0.0,
+                    scan_rate=0.1,
+                    cycles=2,
+                    flags={"run_cv": "1"},
+                )
+            },
+        )
+        return ExperimentPlan(meta=plan_meta, wells=[well_plan])
 
     # ---------- JobPort ----------
 
