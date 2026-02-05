@@ -282,6 +282,32 @@ class SettingsController:
         dlg.set_firmware_path(self.settings_vm.firmware_path)
         dlg.set_save_enabled(self.settings_vm.is_valid())
 
+    def _confirm_https_base_urls(self, payload: dict) -> bool:
+        """Warn user when settings contain HTTPS box URLs and allow override."""
+        https_urls = tuple(
+            sorted(
+                (
+                    str(box_id),
+                    str(url).strip(),
+                )
+                for box_id, url in (payload.get("api_base_urls") or {}).items()
+                if isinstance(url, str) and str(url).strip().lower().startswith("https://")
+            )
+        )
+        if not https_urls:
+            return True
+        lines = "\n".join(f"- {box}: {url}" for box, url in https_urls)
+        warning = (
+            "One or more box URLs use HTTPS.\n\n"
+            "If your Uvicorn server is running without TLS (default HTTP mode), "
+            "this can cause SSL handshake errors (for example: WRONG_VERSION_NUMBER) "
+            "and server-side 'invalid HTTP request received' messages.\n\n"
+            "Affected URLs:\n"
+            f"{lines}\n\n"
+            "Click 'OK' to save anyway, or 'Cancel' to review URLs."
+        )
+        return bool(messagebox.askokcancel("HTTPS URL warning", warning, parent=self.win))
+
     def _on_settings_saved(self, cfg: dict) -> None:
         """Validate and persist settings payload from the dialog.
 
@@ -322,6 +348,9 @@ class SettingsController:
             return
 
         payload["results_dir"] = os.path.normpath(expanded_dir)
+
+        if not self._confirm_https_base_urls(payload):
+            return
 
         try:
             self.settings_vm.apply_dict(payload)
