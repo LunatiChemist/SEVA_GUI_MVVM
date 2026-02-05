@@ -9,11 +9,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, TYPE_CHECKING
 
-from ..domain.ports import StoragePort, UseCaseError
+from seva.domain.ports import StoragePort, UseCaseError
 
 if TYPE_CHECKING:  # pragma: no cover
-    from ..viewmodels.experiment_vm import ExperimentVM
-    from ..viewmodels.plate_vm import PlateVM
+    from seva.viewmodels.experiment_vm import ExperimentVM
+    from seva.viewmodels.plate_vm import PlateVM
 
 
 @dataclass

@@ -37,8 +37,8 @@ from seva.domain.mapping import (
 )
 from seva.domain.ports import JobPort, RunGroupId, BoxId
 
-from .http_client import HttpConfig, RetryingSession
-from .api_errors import (
+from seva.adapters.http_client import HttpConfig, RetryingSession
+from seva.adapters.api_errors import (
     ApiClientError,
     ApiError,
     ApiServerError,

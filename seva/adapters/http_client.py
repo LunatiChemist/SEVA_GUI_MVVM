@@ -23,7 +23,7 @@ from typing import Any, Dict, Optional
 import requests
 from requests import exceptions as req_exc
 
-from .api_errors import ApiTimeoutError
+from seva.adapters.api_errors import ApiTimeoutError
 
 
 @dataclass

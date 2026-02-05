@@ -7,7 +7,7 @@ import math
 from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Optional, Sequence
 
-from .entities import (
+from seva.domain.entities import (
     BoxId,
     BoxSnapshot,
     GroupId,

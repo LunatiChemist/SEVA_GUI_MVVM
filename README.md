@@ -15,7 +15,7 @@ It follows a clean **MVVM + Hexagonal** architecture: Views are UI‑only; ViewM
   - Poll aggregates **run/box progress** and **remaining time** and updates the Run Overview table. 
   - Download retrieves results per **group** and mirrors the Pi folder structure locally (ZIPs are unpacked).
 - **Cancel Group** and **End Selection**:
-  - Cancel a whole group or only the **currently selected runs** (by `run_id`). :contentReference[oaicite:7]{index=7}
+  - Cancel a whole group or only the **currently selected runs** (by `run_id`).
 
 ### Panels & buttons (what they do)
 - **Well Grid**: select one or many wells; configured wells are highlighted; clipboard‑style **Copy/Paste** per mode applies the current form values (incl. flags) from the Experiment panel to multiple wells at once.
@@ -37,7 +37,7 @@ It follows a clean **MVVM + Hexagonal** architecture: Views are UI‑only; ViewM
 2. **Poll**  
    The GUI calls group status, merges per‑run snapshots and computes **progress/remaining** using start time and planned duration; box headers show average progress.
 3. **Download**  
-   The GUI downloads **ZIPs** per group, **extracts** them, and mirrors the server’s structure into your **Results** directory. (Optionally, slot folders can be mapped to WellIDs). :contentReference[oaicite:19]{index=19}
+   The GUI downloads **ZIPs** per group, **extracts** them, and mirrors the server’s structure into your **Results** directory. (Optionally, slot folders can be mapped to WellIDs).
 
 ---
 
@@ -61,13 +61,18 @@ It follows a clean **MVVM + Hexagonal** architecture: Views are UI‑only; ViewM
 2. Run the GUI:  
    ```bash
    python -m seva.app.main
+   ```
 3. In Settings, set the Pi box IP (default port 8000) and a Results directory; save.
 
 ## Pi Box API (on Raspberry Pi)
 
+```bash
 cd /opt/box
 uvicorn app:app --host 0.0.0.0 --port 8000
+```
+
 ENV (optional): BOX_API_KEY="", BOX_ID="", RUNS_ROOT="/opt/box/runs"
+
 The API exposes health, devices, modes, validation, jobs, and file download endpoints
 
 ### Configuration (short)
@@ -88,12 +93,14 @@ The API exposes health, devices, modes, validation, jobs, and file download endp
 | `GET /jobs/status`                        | Bulk snapshot for multiple runs.                                       |      |                              |
 | `GET /jobs/{run_id}`                      | Single run status; includes computed `progress_pct` and `remaining_s`. |      |                              |
 | `POST /jobs/{run_id}/cancel`              | Cancel a run.                                                          |      |                              |
-| `GET /runs/{run_id}/files                 | file                                                                   | zip` | List/serve/zip result files. |
+| `GET /runs/{run_id}/files`                | List result files.                                                     |      |                              |
+| `GET /runs/{run_id}/file`                 | Download a single result file.                                         |      |                              |
+| `GET /runs/{run_id}/zip`                  | Download all result files as a ZIP archive.                            |      |                              |
 | `POST /admin/rescan`                      | Refresh device registry.                                               |      |                              |
 |                                           |                                                                        |      |                              |
 
 ### Naming & paths (short)
-The GUI creates a group id from (Experiment[__Subdir]__ClientDatetime__rnd4) and passes it to the server. The Pi stores runs under a sanitized folder hierarchy; the GUI mirrors this when 
+The GUI creates a group id from (Experiment[__Subdir]__ClientDatetime__rnd4) and passes it to the server. The Pi stores runs under a sanitized folder hierarchy; the GUI mirrors this when downloading results.
 
 ---
 
@@ -103,7 +110,7 @@ The GUI creates a group id from (Experiment[__Subdir]__ClientDatetime__rnd4) and
   - `seva/` — GUI app (Views/UI only; ViewModels; UseCases; Adapters).  
   - `rest_api/` — FastAPI app for the Pi (deploys to `/opt/box/app.py` on the device).  
 - **Coding standards**  
-  - MVVM + Hexagon; English comments; docstrings; small PRs with tests; no client‑side fallbacks if server validates. :contentReference[oaicite:42]{index=42}
+  - MVVM + Hexagon; English comments; docstrings; small PRs with tests; no client‑side fallbacks if server validates.
 - **Testing**  
   - `pytest -q` from the repo root; mock adapters for UseCases (start/poll/cancel/download).  
 - **Linting**  

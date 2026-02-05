@@ -15,12 +15,12 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
-from ..domain.entities import BoxId, BoxSnapshot, GroupSnapshot, RunStatus, WellId
-from ..domain.runs_registry import RunsRegistry
-from ..domain.snapshot_normalizer import normalize_status
-from ..domain.util import well_id_to_box
-from .status_format import phase_key, phase_label
-from ..domain.device_activity import DeviceActivitySnapshot
+from seva.domain.entities import BoxId, BoxSnapshot, GroupSnapshot, RunStatus, WellId
+from seva.domain.runs_registry import RunsRegistry
+from seva.domain.snapshot_normalizer import normalize_status
+from seva.domain.util import well_id_to_box
+from seva.viewmodels.status_format import phase_key, phase_label
+from seva.domain.device_activity import DeviceActivitySnapshot
 
 # -- top of file / next to the other type aliases:
 WellRow = Tuple[str, str, str, str, Optional[float], str, str, str]

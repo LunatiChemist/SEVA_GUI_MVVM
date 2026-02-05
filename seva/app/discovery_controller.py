@@ -17,10 +17,10 @@ from seva.usecases.discover_and_assign_devices import (
 )
 from seva.viewmodels.settings_vm import SettingsVM
 from seva.domain.ports import StoragePort
-from .views.discovery_results_dialog import DiscoveryResultsDialog
+from seva.app.views.discovery_results_dialog import DiscoveryResultsDialog
 
 if TYPE_CHECKING:  # pragma: no cover
-    from .views.settings_dialog import SettingsDialog
+    from seva.app.views.settings_dialog import SettingsDialog
 
 
 class DiscoveryController:

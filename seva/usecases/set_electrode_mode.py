@@ -7,7 +7,7 @@ consistent UI error presentation.
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
-from ..domain.ports import RelayPort, UseCaseError
+from seva.domain.ports import RelayPort, UseCaseError
 
 
 @dataclass
@@ -45,4 +45,3 @@ class SetElectrodeMode:
             self.relay.set_electrode_mode(mode)
         except Exception as exc:  # pragma: no cover - defensive
             raise UseCaseError("RELAY_SET_MODE_FAILED", str(exc))
-
