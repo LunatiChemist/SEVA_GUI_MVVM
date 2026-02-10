@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Mapping, MutableMapping
 
-from . import ModeParams
+from seva.domain.params import ModeParams
 
 _FLAG_KEYS = (
     "run_cv",

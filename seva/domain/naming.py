@@ -7,7 +7,7 @@ import random
 import re
 import string
 
-from .entities import ClientDateTime, GroupId, PlanMeta
+from seva.domain.entities import ClientDateTime, GroupId, PlanMeta
 
 _SANITIZE_PATTERN = re.compile(r"[^A-Za-z0-9_-]+")
 _RANDOM_ALPHABET = string.ascii_uppercase + string.digits

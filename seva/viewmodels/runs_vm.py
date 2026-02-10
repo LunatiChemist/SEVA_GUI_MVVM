@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from seva.domain.runs_registry import RunEntry, RunsRegistry
-from .status_format import registry_status_label
+from seva.viewmodels.status_format import registry_status_label
 
 
 @dataclass

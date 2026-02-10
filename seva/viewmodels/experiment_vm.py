@@ -19,8 +19,8 @@ Non-goals:
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Mapping, Optional, Set, Iterable
-from ..domain import WellId, ModeName
-from ..domain.modes import ModeRegistry
+from seva.domain import WellId, ModeName
+from seva.domain.modes import ModeRegistry
 
 @dataclass
 class ExperimentVM:
