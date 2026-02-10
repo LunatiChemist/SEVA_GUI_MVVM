@@ -2,6 +2,8 @@
 
 This document captures the end-to-end workflows that GUI code triggers in the REST API.
 
+For installation, environment variables, startup checks, and restart procedures, see **[REST API Setup Tutorial](rest-api-setup.md)**.
+
 ## GUI caller map
 
 - `seva/adapters/device_rest.py` -> discovery and mode metadata endpoints.
