@@ -7,6 +7,14 @@ This documentation is intended for developers working on the SEVA GUI
 
 > Docs track the `main` branch unless otherwise noted.
 
+## Motivation
+
+SEVA exists to keep GUI interactions with hardware workflows and backend APIs
+predictable, testable, and maintainable. The project solves the common problem
+of UI logic drifting into infrastructure details by enforcing clear MVVM +
+Hexagonal boundaries, so workflow orchestration stays in UseCases and adapters
+own external I/O.
+
 ## Start here
 
 If you are new to the project, follow this order:
