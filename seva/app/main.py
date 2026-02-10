@@ -38,47 +38,54 @@ from datetime import datetime
 from tkinter import filedialog
 from typing import Dict, Set, Optional, List, TYPE_CHECKING
 
+if __package__ in (None, ""):
+    # Support direct script execution (e.g., IDE "Run file") by ensuring the
+    # repository root is importable before absolute package imports are used.
+    repo_root = Path(__file__).resolve().parents[2]
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+
 # ---- Views (UI-only) ----
-from .views.main_window import MainWindowView
-from .views.well_grid_view import WellGridView
-from .views.experiment_panel_view import ExperimentPanelView
-from .views.run_overview_view import RunOverviewView
-from .views.channel_activity_view import ChannelActivityView
-from .views.settings_dialog import SettingsDialog
-from .dataplotter_standalone import DataProcessingGUI
-from .discovery_controller import DiscoveryController
-from .settings_controller import SettingsController
-from .download_controller import DownloadController
-from .views.runs_panel_view import RunsPanelView
+from seva.app.views.main_window import MainWindowView
+from seva.app.views.well_grid_view import WellGridView
+from seva.app.views.experiment_panel_view import ExperimentPanelView
+from seva.app.views.run_overview_view import RunOverviewView
+from seva.app.views.channel_activity_view import ChannelActivityView
+from seva.app.views.settings_dialog import SettingsDialog
+from seva.app.dataplotter_standalone import DataProcessingGUI
+from seva.app.discovery_controller import DiscoveryController
+from seva.app.settings_controller import SettingsController
+from seva.app.download_controller import DownloadController
+from seva.app.views.runs_panel_view import RunsPanelView
 
 # ---- ViewModels ----
-from ..viewmodels.plate_vm import PlateVM
-from ..viewmodels.experiment_vm import ExperimentVM
-from ..viewmodels.progress_vm import ProgressVM
-from ..viewmodels.settings_vm import SettingsVM, BOX_IDS
-from ..viewmodels.live_data_vm import LiveDataVM
-from ..viewmodels.runs_vm import RunsVM
+from seva.viewmodels.plate_vm import PlateVM
+from seva.viewmodels.experiment_vm import ExperimentVM
+from seva.viewmodels.progress_vm import ProgressVM
+from seva.viewmodels.settings_vm import SettingsVM, BOX_IDS
+from seva.viewmodels.live_data_vm import LiveDataVM
+from seva.viewmodels.runs_vm import RunsVM
 
 # ---- UseCases & Adapter ----
-from .run_flow_presenter import RunFlowPresenter
-from ..adapters.storage_local import StorageLocal
-from ..adapters.discovery_http import HttpDiscoveryAdapter
-from ..adapters.relay_mock import RelayMock
-from ..usecases.save_plate_layout import SavePlateLayout
-from ..usecases.load_plate_layout import LoadPlateLayout
-from ..usecases.build_experiment_plan import BuildExperimentPlan
-from ..usecases.build_storage_meta import BuildStorageMeta
-from ..domain.runs_registry import RunsRegistry
-from ..domain.ports import UseCaseError
-from ..usecases.test_relay import TestRelay
-from ..usecases.set_electrode_mode import SetElectrodeMode
-from ..usecases.discover_devices import DiscoverDevices, MergeDiscoveredIntoRegistry
-from ..usecases.discover_and_assign_devices import DiscoverAndAssignDevices
-from ..utils import logging as logging_utils
-from .controller import AppController
+from seva.app.run_flow_presenter import RunFlowPresenter
+from seva.adapters.storage_local import StorageLocal
+from seva.adapters.discovery_http import HttpDiscoveryAdapter
+from seva.adapters.relay_mock import RelayMock
+from seva.usecases.save_plate_layout import SavePlateLayout
+from seva.usecases.load_plate_layout import LoadPlateLayout
+from seva.usecases.build_experiment_plan import BuildExperimentPlan
+from seva.usecases.build_storage_meta import BuildStorageMeta
+from seva.domain.runs_registry import RunsRegistry
+from seva.domain.ports import UseCaseError
+from seva.usecases.test_relay import TestRelay
+from seva.usecases.set_electrode_mode import SetElectrodeMode
+from seva.usecases.discover_devices import DiscoverDevices, MergeDiscoveredIntoRegistry
+from seva.usecases.discover_and_assign_devices import DiscoverAndAssignDevices
+from seva.utils import logging as logging_utils
+from seva.app.controller import AppController
 
 if TYPE_CHECKING:
-    from ..usecases.cancel_runs import CancelRuns
+    from seva.usecases.cancel_runs import CancelRuns
 
 logging_utils.configure_root()
 
