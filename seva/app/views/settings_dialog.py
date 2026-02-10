@@ -440,5 +440,48 @@ class SettingsDialog(tk.Toplevel):
 
 if __name__ == "__main__":
     root = tk.Tk()
-    dialog = SettingsDialog(root)
+    root.title("SettingsDialog Demo Host")
+    root.geometry("900x700")
+
+    dialog = SettingsDialog(
+        root,
+        on_test_connection=lambda box: print(f"[demo] test connection for box {box}"),
+        on_test_relay=lambda: print("[demo] test relay"),
+        on_browse_results_dir=lambda: print("[demo] browse results dir"),
+        on_browse_firmware=lambda: print("[demo] browse firmware"),
+        on_discover_devices=lambda: print("[demo] discover devices"),
+        on_open_nas_setup=lambda: print("[demo] open NAS setup"),
+        on_save=lambda payload: print(f"[demo] save payload with {len(payload)} keys"),
+        on_flash_firmware=lambda: print("[demo] flash firmware"),
+        on_close=lambda: print("[demo] close dialog"),
+    )
+
+    dialog.set_api_base_urls(
+        {
+            "A": "http://10.0.10.21:8000/api/v1",
+            "B": "http://10.0.10.22:8000/api/v1",
+            "C": "http://10.0.10.23:8000/api/v1",
+            "D": "http://10.0.10.24:8000/api/v1",
+        }
+    )
+    dialog.set_api_keys(
+        {
+            "A": "sk_live_demo_box_a",
+            "B": "sk_live_demo_box_b",
+            "C": "sk_live_demo_box_c",
+            "D": "sk_live_demo_box_d",
+        }
+    )
+    dialog.set_timeouts(request_s=12, download_s=180)
+    dialog.set_poll_interval(750)
+    dialog.set_poll_backoff_max(5000)
+    dialog.set_results_dir("/data/seva/results")
+    dialog.set_experiment_name("CO2RR_CuFoam_Screening")
+    dialog.set_subdir("2026-02-10_batch-A")
+    dialog.set_auto_download(True)
+    dialog.set_use_streaming(True)
+    dialog.set_debug_logging(False)
+    dialog.set_relay_config(ip="10.0.10.40", port=502)
+    dialog.set_firmware_path("/opt/seva/firmware/potentiostat_v2.3.1.bin")
+
     dialog.mainloop()
