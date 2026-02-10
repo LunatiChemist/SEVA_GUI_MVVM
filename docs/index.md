@@ -7,6 +7,27 @@ This documentation is intended for developers working on the SEVA GUI
 
 > Docs track the `main` branch unless otherwise noted.
 
+## Motivation
+
+SEVA was created because the previous GUI was difficult to extend and even
+harder to migrate when device communication changed. Once control moved to
+network-based pyBEEP integration, the UI needed to work reliably with a REST
+API boundary, but the old structure mixed concerns too much to support that
+shift cleanly.
+
+The core goal of this project is pragmatic maintainability: new features should
+be added without rewriting unrelated UI code, and infrastructure changes should
+not force architecture-wide refactors. MVVM + Hexagonal boundaries make that
+possible by keeping Views and ViewModels focused on UI state, moving workflow
+orchestration into UseCases, and isolating all external I/O in adapters.
+
+This also improves diversification and long-term evolution. Through ports and
+adapters, transport/back-end integrations can be swapped more safely (for
+example REST-based integration vs. legacy AMETEK-style paths) while preserving
+GUI workflows. In run execution, server-reported state remains the single source
+of truth for status/progress, which avoids fragile client-side assumptions and
+keeps behavior testable at the use-case boundary.
+
 ## Start here
 
 If you are new to the project, follow this order:
