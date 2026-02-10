@@ -126,28 +126,31 @@ class DiscoveryResultsDialog(tk.Toplevel):
         self.destroy()
 
 demo_rows = [
-        {
-            "base_url": "http://192.168.1.10",
-            "box_id": "SEVA-001",
-            "devices": ["thermostat", "sensor-1"],
-            "api_version": "v1.2.0",
-            "build": "2025-10-10",
-        },
-        {
-            "base_url": "http://192.168.1.11",
-            "box_id": "SEVA-002",
-            "devices": ["light", "sensor-2"],
-            "api_version": "v1.1.5",
-            "build": "2025-09-22",
-        },
-        # An entry with missing fields (test how your dialog handles it)
-        {
-            "base_url": "http://10.0.0.5",
-            "devices": [],
-        },
-        # You can also pass an empty list to see the placeholder row:
-        # {}
-    ]
+    {
+        "base_url": "http://192.168.1.10",
+        "box_id": "SEVA-001",
+        "devices": ["10"],
+        "api_version": "v1.2.0",
+        "build": "2025-10-10",
+    },
+    {
+        "base_url": "http://192.168.1.18",
+        "box_id": "SEVA-002",
+        "devices": ["10"],
+        "api_version": "v1.1.5",
+        "build": "2025-09-22",
+    },
+    # An entry with missing fields (test how your dialog handles it)
+    {
+        "base_url": "http://192.168.1.98",
+        "devices": ["10"],
+        "box_id": "SEVA-003",
+        "api_version": "v1.2.0",
+        "build": "2025-10-10",
+    },
+    # You can also pass an empty list to see the placeholder row:
+    # {}
+]
 
 if __name__ == "__main__":
     root = tk.Tk()

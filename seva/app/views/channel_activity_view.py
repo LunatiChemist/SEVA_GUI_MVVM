@@ -155,7 +155,7 @@ class ChannelActivityView(ttk.Frame):
 
 if __name__ == "__main__":
     root = tk.Tk()
-    v = ChannelActivityView(root, boxes=("A","B"))
+    v = ChannelActivityView(root, boxes=("A","B","C","D"))
     v.pack(fill="both", expand=True)
     v.set_activity({"B11":"Running", "A2":"Error", "B10":"Done"})
     v.set_updated_at("12:03:15")

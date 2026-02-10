@@ -202,31 +202,31 @@ if __name__ == "__main__":
     panel.set_rows(
         [
             _DemoRunRow(
-                group_id="rg-2026-02-10-001",
-                name="Ni foam CO2RR screening",
-                status="running",
+                group_id="LDP-001-TestCompliance-20260210-091410-Z8OR",
+                name="LDP-001",
+                status="Running",
                 progress="62%",
-                boxes="A,B",
+                boxes="A,B,D",
                 started_at="2026-02-10 09:14",
-                download_path="/data/seva/runs/rg-2026-02-10-001",
-            ),
-            _DemoRunRow(
-                group_id="rg-2026-02-09-003",
-                name="HER stability long run",
-                status="completed",
-                progress="100%",
-                boxes="C",
-                started_at="2026-02-09 16:40",
-                download_path="/data/seva/runs/rg-2026-02-09-003",
-            ),
-            _DemoRunRow(
-                group_id="rg-2026-02-08-002",
-                name="EIS baseline check",
-                status="failed",
-                progress="37%",
-                boxes="D",
-                started_at="2026-02-08 11:05",
                 download_path="",
+            ),
+            _DemoRunRow(
+                group_id="LDP-001-TestCapacitance-20260210-091514-EFPO",
+                name="LDP-001",
+                status="Cancelled",
+                progress="58%",
+                boxes="C,D",
+                started_at="2026-02-10 09:15",
+                download_path="",
+            ),
+            _DemoRunRow(
+                group_id="LDP-002-TestCapacitance-20260210-110554-F3D0",
+                name="LDP-002",
+                status="Done (Downloaded)",
+                progress="100%",
+                boxes="C,D",
+                started_at="2026-02-08 11:05",
+                download_path=r"C:\Users\User\Downloads\LDP\LDP-002\2026-02-08_11-05-54",
             ),
         ]
     )

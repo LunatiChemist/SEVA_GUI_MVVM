@@ -303,7 +303,26 @@ if __name__ == "__main__":
     )
     grid.pack(fill="both", expand=True)
 
-    grid.set_configured_wells({"A1", "A2", "A5", "B11", "B13", "C23", "D36"})
+    grid.set_configured_wells(
+        {
+            "A1",
+            "A2",
+            "A3",
+            "A4",
+            "A5",
+            "A6",
+            "A7",
+            "A8",
+            "A9",
+            "A10",
+            "B11",
+            "B12",
+            "B13",
+            "B14",
+            "C23",
+            "D36",
+        }
+    )
     grid.set_selection({"A2", "B11", "C23"})
 
     root.mainloop()

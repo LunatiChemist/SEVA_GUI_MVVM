@@ -458,30 +458,30 @@ if __name__ == "__main__":
 
     dialog.set_api_base_urls(
         {
-            "A": "http://10.0.10.21:8000/api/v1",
-            "B": "http://10.0.10.22:8000/api/v1",
-            "C": "http://10.0.10.23:8000/api/v1",
-            "D": "http://10.0.10.24:8000/api/v1",
+            "A": "http://192.168.1.10:8000/",
+            "B": "http://192.168.1.18:8000/",
+            "C": "http://192.168.1.98:8000/",
+            "D": "http://192.168.1.75:8000/",
         }
     )
     dialog.set_api_keys(
         {
-            "A": "sk_live_demo_box_a",
-            "B": "sk_live_demo_box_b",
-            "C": "sk_live_demo_box_c",
-            "D": "sk_live_demo_box_d",
+            "A": "12598",
+            "B": "12598",
+            "C": "12598",
+            "D": "12598",
         }
     )
     dialog.set_timeouts(request_s=12, download_s=180)
     dialog.set_poll_interval(750)
     dialog.set_poll_backoff_max(5000)
-    dialog.set_results_dir("/data/seva/results")
-    dialog.set_experiment_name("CO2RR_CuFoam_Screening")
-    dialog.set_subdir("2026-02-10_batch-A")
+    dialog.set_results_dir(r"C:\Users\User\Downloads\LDP")
+    dialog.set_experiment_name("LDP-001")
+    dialog.set_subdir("TestCapacitance")
     dialog.set_auto_download(True)
     dialog.set_use_streaming(True)
     dialog.set_debug_logging(False)
     dialog.set_relay_config(ip="10.0.10.40", port=502)
-    dialog.set_firmware_path("/opt/seva/firmware/potentiostat_v2.3.1.bin")
+    dialog.set_firmware_path(r"C:\Users\User\Downloads\potentiostat_v2.3.1.bin")
 
     dialog.mainloop()
