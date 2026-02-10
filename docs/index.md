@@ -35,9 +35,10 @@ If you are new to the project, follow this order:
 1. Read **What is this repo?** (below) to understand the scope.
 2. Set up your environment in **[Development Setup](dev-setup.md)**.
 3. Review the **[Architecture Overview](architecture_overview.md)** to learn the MVVM + Hexagonal boundaries.
-4. Explore the **[SEVA GUI workflows](workflows_seva.md)** and **[REST API workflows](workflows_rest_api.md)**.
-5. Use **[Troubleshooting](troubleshooting.md)** and the **[Glossary](glossary.md)** when you get stuck.
-6. Review the **[ChatGPT Codex Guide](codex_guide.md)** for AI-assisted changes.
+4. Work through the **[MVVM + Hexagonal Tutorial Notebooks](mvvm_tutorial_notebooks.md)** for a guided architecture walkthrough.
+5. Explore the **[SEVA GUI workflows](workflows_seva.md)** and **[REST API workflows](workflows_rest_api.md)**.
+6. Use **[Troubleshooting](troubleshooting.md)** and the **[Glossary](glossary.md)** when you get stuck.
+7. Review the **[ChatGPT Codex Guide](codex_guide.md)** for AI-assisted changes.
 
 ### What is this repo?
 
@@ -79,8 +80,9 @@ Follow this order for a linear tour through the docs:
 
 1. **[Development Setup](dev-setup.md)** (local environment + run GUI/API)
 2. **[Architecture Overview](architecture_overview.md)** (MVVM + Hexagonal boundaries)
-3. **[SEVA GUI workflows](workflows_seva.md)**
-4. **[REST API workflows](workflows_rest_api.md)**
-5. **[Troubleshooting](troubleshooting.md)**
-6. **[Glossary](glossary.md)**
-7. **[ChatGPT Codex Guide](codex_guide.md)**
+3. **[MVVM + Hexagonal Tutorial Notebooks](mvvm_tutorial_notebooks.md)**
+4. **[SEVA GUI workflows](workflows_seva.md)**
+5. **[REST API workflows](workflows_rest_api.md)**
+6. **[Troubleshooting](troubleshooting.md)**
+7. **[Glossary](glossary.md)**
+8. **[ChatGPT Codex Guide](codex_guide.md)**

@@ -36,6 +36,7 @@ nav:
   - Home: index.md
   - Development Setup: dev-setup.md
   - Architecture Overview: architecture_overview.md
+  - MVVM + Hexagonal Tutorial Notebooks: mvvm_tutorial_notebooks.md
   - SEVA GUI Workflows: workflows_seva.md
   - SEVA GUI Classes & Modules: classes_seva.md
   - REST API Workflows: workflows_rest_api.md
