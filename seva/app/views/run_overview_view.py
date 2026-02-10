@@ -202,7 +202,7 @@ class RunOverviewView(ttk.Frame):
             return
         item = self.table.item(sel[0])
         vals = item.get("values") or []
-        full_err = vals[4] if len(vals) > 4 else ""
+        full_err = vals[6] if len(vals) > 6 else ""
         if not full_err:
             return
 
@@ -238,9 +238,9 @@ if __name__ == "__main__":
     view.set_box_status("A", phase="Running", progress_pct=42, sub_run_id="runA-123")
     view.set_box_status("B", phase="Queued", progress_pct=0, sub_run_id=None)
     rows = [
-        ("A1","Running",40,3,"","runA-123"),
-        ("A2","Error",10,0,"Overvoltage","runA-123"),
-        ("B1","Queued",0,None,"",""),
+        ("A1", "Running", "PCR", "CoolDown", 40, "00:12:00", "", "runA-123"),
+        ("A2", "Error", "PCR", "", 10, "00:27:30", "Overvoltage detected at cycle 4", "runA-123"),
+        ("B1", "Queued", "", "PCR→MeltCurve", 0, "—", "", ""),
     ]
     view.set_well_rows(rows)
     root.mainloop()
