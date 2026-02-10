@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 
-from ..domain.util import well_id_to_box
+from seva.domain.util import well_id_to_box
 
 WellId = str  # e.g., "A1"
 BoxId = str   # e.g., "A"

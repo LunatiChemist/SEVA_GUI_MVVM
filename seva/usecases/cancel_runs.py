@@ -9,8 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Set
 
-from ..domain.ports import JobPort
-from ..usecases.error_mapping import map_api_error
+from seva.domain.ports import JobPort
+from seva.usecases.error_mapping import map_api_error
 
 
 @dataclass

@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, Mapping, Optional
 
-from .entities import (
+from seva.domain.entities import (
     ClientDateTime,
     ExperimentPlan,
     ModeName,
@@ -15,8 +15,8 @@ from .entities import (
     WellPlan,
     GroupId,
 )
-from .naming import make_group_id_from_parts
-from .params import CVParams, ModeParams
+from seva.domain.naming import make_group_id_from_parts
+from seva.domain.params import CVParams, ModeParams
 
 _MODE_BUILDERS: Dict[str, type[ModeParams]] = {
     "CV": CVParams,

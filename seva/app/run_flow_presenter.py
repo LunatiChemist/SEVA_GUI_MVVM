@@ -44,8 +44,8 @@ from seva.viewmodels.runs_vm import RunsVM
 from seva.viewmodels.settings_vm import SettingsVM
 from seva.app.polling_scheduler import PollingScheduler
 
-from .controller import AppController
-from ..adapters.storage_local import StorageLocal
+from seva.app.controller import AppController
+from seva.adapters.storage_local import StorageLocal
 
 
 @dataclass

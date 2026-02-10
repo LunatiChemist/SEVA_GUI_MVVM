@@ -13,10 +13,10 @@ import zipfile
 from dataclasses import dataclass
 from typing import Dict, Iterable, Mapping, Optional, Tuple
 
-from ..domain.mapping import normalize_slot_registry, resolve_well_id
-from ..domain.ports import JobPort, RunGroupId, UseCaseError
-from ..usecases.error_mapping import map_api_error
-from ..domain.storage_meta import StorageMeta
+from seva.domain.mapping import normalize_slot_registry, resolve_well_id
+from seva.domain.ports import JobPort, RunGroupId, UseCaseError
+from seva.usecases.error_mapping import map_api_error
+from seva.domain.storage_meta import StorageMeta
 
 
 CleanupMode = str

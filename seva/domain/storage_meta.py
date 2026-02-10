@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Mapping, Optional
 
-from .time_utils import parse_client_datetime
+from seva.domain.time_utils import parse_client_datetime
 
 
 @dataclass(frozen=True)

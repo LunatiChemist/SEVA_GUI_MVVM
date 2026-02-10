@@ -21,7 +21,7 @@ import requests
 from seva.domain.mapping import extract_device_entries
 from seva.domain.ports import BoxId, DevicePort
 
-from .api_errors import (
+from seva.adapters.api_errors import (
     ApiClientError,
     ApiError,
     ApiServerError,
@@ -30,7 +30,7 @@ from .api_errors import (
     extract_error_hint,
     parse_error_payload,
 )
-from .http_client import HttpConfig, RetryingSession
+from seva.adapters.http_client import HttpConfig, RetryingSession
 
 
 class DeviceRestAdapter(DevicePort):

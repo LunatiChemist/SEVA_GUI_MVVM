@@ -6,7 +6,7 @@ error codes for UI display.
 
 from __future__ import annotations
 from dataclasses import dataclass
-from ..domain.ports import RelayPort, UseCaseError
+from seva.domain.ports import RelayPort, UseCaseError
 
 
 @dataclass
