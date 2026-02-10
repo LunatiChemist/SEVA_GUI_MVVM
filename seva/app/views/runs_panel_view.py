@@ -172,3 +172,64 @@ class RunsPanelView(ttk.Frame):
 
 
 __all__ = ["RunsPanelView"]
+
+
+if __name__ == "__main__":
+    from dataclasses import dataclass
+
+    @dataclass
+    class _DemoRunRow:
+        group_id: str
+        name: str
+        status: str
+        progress: str
+        boxes: str
+        started_at: str
+        download_path: str
+
+    root = tk.Tk()
+    root.title("RunsPanelView Demo")
+    root.geometry("1180x420")
+
+    panel = RunsPanelView(root)
+    panel.pack(fill="both", expand=True)
+
+    panel.on_open = lambda gid: print(f"[demo] open folder for {gid}")
+    panel.on_cancel = lambda gid: print(f"[demo] cancel requested for {gid}")
+    panel.on_delete = lambda gid: print(f"[demo] delete requested for {gid}")
+    panel.on_select = lambda gid: print(f"[demo] selected {gid}")
+
+    panel.set_rows(
+        [
+            _DemoRunRow(
+                group_id="rg-2026-02-10-001",
+                name="Ni foam CO2RR screening",
+                status="running",
+                progress="62%",
+                boxes="A,B",
+                started_at="2026-02-10 09:14",
+                download_path="/data/seva/runs/rg-2026-02-10-001",
+            ),
+            _DemoRunRow(
+                group_id="rg-2026-02-09-003",
+                name="HER stability long run",
+                status="completed",
+                progress="100%",
+                boxes="C",
+                started_at="2026-02-09 16:40",
+                download_path="/data/seva/runs/rg-2026-02-09-003",
+            ),
+            _DemoRunRow(
+                group_id="rg-2026-02-08-002",
+                name="EIS baseline check",
+                status="failed",
+                progress="37%",
+                boxes="D",
+                started_at="2026-02-08 11:05",
+                download_path="",
+            ),
+        ]
+    )
+    panel.select_group("rg-2026-02-10-001")
+
+    root.mainloop()

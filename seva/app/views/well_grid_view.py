@@ -287,6 +287,23 @@ class WellGridView(ttk.Frame):
     # ------------------------------------------------------------------
 if __name__ == "__main__":
     root = tk.Tk()
-    grid = WellGridView(root, boxes=("A", "B", "C","D","E","F"))
+    root.title("WellGridView Demo")
+    root.geometry("980x520")
+
+    grid = WellGridView(
+        root,
+        boxes=("A", "B", "C", "D"),
+        on_select_wells=lambda wells: print(f"[demo] selected wells: {sorted(wells)}"),
+        on_toggle_enable_selected=lambda: print("[demo] toggle enable for selected wells"),
+        on_copy_params_from=lambda well: print(f"[demo] copy params from {well}"),
+        on_paste_params_to_selection=lambda: print("[demo] paste params to selection"),
+        on_reset_selected=lambda: print("[demo] reset selected wells"),
+        on_reset_all=lambda: print("[demo] reset all wells"),
+        on_open_plot=lambda well: print(f"[demo] open plot for {well}"),
+    )
     grid.pack(fill="both", expand=True)
+
+    grid.set_configured_wells({"A1", "A2", "A5", "B11", "B13", "C23", "D36"})
+    grid.set_selection({"A2", "B11", "C23"})
+
     root.mainloop()

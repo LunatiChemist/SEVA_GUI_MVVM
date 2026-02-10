@@ -352,3 +352,65 @@ class ExperimentPanelView(ttk.Frame):
             var.set("")
         for var in self._flag_vars.values():
             var.set(False)
+
+
+if __name__ == "__main__":
+    def _log_change(field_id: str, value: str) -> None:
+        print(f"[demo] field changed: {field_id}={value}")
+
+    def _log_action(name: str):
+        return lambda: print(f"[demo] action: {name}")
+
+    root = tk.Tk()
+    root.title("ExperimentPanelView Demo")
+    root.geometry("980x720")
+
+    view = ExperimentPanelView(
+        root,
+        on_change=_log_change,
+        on_toggle_control_mode=_log_action("toggle_control_mode"),
+        on_apply_params=_log_action("apply_params"),
+        on_end_task=_log_action("end_task"),
+        on_end_selection=_log_action("end_selection"),
+        on_copy_cv=_log_action("copy_cv"),
+        on_paste_cv=_log_action("paste_cv"),
+        on_copy_dcac=_log_action("copy_dcac"),
+        on_paste_dcac=_log_action("paste_dcac"),
+        on_copy_cdl=_log_action("copy_cdl"),
+        on_paste_cdl=_log_action("paste_cdl"),
+        on_copy_eis=_log_action("copy_eis"),
+        on_paste_eis=_log_action("paste_eis"),
+        on_electrode_mode_changed=lambda mode: print(f"[demo] electrode mode: {mode}"),
+    )
+    view.pack(fill="both", expand=True)
+
+    view.set_editing_well("B14")
+    view.set_electrode_mode("2E")
+    view.set_fields(
+        {
+            "run_cv": True,
+            "cv.vertex1_v": "0.95",
+            "cv.vertex2_v": "-0.20",
+            "cv.final_v": "0.10",
+            "cv.scan_rate_v_s": "0.05",
+            "cv.cycles": "3",
+            "run_dc": True,
+            "run_ac": False,
+            "ea.duration_s": "1800",
+            "ea.charge_cutoff_c": "1.2",
+            "ea.voltage_cutoff_v": "2.4",
+            "ea.frequency_hz": "50",
+            "control_mode": "current (mA)",
+            "ea.target": "12.5",
+            "eval_cdl": True,
+            "cdl.vertex_a_v": "0.10",
+            "cdl.vertex_b_v": "0.30",
+            "run_eis": True,
+            "eis.freq_start_hz": "100000",
+            "eis.freq_end_hz": "0.5",
+            "eis.points": "45",
+            "eis.spacing": "log",
+        }
+    )
+
+    root.mainloop()

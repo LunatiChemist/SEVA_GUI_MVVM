@@ -351,7 +351,19 @@ class MainWindowView(tk.Tk):
     # ------------------------------------------------------------------
 
 if __name__ == "__main__":
-    # Minimal manual preview (no real callbacks wired). This block can be removed
-    # in production; it is useful during early UI iteration.
-    win = MainWindowView()
+    # Manual preview with visible demo state; regular defaults stay unchanged.
+    win = MainWindowView(
+        on_submit=lambda: print("[demo] Start clicked"),
+        on_cancel_group=lambda: print("[demo] Cancel Group clicked"),
+        on_save_layout=lambda: print("[demo] Save Layout clicked"),
+        on_load_layout=lambda: print("[demo] Load Layout clicked"),
+        on_open_settings=lambda: print("[demo] Settings clicked"),
+        on_open_data_plotter=lambda: print("[demo] Data Plotter clicked"),
+    )
+    win.set_run_group_id("rg-2026-02-10-001")
+    win.set_relay_status("A", "Connected")
+    win.set_relay_status("B", "Timeout")
+    win.set_relay_status("C", "Connected")
+    win.set_status_message("Demo: Run active on 2/3 boxes, polling every 750 ms.")
+    win.show_toast("Demo ready: toolbar callbacks print to console.")
     win.mainloop()
