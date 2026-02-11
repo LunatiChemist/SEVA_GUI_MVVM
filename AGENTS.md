@@ -43,6 +43,13 @@ This file contains working agreements (guardrails) for coding agents (e.g., Code
 
 - If a dependency is pulled via Git URL or otherwise non-reproducible offline, document and support a vendor/offline workflow.
 
+### Documentation and code comments
+
+- Inline comments are important and should be used where they improve readability or explain non-obvious decisions.
+- For larger or more complex methods/functions, add docstrings to document intent, inputs/outputs, and important behavior.
+- Check the `/docs` directory for clearer architecture and implementation guidance before making broader changes.
+- Update files in `/docs` only when your change explicitly relates to documented behavior, architecture, workflows, or decisions; unrelated code changes do not require `/docs` updates.
+
 ---
 
 ## ExecPlans
