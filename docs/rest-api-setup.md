@@ -8,7 +8,7 @@ Use this page if you want to:
 - install a fresh REST API environment,
 - configure runtime variables safely,
 - run health checks before connecting the GUI,
-- and restart the API cleanly after changes.
+- and run the API as a persistent systemd autostart service.
 
 ## 1) Platform and prerequisites
 
@@ -52,7 +52,7 @@ The API reads configuration from environment variables at startup.
   default `/opt/box/nas_smb.json`.
 - `BOX_BUILD` / `BOX_BUILD_ID` (optional): build metadata for `/version`.
 
-Example:
+### A) Variables for interactive terminal runs
 
 ```bash
 export BOX_API_KEY="change-me"
@@ -61,7 +61,27 @@ export RUNS_ROOT="/opt/box/runs"
 export NAS_CONFIG_PATH="/opt/box/nas_smb.json"
 ```
 
-## 4) Start the REST API
+### B) Variables for systemd service runs (recommended)
+
+Create an environment file that systemd can load:
+
+```bash
+sudo install -d -m 0755 /etc/seva
+sudo tee /etc/seva/box-api.env >/dev/null <<'ENV'
+BOX_API_KEY=change-me
+BOX_ID=lab-box-01
+RUNS_ROOT=/opt/box/runs
+NAS_CONFIG_PATH=/opt/box/nas_smb.json
+BOX_BUILD=dev
+BOX_BUILD_ID=local
+ENV
+sudo chmod 600 /etc/seva/box-api.env
+```
+
+`EnvironmentFile=` is the most reliable way to “send” environment variables to
+systemd-managed services.
+
+## 4) Start the REST API manually (foreground)
 
 Run from the REST API directory:
 
@@ -74,7 +94,63 @@ Interactive OpenAPI docs are available at:
 
 - `http://<host>:8000/docs`
 
-## 5) Smoke test after startup
+## 5) Configure systemd autostart service
+
+If you want the API to survive reboot and run automatically, create a systemd
+unit.
+
+### A) Create service file
+
+```bash
+sudo tee /etc/systemd/system/pybeep-box.service >/dev/null <<'UNIT'
+[Unit]
+Description=SEVA / pyBEEP Box REST API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/opt/box/rest_api
+EnvironmentFile=/etc/seva/box-api.env
+ExecStart=/opt/box/.venv/bin/uvicorn app:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+```
+
+Adjust `User`, `Group`, `WorkingDirectory`, and `ExecStart` paths to match your
+installation.
+
+### B) Enable and start autostart
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable pybeep-box.service
+sudo systemctl start pybeep-box.service
+```
+
+### C) Verify and inspect logs
+
+```bash
+sudo systemctl status pybeep-box.service --no-pager
+sudo journalctl -u pybeep-box.service -f
+```
+
+### D) Update environment variables later
+
+After editing `/etc/seva/box-api.env`, reload and restart:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart pybeep-box.service
+```
+
+## 6) Smoke test after startup
 
 Use these checks before connecting the GUI.
 
@@ -94,7 +170,14 @@ curl -H "X-API-Key: $BOX_API_KEY" http://localhost:8000/devices
 curl -H "X-API-Key: $BOX_API_KEY" http://localhost:8000/modes
 ```
 
-## 6) Restarting the REST API
+If you use systemd with `EnvironmentFile=`, your shell may not have
+`$BOX_API_KEY`. In that case, send the key explicitly:
+
+```bash
+curl -H "X-API-Key: change-me" http://localhost:8000/health
+```
+
+## 7) Restarting the REST API
 
 ### A) If running in a terminal
 
@@ -120,7 +203,7 @@ Optional live logs:
 sudo journalctl -u pybeep-box.service -f
 ```
 
-## 7) Optional NAS/SMB setup check (Linux)
+## 8) Optional NAS/SMB setup check (Linux)
 
 Configure once:
 
@@ -144,7 +227,7 @@ Check connectivity:
 curl -H "X-API-Key: $BOX_API_KEY" http://localhost:8000/nas/health
 ```
 
-## 8) Related docs
+## 9) Related docs
 
 - [Development Setup](dev-setup.md) for overall GUI + API onboarding.
 - [REST API Workflows](workflows_rest_api.md) for end-to-end request flows.
