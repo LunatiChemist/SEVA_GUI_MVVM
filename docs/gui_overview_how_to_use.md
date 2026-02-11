@@ -49,6 +49,8 @@ Open **Settings** from the toolbar.
 - Use **Test** per box to verify connectivity.
 - Use **Scan Network** to discover available devices automatically.
 
+**Feature detail:** discovery is not a blind scan only. The app uses your configured box URLs as discovery candidates and also derives subnet hints (for example `/24`) from those URLs, then deduplicates the candidate list before scanning.
+
 ### Relay box
 
 - Configure relay controller **IP** and **Port**.
@@ -80,6 +82,8 @@ Open **Settings** from the toolbar.
 
 Finish by pressing **Save**.
 
+**Feature detail:** saving settings performs validation first. The selected Results directory must exist and be writable, and the app shows an HTTPS warning dialog if box URLs use `https://` in environments that commonly run HTTP-only backend endpoints.
+
 ---
 
 ## 3) Optional: discover devices from the network
@@ -102,6 +106,11 @@ Use the well grid to choose which channels/wells should run.
 
 - **Reset Well Config**: clears configuration for the currently selected well(s).
 - **Reset all Wells**: clears the full plate configuration.
+
+**Feature detail:** the grid supports several interaction patterns.
+- Single click selects one well.
+- Shift+click toggles multi-selection.
+- Right-click opens a context menu with copy/paste/reset/enable-toggle/open-PNG actions for fast editing flows.
 
 ### 4.2 Set experiment parameters
 
@@ -142,6 +151,8 @@ Use **Run Overview** to monitor active progress and status.
 - Table shows per-well information (phase, mode, progress, remaining time, last error, sub-run ID).
 - **Download Group** triggers a full group results download.
 
+**Feature detail:** if a row contains a long error message, double-click that row to open a full error dialog and copy the text (useful for support/tickets).
+
 ### 5.3 Channel Activity tab
 
 Use **Channel Activity** for quick channel-state visibility.
@@ -167,6 +178,11 @@ In the **Runs** tab, manage existing run groups.
 - **Open Folder**: opens the selected run group directory.
 - **Cancel**: requests cancel for selected running group.
 - **Delete**: removes selected row(s) from the list/history view.
+
+**Feature detail:**
+- Action buttons are enabled only when a row is selected.
+- Cancel/Delete actions include confirmation dialogs in active-run cases.
+- This tab is intended for post-start run lifecycle management (open, cancel, remove history entries).
 
 Table columns include group ID, name, status, progress, boxes, start time, and download path.
 
