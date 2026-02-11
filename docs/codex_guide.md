@@ -102,7 +102,7 @@ Recommended approach:
 - run multiple plan-review cycles before coding,
 - ask Codex to ask questions and challenge assumptions,
 - for larger refactors, optionally reference `.agent/PLANS.md`,
-- update affected documentation in `docs/` when behavior, workflows, or interfaces change.
+- ask to update affected documentation in `docs/` when behavior, workflows, or interfaces change.
 
 Important experience-based guidance:
 
@@ -130,7 +130,7 @@ If requirements are vague, use planning iterations to converge:
 
 If requirements are clear, provide explicit implementation guidance (layer ownership, contracts, validation).
 
-For feature work, keep documentation in `docs/` up to date whenever user-facing behavior, workflows, setup steps, or interfaces are changed.
+For feature work, keep documentation in `docs/` up to date whenever user-facing behavior, workflows, setup steps, or interfaces are changed. Use the same Chat to keep context.
 
 Global simplicity rule for feature work and refactors:
 
