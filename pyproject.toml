@@ -9,7 +9,7 @@ description = "SEVA GUI MVVM — Electrochemistry client and Raspberry Pi Box AP
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "SEVA Team" }]
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10"
 keywords = ["electrochemistry", "mvvm", "fastapi", "tkinter", "pyBEEP"]
 dependencies = [
   "requests",
