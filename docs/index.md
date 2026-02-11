@@ -67,15 +67,17 @@ Use this quick guide when deciding where a change should live:
 
 ## Scope
 
-This documentation focuses on:
+This documentation set contains two tracks:
 
-- application architecture
-- workflows and control flow
-- responsibilities of major modules
+- **Developer docs** (architecture, setup, workflows, module responsibilities)
+- **User guide docs** (GUI operation walkthroughs)
 
-It does **not** document UI usage for end users.
+The primary focus remains developer-oriented material for contributors working
+inside `seva/` and `rest_api/`.
 
 ## Documentation map
+
+### Developer track
 
 Follow this order for a linear tour through the docs:
 
@@ -88,3 +90,7 @@ Follow this order for a linear tour through the docs:
 7. **[Troubleshooting](troubleshooting.md)**
 8. **[Glossary](glossary.md)**
 9. **[ChatGPT Codex Guide](codex_guide.md)**
+
+### User guide track
+
+- **[GUI Overview & How to Use](gui_overview_how_to_use.md)**

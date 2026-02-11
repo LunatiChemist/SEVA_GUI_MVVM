@@ -72,7 +72,7 @@ Open **Settings** from the toolbar.
 ### Flags
 
 - **Auto-download results on completion**: downloads automatically when all runs finish.
-- **Use streaming (SSE/WebSocket)**: prefers streaming updates when available.
+- **Use streaming (SSE/WebSocket)**: reserved toggle for streaming-capable deployments; default production run monitoring remains polling-based.
 - **Enable debug logging**: increases log detail for diagnostics.
 
 Finish by pressing **Save**.

@@ -15,13 +15,13 @@ The corresponding usecases include experiment launch/poll/cancel flows and firmw
 
 ## Workflow 1: Validate -> Start -> Poll -> Download
 
-1. GUI collects form inputs and calls `POST /modes/{mode}/validate`.
-2. `app.py` delegates to `validation.validate_mode_payload(...)`.
-3. On success, GUI posts `POST /jobs` with `JobRequest` payload.
-4. `app.py` validates slots + mode payload presence, sanitizes storage names through `storage.py`, creates run directory, and starts slot worker threads.
-5. GUI polls status via `POST /jobs/status` (bulk) and/or `GET /jobs/{run_id}`.
-6. `job_snapshot(...)` computes server-authoritative `progress_pct` and `remaining_s` via `progress_utils.compute_progress(...)`.
-7. After completion, GUI downloads artifacts via `GET /runs/{run_id}/zip` (or per-file endpoints).
+1. GUI start flow posts `POST /jobs` with `JobRequest` payloads (one run per planned well).
+2. `app.py` validates slot availability and required mode payload presence, sanitizes storage naming through `storage.py`, creates run directories, and starts slot worker threads.
+3. GUI polls status via `POST /jobs/status` (bulk) and/or `GET /jobs/{run_id}`.
+4. `job_snapshot(...)` computes server-authoritative `progress_pct` and `remaining_s` via `progress_utils.compute_progress(...)`.
+5. After completion, GUI downloads artifacts via `GET /runs/{run_id}/zip` (or per-file endpoints).
+
+Validation endpoint note: `POST /modes/{mode}/validate` exists and is available for explicit pre-flight checks, but it is not required in the current default start path.
 
 ## Workflow 2: Cancel and cleanup
 
@@ -48,12 +48,14 @@ The corresponding usecases include experiment launch/poll/cancel flows and firmw
 4. Script sends boot command, flashes with `dfu-util`, and waits for CDC reconnection.
 5. API returns command stdout/stderr and exit code; failures are mapped to typed API error payloads.
 
-## Workflow 5: Telemetry stream demo
+## Workflow 5: Telemetry stream demo (backend capability)
 
 1. Client calls `/api/telemetry/temperature/latest` to fetch cache snapshot.
 2. Client opens SSE stream `/api/telemetry/temperature/stream`.
 3. API emits `temp` events and periodic `ping` keepalive events.
 4. `latest_by_dev` cache updates continuously and remains available for snapshot endpoint.
+
+GUI integration note: the GUI settings expose a streaming toggle, but run-flow orchestration currently relies on polling (`POST /jobs/status`) as the production status channel.
 
 ## Sequence diagram
 
@@ -62,19 +64,12 @@ sequenceDiagram
     participant GUI as GUI UseCase/ViewModel
     participant Adapter as seva.adapters.*
     participant API as rest_api.app
-    participant Validation as rest_api.validation
     participant Storage as rest_api.storage
     participant Worker as Slot Worker Thread
     participant Device as pyBEEP Controller
     participant NAS as rest_api.nas_smb
 
     GUI->>Adapter: Start experiment request
-    Adapter->>API: POST /modes/{mode}/validate
-    API->>Validation: validate_mode_payload(mode, params)
-    Validation-->>API: ValidationResult
-    API-->>Adapter: ok/errors/warnings
-
-    GUI->>Adapter: Confirm start
     Adapter->>API: POST /jobs
     API->>Storage: sanitize + create run directory
     API->>Worker: spawn per-slot worker threads
