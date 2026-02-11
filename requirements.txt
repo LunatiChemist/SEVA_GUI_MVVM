@@ -1,3 +1,7 @@
+# Python runtime
+# Code uses Python 3.10+ syntax/features (e.g. match/case, PEP 604 unions).
+# Keep environments on Python >=3.10.
+
 # GUI / Client
 requests>=2.31
 matplotlib>=3.7
@@ -13,7 +17,8 @@ python-multipart>=0.0.6
 
 # Potentiostat driver (pyBEEP)
 git+https://github.com/aurelienblanc2/Potentiostat-driver-pyBEEP.git#egg=pyBEEP
-#-e ./vendor/pyBEEP
+# Offline fallback (vendor):
+# -e ./vendor/pyBEEP
 
 # Documentation
 mkdocs>=1.5

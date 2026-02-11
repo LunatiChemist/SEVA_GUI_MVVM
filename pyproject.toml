@@ -9,23 +9,24 @@ description = "SEVA GUI MVVM — Electrochemistry client and Raspberry Pi Box AP
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "SEVA Team" }]
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10"
 keywords = ["electrochemistry", "mvvm", "fastapi", "tkinter", "pyBEEP"]
 dependencies = [
-  "requests",
-  "matplotlib",
-  "Pillow",
-  "numpy",
-  "fastapi",
-  "uvicorn[standard]",
-  "pydantic",
-  "pyserial",
-  "python-multipart",
-  "mkdocs",
+  "requests>=2.31",
+  "matplotlib>=3.7",
+  "Pillow>=10.0",
+  "numpy>=1.24",
+  "fastapi>=0.100",
+  "uvicorn[standard]>=0.23",
+  "pydantic>=1.10,<3",
+  "pyserial>=3.5",
+  "python-multipart>=0.0.6",
+  "mkdocs>=1.5",
+  "pyBEEP @ git+https://github.com/aurelienblanc2/Potentiostat-driver-pyBEEP.git",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest>=7.4"]
 
 [tool.setuptools.packages.find]
 where = ["."]
