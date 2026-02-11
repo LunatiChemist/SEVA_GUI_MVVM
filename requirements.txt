@@ -17,7 +17,8 @@ python-multipart>=0.0.6
 
 # Potentiostat driver (pyBEEP)
 git+https://github.com/aurelienblanc2/Potentiostat-driver-pyBEEP.git#egg=pyBEEP
-#-e ./vendor/pyBEEP
+# Offline fallback (vendor):
+# -e ./vendor/pyBEEP
 
 # Documentation
 mkdocs>=1.5
