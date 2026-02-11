@@ -22,6 +22,7 @@ git+https://github.com/aurelienblanc2/Potentiostat-driver-pyBEEP.git#egg=pyBEEP
 
 # Documentation
 mkdocs>=1.5
+mkdocs-material
 
 # Tests
 pytest>=7.4
