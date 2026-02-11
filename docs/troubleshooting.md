@@ -14,6 +14,8 @@ If device discovery returns nothing:
 3. Use **Test Connection** to verify `/health` and `/devices` respond.
 4. On the Pi, ensure devices are attached and recognized by the OS.
 
+Note: discovery uses existing configured box URLs plus derived subnet hints. If your configured URLs are outdated, discovery quality will also be poor.
+
 ## Wrong base URL / API not reachable
 
 Symptoms: errors on startup, failed polls, or "connection refused".
@@ -58,6 +60,18 @@ If runs complete but no files are visible:
 2. If auto-download is disabled, use **Run Overview → Download Group** manually.
 3. Check the **Runs** tab `Download Path` column.
 4. Ensure local security software is not blocking folder creation.
+
+Tip: in **Run Overview**, double-click rows with errors to open the full error text and copy it for incident reports.
+
+
+## Settings cannot be saved
+
+If pressing **Save** in Settings appears to do nothing or shows an error:
+
+1. Verify that the configured **Results directory** exists.
+2. Verify that your user has write permissions in that directory.
+3. Review HTTPS warnings carefully (for many deployments, backend URLs are HTTP-only).
+4. After correcting values, save again.
 
 ## Downloads do not open the folder
 
