@@ -41,6 +41,16 @@ If you are new to the project, follow this order:
 7. Use **[Troubleshooting](troubleshooting.md)** and the **[Glossary](glossary.md)** when you get stuck.
 8. Review the **[ChatGPT Codex Guide](codex_guide.md)** for AI-assisted changes.
 
+## Quick path chooser
+
+Use this if you want the shortest path to a specific task:
+
+- **I want to run GUI/API locally** -> [Development Setup](dev-setup.md), then [REST API Setup Tutorial](rest-api-setup.md).
+- **I want to understand architecture boundaries** -> [Architecture Overview](architecture_overview.md).
+- **I need call-chain debugging for start/poll/cancel** -> [SEVA GUI Workflows](workflows_seva.md) and [REST API Workflows](workflows_rest_api.md).
+- **I need endpoint/module reference details** -> [REST API Classes & Modules](classes_rest_api.md) and [SEVA GUI Classes & Modules](classes_seva.md).
+- **I need end-user GUI operation help** -> [GUI Overview & How to Use](gui_overview_how_to_use.md).
+
 ### What is this repo?
 
 This repository contains the SEVA GUI (MVVM + Hexagonal architecture) and the
@@ -67,15 +77,17 @@ Use this quick guide when deciding where a change should live:
 
 ## Scope
 
-This documentation focuses on:
+This documentation set contains two tracks:
 
-- application architecture
-- workflows and control flow
-- responsibilities of major modules
+- **Developer docs** (architecture, setup, workflows, module responsibilities)
+- **User guide docs** (GUI operation walkthroughs)
 
-It does **not** document UI usage for end users.
+The primary focus remains developer-oriented material for contributors working
+inside `seva/` and `rest_api/`.
 
 ## Documentation map
+
+### Developer track
 
 Follow this order for a linear tour through the docs:
 
@@ -88,3 +100,7 @@ Follow this order for a linear tour through the docs:
 7. **[Troubleshooting](troubleshooting.md)**
 8. **[Glossary](glossary.md)**
 9. **[ChatGPT Codex Guide](codex_guide.md)**
+
+### User guide track
+
+- **[GUI Overview & How to Use](gui_overview_how_to_use.md)**
