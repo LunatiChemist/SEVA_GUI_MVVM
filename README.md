@@ -42,12 +42,6 @@ If setup or runtime issues occur, use the troubleshooting guide:
 
 For developers who need architecture, workflows, and deeper implementation details, see the full hosted docs index above.
 
-## Reproducible dependencies
-
-`requirements.txt` references `pyBEEP` via Git URL. For offline installations,
-use the vendored copy in `vendor/pyBEEP` and document the local install path in
-deployment procedures.
-
 ## License
 
 MIT
