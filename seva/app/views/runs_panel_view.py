@@ -172,3 +172,64 @@ class RunsPanelView(ttk.Frame):
 
 
 __all__ = ["RunsPanelView"]
+
+
+if __name__ == "__main__":
+    from dataclasses import dataclass
+
+    @dataclass
+    class _DemoRunRow:
+        group_id: str
+        name: str
+        status: str
+        progress: str
+        boxes: str
+        started_at: str
+        download_path: str
+
+    root = tk.Tk()
+    root.title("RunsPanelView Demo")
+    root.geometry("1180x420")
+
+    panel = RunsPanelView(root)
+    panel.pack(fill="both", expand=True)
+
+    panel.on_open = lambda gid: print(f"[demo] open folder for {gid}")
+    panel.on_cancel = lambda gid: print(f"[demo] cancel requested for {gid}")
+    panel.on_delete = lambda gid: print(f"[demo] delete requested for {gid}")
+    panel.on_select = lambda gid: print(f"[demo] selected {gid}")
+
+    panel.set_rows(
+        [
+            _DemoRunRow(
+                group_id="LDP-001-TestCompliance-20260210-091410-Z8OR",
+                name="LDP-001",
+                status="Running",
+                progress="62%",
+                boxes="A,B,D",
+                started_at="2026-02-10 09:14",
+                download_path="",
+            ),
+            _DemoRunRow(
+                group_id="LDP-001-TestCapacitance-20260210-091514-EFPO",
+                name="LDP-001",
+                status="Cancelled",
+                progress="58%",
+                boxes="C,D",
+                started_at="2026-02-10 09:15",
+                download_path="",
+            ),
+            _DemoRunRow(
+                group_id="LDP-002-TestCapacitance-20260210-110554-F3D0",
+                name="LDP-002",
+                status="Done (Downloaded)",
+                progress="100%",
+                boxes="C,D",
+                started_at="2026-02-08 11:05",
+                download_path=r"C:\Users\User\Downloads\LDP\LDP-002\2026-02-08_11-05-54",
+            ),
+        ]
+    )
+    panel.select_group("rg-2026-02-10-001")
+
+    root.mainloop()

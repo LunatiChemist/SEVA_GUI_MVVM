@@ -202,7 +202,7 @@ class RunOverviewView(ttk.Frame):
             return
         item = self.table.item(sel[0])
         vals = item.get("values") or []
-        full_err = vals[4] if len(vals) > 4 else ""
+        full_err = vals[6] if len(vals) > 6 else ""
         if not full_err:
             return
 
@@ -233,14 +233,29 @@ class RunOverviewView(ttk.Frame):
 
 if __name__ == "__main__":
     root = tk.Tk()
-    view = RunOverviewView(root, boxes=("A","B","C"))
+    view = RunOverviewView(root, boxes=("A","B","C","D"))
     view.pack(fill="both", expand=True)
-    view.set_box_status("A", phase="Running", progress_pct=42, sub_run_id="runA-123")
-    view.set_box_status("B", phase="Queued", progress_pct=0, sub_run_id=None)
+    view.set_box_status("A", phase="Running", progress_pct=52, sub_run_id="runA-1123")
+    view.set_box_status("B", phase="Running", progress_pct=85, sub_run_id="runA-1323")
+    view.set_box_status("C", phase="Idle", progress_pct=0, sub_run_id=None)
+    view.set_box_status("D", phase="Running", progress_pct=50, sub_run_id="runA-1213")
     rows = [
-        ("A1","Running",40,3,"","runA-123"),
-        ("A2","Error",10,0,"Overvoltage","runA-123"),
-        ("B1","Queued",0,None,"",""),
+        ("A1", "Running", "CV", ["EIS", "CDL"], 40, "00:12:00", "", "runA-1123"),
+        (
+            "A2",
+            "Error",
+            "CV",
+            ["EIS", "CDL"],
+            10,
+            "00:27:30",
+            "Overvoltage",
+            "runA-1123",
+        ),
+        ("B11", "Done", "", "", 100, "—", "", "runA-1323"),
+        ("B16", "Running", "EIS", "", 85, "00:01:14", "", "runA-1323"),
+        ("D33", "Running", "EIS", "", 91, "00:01:54", "", "runA-1213"),
+        ("D34", "Running", "CV", "", 59, "00:12:45", "", "runA-1213"),
+        ("D37", "Running", "CV", "EIS", 47, "00:10:79", "", "runA-1213"),
     ]
     view.set_well_rows(rows)
     root.mainloop()

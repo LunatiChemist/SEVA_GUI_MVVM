@@ -6,8 +6,8 @@ errors through shared error-mapping helpers.
 
 from __future__ import annotations
 from dataclasses import dataclass
-from ..domain.ports import JobPort, UseCaseError, RunGroupId
-from ..usecases.error_mapping import map_api_error
+from seva.domain.ports import JobPort, UseCaseError, RunGroupId
+from seva.usecases.error_mapping import map_api_error
 
 
 @dataclass

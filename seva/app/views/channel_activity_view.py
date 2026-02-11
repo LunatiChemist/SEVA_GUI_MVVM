@@ -15,6 +15,14 @@ BoxId = str   # e.g., "A"
 class ChannelActivityView(ttk.Frame):
     """Compact, scrollable, read-only activity matrix."""
 
+    _STATUS_COLORS: Dict[str, str] = {
+        "Idle": "white",
+        "Queued": "#e0f7fa",
+        "Running": "#c8e6c9",
+        "Done": "#bbdefb",
+        "Error": "#ffcdd2",
+    }
+
     def __init__(self, parent: tk.Widget, *, boxes: Sequence[BoxId] = ("A","B","C","D")) -> None:
         """Build matrix tab widgets.
 
@@ -67,7 +75,7 @@ class ChannelActivityView(ttk.Frame):
             self._canvas.itemconfigure(self._inner_id, width=event.width)
 
     def _build_matrix(self) -> None:
-        """Render one labelframe per box, each with 10 cell widgets."""
+        """Render one labelframe per box, each with 10 cell widgets and a legend."""
         # cleanup
         for child in list(self._inner.winfo_children()):
             child.destroy()
@@ -87,6 +95,21 @@ class ChannelActivityView(ttk.Frame):
                 cell.grid(row=row, column=col2, padx=3, pady=2, sticky="nsew")
                 self._cells[wid] = cell
                 globalindex += 1
+
+        self._build_legend(row=1, columnspan=max(len(self._boxes), 1))
+
+    def _build_legend(self, *, row: int, columnspan: int) -> None:
+        """Render a color legend below the channel boxes."""
+        legend = ttk.LabelFrame(self._inner, text="Legend")
+        legend.grid(row=row, column=0, columnspan=columnspan, padx=8, pady=(0, 8), sticky="ew")
+
+        for index, (status, color) in enumerate(self._STATUS_COLORS.items()):
+            item = ttk.Frame(legend)
+            item.grid(row=0, column=index, padx=8, pady=6, sticky="w")
+
+            color_box = tk.Label(item, width=2, relief="groove", bg=color)
+            color_box.pack(side="left", padx=(0, 4))
+            ttk.Label(item, text=status).pack(side="left")
 
     # ------------------------------------------------------------------
     def set_boxes(self, boxes: Iterable[BoxId]) -> None:
@@ -127,19 +150,12 @@ class ChannelActivityView(ttk.Frame):
         Args:
             status: Status token (for example ``Running`` or ``Error``).
         """
-        mapping = {
-            "Idle": "white",
-            "Queued": "#e0f7fa",
-            "Running": "#c8e6c9",
-            "Done": "#bbdefb",
-            "Error": "#ffcdd2",
-        }
-        return mapping.get(status, "white")
+        return ChannelActivityView._STATUS_COLORS.get(status, "white")
 
 
 if __name__ == "__main__":
     root = tk.Tk()
-    v = ChannelActivityView(root, boxes=("A","B"))
+    v = ChannelActivityView(root, boxes=("A","B","C","D"))
     v.pack(fill="both", expand=True)
     v.set_activity({"B11":"Running", "A2":"Error", "B10":"Done"})
     v.set_updated_at("12:03:15")

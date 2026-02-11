@@ -50,3 +50,13 @@ pytest -q
 
 - Update `docs/` when behavior or workflow changes.
 - Run `mkdocs build` before shipping doc-heavy changes.
+
+## Documentation change checklist
+
+For doc-heavy PRs, verify the following before submission:
+
+- [ ] Endpoint methods/paths were re-checked against `rest_api/app.py`.
+- [ ] GUI workflow steps were re-checked against `seva/app/run_flow_presenter.py` (and related use cases/adapters).
+- [ ] Terminology is consistent (`run_id`, `group_id`, job, snapshot).
+- [ ] `README.md` remains a lightweight hub (no duplicate deep reference content).
+- [ ] Navigation entries in `mkdocs.yml` were updated for any added/renamed pages.

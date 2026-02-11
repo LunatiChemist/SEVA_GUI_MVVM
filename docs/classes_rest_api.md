@@ -34,6 +34,42 @@ The REST package currently contains the following Python modules:
 - Telemetry demo stream:
   - Endpoint: `/api/telemetry/temperature/latest`, `/api/telemetry/temperature/stream`
 
+### REST endpoint reference (`rest_api/app.py`)
+
+The table below provides a practical, per-endpoint overview of method, purpose, and primary integration points.
+
+| Method | Path | Handler | Purpose | Typical caller(s) |
+|---|---|---|---|---|
+| GET | `/version` | `version_info` | Returns API/runtime/build metadata for diagnostics and support. | Manual ops checks, service introspection |
+| GET | `/health` | `health` | Basic service liveness + discovered device count. | `seva.adapters.discovery_http`, startup checks |
+| GET | `/devices` | `list_devices` | Enumerates discovered potentiostat slots and port metadata. | `seva.adapters.device_rest` |
+| GET | `/devices/status` | `list_device_status` | Returns slot state derived from active jobs (`idle/queued/running/...`). | GUI status polling |
+| GET | `/modes` | `list_modes` | Lists available measurement modes exposed by controller integration. | GUI mode selectors |
+| GET | `/modes/{mode}/params` | `mode_params` | Returns parameter schema/details for one measurement mode. | Dynamic parameter forms |
+| POST | `/modes/{mode}/validate` | `validate_mode_params` | Validates mode payload via `validation.validate_mode_payload`. | Pre-flight form validation |
+| POST | `/jobs/status` | `jobs_bulk_status` | Bulk status snapshots for many run IDs in one request. | `seva.adapters.job_rest` polling loops |
+| GET | `/jobs` | `list_jobs` | Lists runs (supports filtering such as incomplete/completed and group). | Run overview panels |
+| POST | `/jobs` | `start_job` | Creates a run, allocates slots, spawns worker threads, and initializes storage metadata. | Start-experiment use cases |
+| POST | `/jobs/{run_id}/cancel` | `cancel_job` | Signals cancellation and updates queued/running slot states. | Cancel actions in GUI |
+| GET | `/jobs/{run_id}` | `job_status` | Single-run detailed status snapshot with server-computed progress fields. | Per-run detail/polling |
+| GET | `/runs/{run_id}/files` | `list_run_files` | Enumerates files in a run directory for browsing/download selection. | Result browser UI |
+| GET | `/runs/{run_id}/file` | `get_run_file` | Streams a specific artifact file from run output. | Single-file downloads |
+| GET | `/runs/{run_id}/zip` | `get_run_zip` | Streams zipped run artifacts for complete result export. | “Download all” actions |
+| POST | `/nas/setup` | `nas_setup` | Persists SMB NAS configuration and performs initial connectivity probe. | NAS settings workflow |
+| GET | `/nas/health` | `nas_health` | Reports current NAS connectivity state from manager probes. | NAS status indicator |
+| POST | `/runs/{run_id}/upload` | `nas_upload_run` | Queues manual upload of one run to configured NAS target. | Post-run offload action |
+| POST | `/admin/rescan` | `rescan` | Triggers fresh hardware discovery scan. | Admin/maintenance tools |
+| POST | `/firmware/flash` | `flash_firmware` | Stores uploaded firmware binary and invokes Linux flashing subprocess flow. | `seva.adapters.firmware_rest` |
+| GET | `/api/telemetry/temperature/latest` | `get_latest` | Returns latest cached telemetry sample per device (demo endpoint). | Telemetry demos |
+| GET | `/api/telemetry/temperature/stream` | `temperature_stream` | SSE stream emitting periodic telemetry + keepalive pings (demo endpoint). | Streaming demo clients |
+
+### Request/response behavior notes
+
+- **Authentication boundary:** most operational endpoints check `x-api-key` via `require_key(...)`; keep adapter defaults aligned with deployment env vars (`BOX_API_KEY`).
+- **Status authority:** `job_snapshot(...)` enriches `JobStatus` with `progress_pct` and `remaining_s` using `progress_utils.compute_progress(...)`; clients should treat these fields as authoritative.
+- **Storage resolution:** run file/download/upload routes resolve directories through `storage.resolve_run_directory(...)` so callers should only persist `run_id`, never file-system paths.
+- **Validation contract:** `/modes/{mode}/validate` always returns structured `ValidationResult` (`ok`, `errors`, `warnings`) to keep GUI feedback deterministic.
+
 Important type contracts in `app.py`:
 
 - `DeviceInfo`: discovered slot metadata (`slot`, `port`, optional serial number).

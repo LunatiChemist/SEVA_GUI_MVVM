@@ -9,20 +9,20 @@ from __future__ import annotations
 
 from typing import Optional
 
-from ..adapters.device_rest import DeviceRestAdapter
-from ..adapters.firmware_rest import FirmwareRestAdapter
-from ..adapters.job_rest import JobRestAdapter
-from ..usecases.cancel_group import CancelGroup
-from ..usecases.download_group_results import DownloadGroupResults
-from ..usecases.flash_firmware import FlashFirmware
-from ..usecases.poll_device_status import PollDeviceStatus
-from ..usecases.poll_group_status import PollGroupStatus
-from ..usecases.start_experiment_batch import StartExperimentBatch
-from ..usecases.test_connection import TestConnection
-from ..viewmodels.settings_vm import SettingsVM
+from seva.adapters.device_rest import DeviceRestAdapter
+from seva.adapters.firmware_rest import FirmwareRestAdapter
+from seva.adapters.job_rest import JobRestAdapter
+from seva.usecases.cancel_group import CancelGroup
+from seva.usecases.download_group_results import DownloadGroupResults
+from seva.usecases.flash_firmware import FlashFirmware
+from seva.usecases.poll_device_status import PollDeviceStatus
+from seva.usecases.poll_group_status import PollGroupStatus
+from seva.usecases.start_experiment_batch import StartExperimentBatch
+from seva.usecases.test_connection import TestConnection
+from seva.viewmodels.settings_vm import SettingsVM
 
 try:
-    from ..usecases.cancel_runs import CancelRuns as _CancelRunsClass
+    from seva.usecases.cancel_runs import CancelRuns as _CancelRunsClass
 except ImportError:
     _CancelRunsClass = None
 

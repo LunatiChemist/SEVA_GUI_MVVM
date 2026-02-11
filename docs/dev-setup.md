@@ -50,13 +50,17 @@ cd rest_api
 uvicorn app:app --host 0.0.0.0 --port 8000
 ```
 
-### REST API environment variables
+For a full setup tutorial (installation, env vars, smoke tests, NAS/SMB checks,
+and restart procedures), see:
 
-You can customize the API with these environment variables:
+- **[REST API Setup Tutorial](rest-api-setup.md)**
+
+### REST API environment variables (quick reference)
 
 - `RUNS_ROOT`: Root directory where run data is stored. Defaults to `/opt/box/runs`.
 - `BOX_API_KEY`: Optional API key for securing requests.
 - `BOX_ID`: Identifier for the box (used in health/device responses).
+- `NAS_CONFIG_PATH`: Optional path for NAS/SMB configuration persistence.
 - `BOX_BUILD` / `BOX_BUILD_ID`: Optional build metadata for versioning.
 
 Example:

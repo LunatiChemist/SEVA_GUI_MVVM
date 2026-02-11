@@ -1,7 +1,7 @@
 
 """Domain package exports for value objects and aggregates."""
 
-from .entities import (
+from seva.domain.entities import (
     BoxId,
     BoxSnapshot,
     ClientDateTime,
@@ -19,9 +19,9 @@ from .entities import (
     WellId,
     WellPlan,
 )
-from .naming import make_group_id
-from .plan_builder import build_meta
-from .snapshot_normalizer import normalize_status
+from seva.domain.naming import make_group_id
+from seva.domain.plan_builder import build_meta
+from seva.domain.snapshot_normalizer import normalize_status
 
 __all__ = [
     "BoxId",

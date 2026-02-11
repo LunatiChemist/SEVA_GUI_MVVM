@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Protocol, Tuple
 
-from .entities import BoxId, ExperimentPlan, WellId
+from seva.domain.entities import BoxId, ExperimentPlan, WellId
 
 RunGroupId = str
 

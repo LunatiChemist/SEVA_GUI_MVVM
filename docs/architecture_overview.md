@@ -20,6 +20,16 @@ flowchart LR
     Adapter --> API[REST API / External Systems]
 ```
 
+
+## Guided architecture tutorial (Notebooks)
+
+For a step-by-step onboarding path, use the tutorial notebooks in `docs/`:
+
+1. [`mvvm_hexagonal_intro.ipynb`](mvvm_hexagonal_intro.ipynb)
+2. [`mvvm_hexagonal_part2_view_viewmodel.ipynb`](mvvm_hexagonal_part2_view_viewmodel.ipynb)
+
+These notebooks are designed to be read after this overview and before diving into concrete workflow docs.
+
 ## Cross-System Call-Chain
 
 A typical user action flows as:

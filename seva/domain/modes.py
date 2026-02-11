@@ -11,8 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Iterable, Mapping, Optional, Tuple
 
-from .params import ACParams, CVParams, ModeParams
-from .util import normalize_mode_name
+from seva.domain.params import ACParams, CVParams, ModeParams
+from seva.domain.util import normalize_mode_name
 
 
 @dataclass(frozen=True)

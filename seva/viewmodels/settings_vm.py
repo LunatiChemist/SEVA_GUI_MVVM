@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Callable, Dict, Mapping, Optional
 
-from ..utils.logging import env_requests_debug
+from seva.utils.logging import env_requests_debug
 
 BoxId = str
 BOX_IDS: tuple[BoxId, ...] = ("A", "B", "C", "D")
