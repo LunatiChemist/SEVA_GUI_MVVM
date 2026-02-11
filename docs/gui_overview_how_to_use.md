@@ -29,11 +29,6 @@ The main window is your starting point.
 - **Runs**: browse completed/running groups and open their folders.
 - **Channel Activity**: quick per-channel status view.
 
-### Well grid (left side)
-
-- Select wells and assign/update parameters.
-- Colors indicate current per-well state.
-
 ---
 
 ## 2) First-time setup (required before starting runs)
@@ -148,14 +143,6 @@ Use **Channel Activity** for quick channel-state visibility.
 
 ![Channel activity](assets/gui/channel_activity_view.png)
 
-Legend:
-
-- **Idle**
-- **Queued**
-- **Running**
-- **Done**
-- **Error**
-
 ---
 
 ## 6) Manage run history and download folders
@@ -223,20 +210,3 @@ Use this only when your lab flow includes NAS archiving.
 If anything fails, see [Troubleshooting](troubleshooting.md).
 
 ---
-
-## 10) Image file mapping used by this page
-
-This page expects screenshot files in `docs/assets/gui/` named after the corresponding view/dialog:
-
-- `main_window.png`
-- `settings_dialog.png`
-- `discovery_results_dialog.png`
-- `well_grid_view.png`
-- `experiment_panel_view.png`
-- `run_overview_view.png`
-- `channel_activity_view.png`
-- `runs_panel_view.png`
-- `data_plotter.png`
-- `nas_setup_dialog.png`
-
-If images are missing in your local docs build, add them with these names.
