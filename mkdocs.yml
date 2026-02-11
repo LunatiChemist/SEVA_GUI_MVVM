@@ -35,16 +35,22 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Developer Docs:
-      - Development Setup: dev-setup.md
-      - REST API Setup Tutorial: rest-api-setup.md
-      - Architecture Overview: architecture_overview.md
-      - MVVM + Hexagonal Tutorial Notebooks: mvvm_tutorial_notebooks.md
-      - SEVA GUI Workflows: workflows_seva.md
-      - SEVA GUI Classes & Modules: classes_seva.md
-      - REST API Workflows: workflows_rest_api.md
-      - REST API Classes & Modules: classes_rest_api.md
-      - Troubleshooting: troubleshooting.md
-      - Glossary: glossary.md
-      - ChatGPT Codex Guide: codex_guide.md
+      - Getting Started:
+          - Development Setup: dev-setup.md
+          - REST API Setup Tutorial: rest-api-setup.md
+      - Architecture:
+          - Architecture Overview: architecture_overview.md
+          - MVVM + Hexagonal Tutorial Notebooks: mvvm_tutorial_notebooks.md
+      - Workflows:
+          - SEVA GUI Workflows: workflows_seva.md
+          - REST API Workflows: workflows_rest_api.md
+      - Reference:
+          - SEVA GUI Classes & Modules: classes_seva.md
+          - REST API Classes & Modules: classes_rest_api.md
+          - Glossary: glossary.md
+      - Operations:
+          - Troubleshooting: troubleshooting.md
+      - Contributing:
+          - ChatGPT Codex Guide: codex_guide.md
   - User Guide:
       - GUI Overview & How to Use: gui_overview_how_to_use.md

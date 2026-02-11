@@ -41,6 +41,16 @@ If you are new to the project, follow this order:
 7. Use **[Troubleshooting](troubleshooting.md)** and the **[Glossary](glossary.md)** when you get stuck.
 8. Review the **[ChatGPT Codex Guide](codex_guide.md)** for AI-assisted changes.
 
+## Quick path chooser
+
+Use this if you want the shortest path to a specific task:
+
+- **I want to run GUI/API locally** -> [Development Setup](dev-setup.md), then [REST API Setup Tutorial](rest-api-setup.md).
+- **I want to understand architecture boundaries** -> [Architecture Overview](architecture_overview.md).
+- **I need call-chain debugging for start/poll/cancel** -> [SEVA GUI Workflows](workflows_seva.md) and [REST API Workflows](workflows_rest_api.md).
+- **I need endpoint/module reference details** -> [REST API Classes & Modules](classes_rest_api.md) and [SEVA GUI Classes & Modules](classes_seva.md).
+- **I need end-user GUI operation help** -> [GUI Overview & How to Use](gui_overview_how_to_use.md).
+
 ### What is this repo?
 
 This repository contains the SEVA GUI (MVVM + Hexagonal architecture) and the

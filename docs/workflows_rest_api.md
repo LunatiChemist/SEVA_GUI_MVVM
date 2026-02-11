@@ -4,6 +4,23 @@ This document captures the end-to-end workflows that GUI code triggers in the RE
 
 For installation, environment variables, startup checks, and restart procedures, see **[REST API Setup Tutorial](rest-api-setup.md)**.
 
+## TL;DR
+
+- Default GUI run start uses `POST /jobs` (one run per planned well).
+- Polling uses `POST /jobs/status` and optionally `GET /jobs/{run_id}`.
+- Server snapshots (`job_snapshot`) are authoritative for `progress_pct` and `remaining_s`.
+- Download/export uses `GET /runs/{run_id}/zip` (plus file endpoints where needed).
+- `POST /modes/{mode}/validate` exists for explicit pre-flight checks, but is not required in the current default start path.
+
+## Terminology used on this page
+
+- **run_id**: identifier for one backend job/run.
+- **group_id**: client grouping token used to correlate related runs.
+- **job**: backend run record represented by `JobStatus`.
+- **snapshot**: status view returned by polling endpoints.
+
+For broader vocabulary, see **[Glossary](glossary.md)**.
+
 ## GUI caller map
 
 - `seva/adapters/device_rest.py` -> discovery and mode metadata endpoints.
@@ -13,7 +30,9 @@ For installation, environment variables, startup checks, and restart procedures,
 
 The corresponding usecases include experiment launch/poll/cancel flows and firmware flashing flows in `seva/usecases/`.
 
-## Workflow 1: Validate -> Start -> Poll -> Download
+## Workflow 1: Start -> Poll -> Download (default path)
+
+### Deep dive steps
 
 1. GUI start flow posts `POST /jobs` with `JobRequest` payloads (one run per planned well).
 2. `app.py` validates slot availability and required mode payload presence, sanitizes storage naming through `storage.py`, creates run directories, and starts slot worker threads.
@@ -21,7 +40,7 @@ The corresponding usecases include experiment launch/poll/cancel flows and firmw
 4. `job_snapshot(...)` computes server-authoritative `progress_pct` and `remaining_s` via `progress_utils.compute_progress(...)`.
 5. After completion, GUI downloads artifacts via `GET /runs/{run_id}/zip` (or per-file endpoints).
 
-Validation endpoint note: `POST /modes/{mode}/validate` exists and is available for explicit pre-flight checks, but it is not required in the current default start path.
+Validation note: `POST /modes/{mode}/validate` is available for explicit pre-flight checks, but is not mandatory in the default start orchestration.
 
 ## Workflow 2: Cancel and cleanup
 
@@ -56,6 +75,15 @@ Validation endpoint note: `POST /modes/{mode}/validate` exists and is available 
 4. `latest_by_dev` cache updates continuously and remains available for snapshot endpoint.
 
 GUI integration note: the GUI settings expose a streaming toggle, but run-flow orchestration currently relies on polling (`POST /jobs/status`) as the production status channel.
+
+## Common misunderstandings
+
+- **"The GUI computes progress on its own."**
+  - Incorrect for the default flow: the API computes progress and ETA and returns them in snapshots.
+- **"Validation must run before every start."**
+  - Not required by default orchestration; explicit validate endpoint remains available.
+- **"Streaming is the default status transport."**
+  - Current production path uses polling for run lifecycle status.
 
 ## Sequence diagram
 
