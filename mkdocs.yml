@@ -37,6 +37,7 @@ nav:
   - Developer Docs:
       - Getting Started:
           - Development Setup: dev-setup.md
+          - Web UI Setup: web-ui-setup.md
           - REST API Setup Tutorial: rest-api-setup.md
       - Architecture:
           - Architecture Overview: architecture_overview.md

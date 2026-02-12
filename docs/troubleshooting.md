@@ -27,6 +27,28 @@ Symptoms: errors on startup, failed polls, or "connection refused".
 curl http://<box-ip>:8000/health
 ```
 
+## Web UI requests blocked by CORS
+
+Symptoms in browser devtools:
+
+- `CORS policy` errors
+- failed `OPTIONS` preflight requests
+- no `access-control-allow-origin` response header
+
+Quick checks:
+
+1. On the API host, set `CORS_ALLOW_ORIGINS` to include the exact Web UI origin.
+2. Restart the REST API service after changing environment variables.
+3. Verify preflight manually:
+
+```bash
+curl -i -X OPTIONS "http://<box-ip>:8000/health" \
+  -H "Origin: https://lunatichemist.github.io" \
+  -H "Access-Control-Request-Method: GET"
+```
+
+4. Confirm response includes `access-control-allow-origin` for that origin.
+
 ## Run does not start
 
 Common causes:

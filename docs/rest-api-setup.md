@@ -51,6 +51,10 @@ The API reads configuration from environment variables at startup.
 - `NAS_CONFIG_PATH` (optional): SMB config path,
   default `/opt/box/nas_smb.json`.
 - `BOX_BUILD` / `BOX_BUILD_ID` (optional): build metadata for `/version`.
+- `CORS_ALLOW_ORIGINS` (optional): comma-separated browser origins allowed to call the API.
+- `CORS_ALLOW_METHODS` (optional): comma-separated CORS allow-method list, default `GET,POST,OPTIONS`.
+- `CORS_ALLOW_HEADERS` (optional): comma-separated CORS allow-header list, default `Authorization,Content-Type,X-API-Key`.
+- `CORS_ALLOW_CREDENTIALS` (optional): `true/false`, default `false`.
 
 ### A) Variables for interactive terminal runs
 
@@ -59,6 +63,7 @@ export BOX_API_KEY="change-me"
 export BOX_ID="lab-box-01"
 export RUNS_ROOT="/opt/box/runs"
 export NAS_CONFIG_PATH="/opt/box/nas_smb.json"
+export CORS_ALLOW_ORIGINS="https://lunatichemist.github.io"
 ```
 
 ### B) Variables for systemd service runs (recommended)
@@ -74,6 +79,10 @@ RUNS_ROOT=/opt/box/runs
 NAS_CONFIG_PATH=/opt/box/nas_smb.json
 BOX_BUILD=dev
 BOX_BUILD_ID=local
+CORS_ALLOW_ORIGINS=https://lunatichemist.github.io
+CORS_ALLOW_METHODS=GET,POST,OPTIONS
+CORS_ALLOW_HEADERS=Authorization,Content-Type,X-API-Key
+CORS_ALLOW_CREDENTIALS=false
 ENV
 sudo chmod 600 /etc/seva/box-api.env
 ```
@@ -176,6 +185,18 @@ If you use systemd with `EnvironmentFile=`, your shell may not have
 ```bash
 curl -H "X-API-Key: change-me" http://localhost:8000/health
 ```
+
+Browser CORS preflight check (for GitHub Pages / Web UI):
+
+```bash
+curl -i -X OPTIONS "http://localhost:8000/health" \
+  -H "Origin: https://lunatichemist.github.io" \
+  -H "Access-Control-Request-Method: GET"
+```
+
+Expected when `CORS_ALLOW_ORIGINS` contains the origin:
+
+- `access-control-allow-origin: https://lunatichemist.github.io` in response headers.
 
 ## 7) Restarting the REST API
 

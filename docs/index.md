@@ -34,18 +34,20 @@ If you are new to the project, follow this order:
 
 1. Read **What is this repo?** (below) to understand the scope.
 2. Set up your environment in **[Development Setup](dev-setup.md)**.
-3. Configure/deploy the API with **[REST API Setup Tutorial](rest-api-setup.md)**.
-4. Review the **[Architecture Overview](architecture_overview.md)** to learn the MVVM + Hexagonal boundaries.
-5. Work through the **[MVVM + Hexagonal Tutorial Notebooks](mvvm_tutorial_notebooks.md)** for a guided architecture walkthrough.
-6. Explore the **[SEVA GUI workflows](workflows_seva.md)** and **[REST API workflows](workflows_rest_api.md)**.
-7. Use **[Troubleshooting](troubleshooting.md)** and the **[Glossary](glossary.md)** when you get stuck.
-8. Review the **[ChatGPT Codex Guide](codex_guide.md)** for AI-assisted changes.
+3. If you use the browser client, follow **[Web UI Setup](web-ui-setup.md)**.
+4. Configure/deploy the API with **[REST API Setup Tutorial](rest-api-setup.md)**.
+5. Review the **[Architecture Overview](architecture_overview.md)** to learn the MVVM + Hexagonal boundaries.
+6. Work through the **[MVVM + Hexagonal Tutorial Notebooks](mvvm_tutorial_notebooks.md)** for a guided architecture walkthrough.
+7. Explore the **[SEVA GUI workflows](workflows_seva.md)** and **[REST API workflows](workflows_rest_api.md)**.
+8. Use **[Troubleshooting](troubleshooting.md)** and the **[Glossary](glossary.md)** when you get stuck.
+9. Review the **[ChatGPT Codex Guide](codex_guide.md)** for AI-assisted changes.
 
 ## Quick path chooser
 
 Use this if you want the shortest path to a specific task:
 
 - **I want to run GUI/API locally** -> [Development Setup](dev-setup.md), then [REST API Setup Tutorial](rest-api-setup.md).
+- **I want to run the browser client** -> [Web UI Setup](web-ui-setup.md).
 - **I want to understand architecture boundaries** -> [Architecture Overview](architecture_overview.md).
 - **I need call-chain debugging for start/poll/cancel** -> [SEVA GUI Workflows](workflows_seva.md) and [REST API Workflows](workflows_rest_api.md).
 - **I need endpoint/module reference details** -> [REST API Classes & Modules](classes_rest_api.md) and [SEVA GUI Classes & Modules](classes_seva.md).
@@ -54,8 +56,8 @@ Use this if you want the shortest path to a specific task:
 ### What is this repo?
 
 This repository contains the SEVA GUI (MVVM + Hexagonal architecture) and the
-associated REST API service. The GUI lives in `seva/`, and the REST API lives
-in `rest_api/`.
+associated REST API service. The Tkinter GUI lives in `seva/`, the Web UI lives
+in `web_ui/`, and the REST API lives in `rest_api/`.
 
 ### How to run GUI locally (Windows/Linux)
 
@@ -65,6 +67,10 @@ Follow the steps in **[Development Setup](dev-setup.md)** to configure Python an
 
 See **[REST API Setup Tutorial](rest-api-setup.md)** for the complete Linux/Raspberry Pi setup,
 including install, verification, and restart steps.
+
+### How to run the Web UI locally (desktop browser)
+
+See **[Web UI Setup](web-ui-setup.md)** for install, run, build, and deployment path details.
 
 ### Where to change what? (View vs ViewModel vs UseCase)
 
@@ -92,14 +98,15 @@ inside `seva/` and `rest_api/`.
 Follow this order for a linear tour through the docs:
 
 1. **[Development Setup](dev-setup.md)** (local environment + run GUI/API)
-2. **[REST API Setup Tutorial](rest-api-setup.md)** (API install, env, smoke tests, restart)
-3. **[Architecture Overview](architecture_overview.md)** (MVVM + Hexagonal boundaries)
-4. **[MVVM + Hexagonal Tutorial Notebooks](mvvm_tutorial_notebooks.md)**
-5. **[SEVA GUI workflows](workflows_seva.md)**
-6. **[REST API workflows](workflows_rest_api.md)**
-7. **[Troubleshooting](troubleshooting.md)**
-8. **[Glossary](glossary.md)**
-9. **[ChatGPT Codex Guide](codex_guide.md)**
+2. **[Web UI Setup](web-ui-setup.md)** (browser client install/run/build)
+3. **[REST API Setup Tutorial](rest-api-setup.md)** (API install, env, smoke tests, restart)
+4. **[Architecture Overview](architecture_overview.md)** (MVVM + Hexagonal boundaries)
+5. **[MVVM + Hexagonal Tutorial Notebooks](mvvm_tutorial_notebooks.md)**
+6. **[SEVA GUI workflows](workflows_seva.md)**
+7. **[REST API workflows](workflows_rest_api.md)**
+8. **[Troubleshooting](troubleshooting.md)**
+9. **[Glossary](glossary.md)**
+10. **[ChatGPT Codex Guide](codex_guide.md)**
 
 ### User guide track
 

@@ -1,4 +1,4 @@
-name: Deploy MkDocs
+name: Deploy Pages (Docs + Web UI)
 
 on:
   push:
@@ -9,11 +9,16 @@ permissions:
   contents: write
 
 jobs:
-  deploy:
+  deploy-pages:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -27,8 +32,47 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Build docs
-        run: mkdocs build --strict
+      - name: Build MkDocs into /docs subpath
+        run: mkdocs build --strict --site-dir site/docs
 
-      - name: Deploy to GitHub Pages
-        run: mkdocs gh-deploy --force
+      - name: Install web UI dependencies
+        working-directory: web_ui
+        run: npm install
+
+      - name: Build web UI into /app subpath
+        working-directory: web_ui
+        env:
+          VITE_BASE_PATH: /app/
+        run: npm run build
+
+      - name: Assemble Pages tree
+        run: |
+          mkdir -p site/app
+          cp -R web_ui/dist/* site/app/
+          cat > site/index.html <<'EOF'
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8" />
+              <meta name="viewport" content="width=device-width,initial-scale=1" />
+              <title>SEVA Pages</title>
+              <style>
+                body { font-family: Segoe UI, Arial, sans-serif; margin: 2rem; line-height: 1.4; }
+                a { display: inline-block; margin-right: 1rem; margin-bottom: 0.75rem; }
+              </style>
+            </head>
+            <body>
+              <h1>SEVA Pages</h1>
+              <p>Select one entrypoint:</p>
+              <a href="./app/">Open Web UI</a>
+              <a href="./docs/">Open Documentation</a>
+            </body>
+          </html>
+          EOF
+
+      - name: Deploy to gh-pages branch
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: site
