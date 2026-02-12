@@ -221,7 +221,7 @@ Execution evidence (this run):
 
     > py -3.13 -m pytest -q
     ...........                                                              [100%]
-    11 passed in 1.08s
+    11 passed in 0.23s
 
     > py -3.13 -m seva.web_ui.main --smoke-test
     web-smoke-ok ['A', 'B', 'C', 'D']
