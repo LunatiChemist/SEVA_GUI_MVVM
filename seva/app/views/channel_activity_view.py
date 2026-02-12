@@ -16,11 +16,11 @@ class ChannelActivityView(ttk.Frame):
     """Compact, scrollable, read-only activity matrix."""
 
     _STATUS_COLORS: Dict[str, str] = {
-        "Idle": "white",
-        "Queued": "#e0f7fa",
-        "Running": "#c8e6c9",
-        "Done": "#bbdefb",
-        "Error": "#ffcdd2",
+        "Idle": "#ffffff",
+        "Queued": "#e6f4ff",
+        "Running": "#d5f5de",
+        "Done": "#d9e4ff",
+        "Error": "#ffdce0",
     }
 
     def __init__(self, parent: tk.Widget, *, boxes: Sequence[BoxId] = ("A","B","C","D")) -> None:
@@ -36,14 +36,15 @@ class ChannelActivityView(ttk.Frame):
         self._cells: Dict[WellId, tk.Label] = {}
 
         # Header with last update timestamp
-        header = ttk.Frame(self)
-        header.pack(fill="x", padx=6, pady=(6, 2))
+        header = ttk.Frame(self, style="Card.TFrame")
+        header.pack(fill="x", padx=10, pady=(10, 4), ipady=4)
         self._updated_var = tk.StringVar(value="Updated at --:--:--")
-        ttk.Label(header, textvariable=self._updated_var).pack(side="left")
+        ttk.Label(header, text="Channel Activity", style="Title.TLabel").pack(side="left", padx=(8, 16))
+        ttk.Label(header, textvariable=self._updated_var, style="Subtle.TLabel").pack(side="left")
 
         # Scrollable canvas for the matrix
-        wrap = ttk.Frame(self)
-        wrap.pack(fill="both", expand=True, padx=6, pady=(2, 6))
+        wrap = ttk.Frame(self, style="Card.TFrame")
+        wrap.pack(fill="both", expand=True, padx=10, pady=(2, 10))
         wrap.rowconfigure(0, weight=1)
         wrap.columnconfigure(0, weight=1)
 
@@ -91,7 +92,7 @@ class ChannelActivityView(ttk.Frame):
                 col2 = 0 if i <= 5 else 1
                 wid = f"{box_id}{globalindex}"
                 cell = tk.Label(frame, text=str(i if box_id == self._boxes[0] else ((col)*10 + i)),
-                                width=4, height=1, relief="groove", bg="white")
+                                width=5, height=1, relief="groove", bg="#ffffff")
                 cell.grid(row=row, column=col2, padx=3, pady=2, sticky="nsew")
                 self._cells[wid] = cell
                 globalindex += 1

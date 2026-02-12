@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
+
+from seva.app.views.theme import apply_modern_theme
 from typing import Callable, Dict, Optional
 
 
@@ -52,6 +54,7 @@ class SettingsDialog(tk.Toplevel):
             on_close: Callback invoked when dialog closes.
         """
         super().__init__(parent)
+        apply_modern_theme(self)
         self.title("Settings")
         self.transient(parent)
         self.resizable(False, False)
@@ -95,7 +98,7 @@ class SettingsDialog(tk.Toplevel):
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
         """Create all dialog widget groups and footer actions."""
-        pad = dict(padx=8, pady=6)
+        pad = dict(padx=10, pady=8)
 
         # Connection group
         connection = ttk.Labelframe(self, text="Boxes")
@@ -221,7 +224,7 @@ class SettingsDialog(tk.Toplevel):
         footer = ttk.Frame(self)
         footer.grid(row=7, column=0, sticky="ew", **pad)
         footer.columnconfigure(0, weight=1)
-        self._btn_save = ttk.Button(footer, text="Save", command=self._emit_save)
+        self._btn_save = ttk.Button(footer, text="Save", style="Primary.TButton", command=self._emit_save)
         self._btn_save.pack(side="right", padx=(0, 6))
         ttk.Button(footer, text="Close", command=self._on_close_clicked).pack(side="right")
 

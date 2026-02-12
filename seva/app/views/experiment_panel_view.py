@@ -82,12 +82,13 @@ class ExperimentPanelView(ttk.Frame):
         # --- Layout -----------------------------------------------------
         self.columnconfigure(0, weight=1)
         self.columnconfigure(1, weight=1)
+        self.configure(style="Card.TFrame")
 
         # CV
         self.cv_run_var = tk.BooleanVar(value=False)
         cv = ttk.Labelframe(self, text="Cyclic Voltammetry (CV)")
         self._mode_frames["CV"] = cv
-        cv.grid(row=0, column=0, padx=6, pady=6, sticky="nsew")
+        cv.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
         self._make_header_with_tools(cv, check_var=self.cv_run_var, check_text="Run CV",
                                      on_copy=self._on_copy_cv, on_paste=self._on_paste_cv)
         self._make_labeled_entry(cv, "Vertex 1 vs. Ref (V)", "cv.vertex1_v", 1)
@@ -102,7 +103,7 @@ class ExperimentPanelView(ttk.Frame):
         self.ac_run_var = tk.BooleanVar(value=False)
         dcac = ttk.Labelframe(self, text="Electrolysis (DC/AC)")
         self._mode_frames["EA"] = dcac
-        dcac.grid(row=0, column=1, padx=6, pady=6, sticky="nsew")
+        dcac.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
         tools = ttk.Frame(dcac)
         tools.grid(row=0, column=0, columnspan=2, sticky="ew")
         ttk.Checkbutton(tools, text="Run DC", variable=self.dc_run_var).pack(side="left")
@@ -142,7 +143,7 @@ class ExperimentPanelView(ttk.Frame):
         self.cdl_eval_var = tk.BooleanVar(value=False)
         cdl = ttk.Labelframe(self, text="Capacitance (Cdl)")
         self._mode_frames["CDL"] = cdl
-        cdl.grid(row=1, column=0, padx=6, pady=6, sticky="nsew")
+        cdl.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
         self._make_header_with_tools(cdl, check_var=self.cdl_eval_var, check_text="Evaluate Cdl",
                                      on_copy=self._on_copy_cdl, on_paste=self._on_paste_cdl)
         self._make_labeled_entry(cdl, "Vertex A vs. Ref (V)", "cdl.vertex_a_v", 1)
@@ -153,7 +154,7 @@ class ExperimentPanelView(ttk.Frame):
         self.eis_run_var = tk.BooleanVar(value=False)
         eis = ttk.Labelframe(self, text="Impedance (EIS)")
         self._mode_frames["EIS"] = eis
-        eis.grid(row=1, column=1, padx=6, pady=6, sticky="nsew")
+        eis.grid(row=1, column=1, padx=10, pady=10, sticky="nsew")
         self._make_header_with_tools(eis, check_var=self.eis_run_var, check_text="Run EIS",
                                      on_copy=self._on_copy_eis, on_paste=self._on_paste_eis)
         self._make_labeled_entry(eis, "Freq Start (Hz)", "eis.freq_start_hz", 1)
@@ -169,13 +170,13 @@ class ExperimentPanelView(ttk.Frame):
         self._set_section_enabled("CDL", bool(self.cdl_eval_var.get()))
 
         # Footer
-        footer = ttk.Frame(self)
-        footer.grid(row=2, column=0, columnspan=2, sticky="ew", padx=6, pady=(4, 6))
+        footer = ttk.Frame(self, style="Card.TFrame")
+        footer.grid(row=2, column=0, columnspan=2, sticky="ew", padx=10, pady=(4, 10), ipady=4)
         for idx in range(4):
             footer.columnconfigure(idx, weight=1)
         self.editing_well_var = tk.StringVar(value="–")
         ttk.Label(footer, textvariable=self.editing_well_var).grid(row=0, column=0, sticky="w")
-        ttk.Button(footer, text="Update Parameters", command=self._on_apply_params).grid(
+        ttk.Button(footer, text="Update Parameters", style="Primary.TButton", command=self._on_apply_params).grid(
             row=0, column=1, sticky="", padx=6
         )
         ttk.Button(footer, text="End Selection", command=self._on_end_selection).grid(

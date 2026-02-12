@@ -74,8 +74,8 @@ class WellGridView(ttk.Frame):
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
         """Build toolbar and box/well button matrix."""
-        toolbar = ttk.Frame(self)
-        toolbar.pack(fill="x", pady=(0, 4))
+        toolbar = ttk.Frame(self, style="Card.TFrame")
+        toolbar.pack(fill="x", pady=(0, 8), ipady=4)
 
         ttk.Button(
             toolbar,
@@ -89,7 +89,7 @@ class WellGridView(ttk.Frame):
         ).pack(side="left", padx=(6, 0))
 
         grid = ttk.Frame(self)
-        grid.pack(fill="both", expand=True)
+        grid.pack(fill="both", expand=True, padx=2, pady=(2, 0))
 
         global_index = 1
         for col, box in enumerate(self._boxes):
@@ -103,7 +103,7 @@ class WellGridView(ttk.Frame):
                 btn = tk.Button(
                     lf,
                     text=str(global_index),
-                    width=6,
+                    width=7,
                     height=2,
                     relief="groove",
                     bg=self._color_default(),
@@ -185,15 +185,15 @@ class WellGridView(ttk.Frame):
     # ------------------------------------------------------------------
     def _color_default(self) -> str:
         """Return default background color for unselected wells."""
-        return "white"  # default idle/empty
+        return "#ffffff"  # default idle/empty
 
     def _color_selected(self) -> str:
         """Return background color for selected wells."""
-        return "#bbdefb"  # light blue
+        return "#d7e4ff"  # selected
 
     def _color_configured(self) -> str:
         """Return background color for configured wells."""
-        return "#c8e6c9"  # light green
+        return "#cfead6"  # configured
 
     def _apply_style(self, wid: WellId) -> None:
         """Apply color style for a single well based on current state.
