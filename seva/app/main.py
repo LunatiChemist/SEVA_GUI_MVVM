@@ -52,7 +52,6 @@ from seva.app.views.experiment_panel_view import ExperimentPanelView
 from seva.app.views.run_overview_view import RunOverviewView
 from seva.app.views.channel_activity_view import ChannelActivityView
 from seva.app.views.settings_dialog import SettingsDialog
-from seva.app.dataplotter_standalone import DataProcessingGUI
 from seva.app.discovery_controller import DiscoveryController
 from seva.app.settings_controller import SettingsController
 from seva.app.download_controller import DownloadController
@@ -472,6 +471,12 @@ class App:
     def _on_open_plotter(self) -> None:
         """Open the standalone data plotter window.
         """
+        try:
+            # Data plotter dependencies are optional in some environments.
+            from seva.app.dataplotter_standalone import DataProcessingGUI
+        except Exception as exc:
+            self.win.show_toast(f"Could not open Data Plotter: {exc}")
+            return
         DataProcessingGUI(self.win)
 
     def _on_download_group_results(self) -> None:

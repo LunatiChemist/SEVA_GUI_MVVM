@@ -13,6 +13,7 @@ requires-python = ">=3.10"
 keywords = ["electrochemistry", "mvvm", "fastapi", "tkinter", "pyBEEP"]
 dependencies = [
   "requests>=2.31",
+  "nicegui>=2.24,<3",
   "matplotlib>=3.7",
   "Pillow>=10.0",
   "numpy>=1.24",
