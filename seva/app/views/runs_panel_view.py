@@ -26,10 +26,11 @@ class RunsPanelView(ttk.Frame):
         """
         super().__init__(parent, **kwargs)
 
-        toolbar = ttk.Frame(self)
-        toolbar.pack(side=tk.TOP, fill=tk.X, padx=4, pady=4)
+        toolbar = ttk.Frame(self, style="Card.TFrame")
+        toolbar.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(10, 6), ipady=4)
+        ttk.Label(toolbar, text="Runs", style="Title.TLabel").pack(side=tk.LEFT, padx=(8, 14))
 
-        self.btn_open = ttk.Button(toolbar, text="Open Folder", command=self._on_open_click, state="disabled")
+        self.btn_open = ttk.Button(toolbar, text="Open Folder", style="Primary.TButton", command=self._on_open_click, state="disabled")
         self.btn_cancel = ttk.Button(toolbar, text="Cancel", command=self._on_cancel_click, state="disabled")
         self.btn_delete = ttk.Button(toolbar, text="Delete", command=self._on_delete_click, state="disabled")
         self.btn_open.pack(side=tk.LEFT, padx=(0, 6))
@@ -68,8 +69,8 @@ class RunsPanelView(ttk.Frame):
         vsb = ttk.Scrollbar(self, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=vsb.set)
 
-        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0), pady=(0, 10))
+        vsb.pack(side=tk.RIGHT, fill=tk.Y, pady=(0, 10), padx=(0, 10))
 
         self.on_open: Optional[Callable[[str], None]] = None
         self.on_cancel: Optional[Callable[[str], None]] = None

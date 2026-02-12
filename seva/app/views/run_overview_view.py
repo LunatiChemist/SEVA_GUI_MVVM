@@ -58,15 +58,21 @@ class RunOverviewView(ttk.Frame):
     # ------------------------------------------------------------------
     def _build_toolbar(self) -> None:
         """Build row of top-level actions for the run overview tab."""
-        bar = ttk.Frame(self)
-        bar.grid(row=0, column=0, sticky="ew", padx=6, pady=(6, 4))
-        ttk.Button(bar, text="Download Group", command=self._on_download_group_results).pack(side="left", padx=18)
+        bar = ttk.Frame(self, style="Card.TFrame")
+        bar.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 6), ipady=4)
+        ttk.Label(bar, text="Run Overview", style="Title.TLabel").pack(side="left", padx=(12, 24))
+        ttk.Button(
+            bar,
+            text="Download Group",
+            style="Primary.TButton",
+            command=self._on_download_group_results,
+        ).pack(side="left")
 
     # ------------------------------------------------------------------
     def _build_box_summary(self) -> None:
         """Build per-box status card widgets."""
         wrap = ttk.Frame(self)
-        wrap.grid(row=1, column=0, sticky="ew", padx=6, pady=4)
+        wrap.grid(row=1, column=0, sticky="ew", padx=10, pady=4)
 
         self._box_cards: Dict[BoxId, ttk.Frame] = {}
         self._box_status_lbl: Dict[BoxId, ttk.Label] = {}
@@ -93,8 +99,8 @@ class RunOverviewView(ttk.Frame):
     # ------------------------------------------------------------------
     def _build_well_table(self) -> None:
         """Build scrollable tree table for per-well status rows."""
-        frame = ttk.Frame(self)
-        frame.grid(row=2, column=0, sticky="nsew", padx=6, pady=(4, 6))
+        frame = ttk.Frame(self, style="Card.TFrame")
+        frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=(4, 10))
         frame.rowconfigure(0, weight=1)
         frame.columnconfigure(0, weight=1)
 

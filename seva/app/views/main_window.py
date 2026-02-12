@@ -20,6 +20,8 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable, Optional
 
+from seva.app.views.theme import apply_modern_theme
+
 
 class MainWindowView(tk.Tk):
     """Top-level application window.
@@ -56,6 +58,7 @@ class MainWindowView(tk.Tk):
         super().__init__()
 
         # ---- Window basics ----
+        apply_modern_theme(self)
         self.title("SEVA – Potentiostat GUI")
         self.geometry("1280x800")  # default size; user can resize
         self.minsize(1000, 700)
@@ -90,12 +93,12 @@ class MainWindowView(tk.Tk):
         Args:
             parent: Root container hosting the toolbar row.
         """
-        toolbar = ttk.Frame(parent)
-        toolbar.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
+        toolbar = ttk.Frame(parent, style="Card.TFrame")
+        toolbar.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 6), ipady=6)
         toolbar.columnconfigure(tuple(range(10)), weight=0)
 
         # Primary actions
-        ttk.Button(toolbar, text="Start", command=self._on_submit).grid(
+        ttk.Button(toolbar, text="Start", style="Primary.TButton", command=self._on_submit).grid(
             row=0, column=0, padx=(0, 6)
         )
         ttk.Button(toolbar, text="Cancel Group", command=self._on_cancel_group).grid(
@@ -128,21 +131,25 @@ class MainWindowView(tk.Tk):
             parent: Root container hosting the main area row.
         """
         # Static container (no scrollbar for now)
-        content = ttk.Frame(parent)
-        content.grid(row=1, column=0, sticky="nsew", padx=8, pady=4)
+        content = ttk.Panedwindow(parent, orient="horizontal")
+        content.grid(row=1, column=0, sticky="nsew", padx=12, pady=6)
 
-        # Two columns: left WellGrid, right Notebook
-        content.rowconfigure(0, weight=1)
-        content.columnconfigure(0, weight=1)
-        content.columnconfigure(1, weight=1)
+        left_panel = ttk.Frame(content, style="Card.TFrame")
+        right_panel = ttk.Frame(content, style="Card.TFrame")
+        left_panel.columnconfigure(0, weight=1)
+        left_panel.rowconfigure(0, weight=1)
+        right_panel.columnconfigure(0, weight=1)
+        right_panel.rowconfigure(0, weight=1)
+        content.add(left_panel, weight=3)
+        content.add(right_panel, weight=4)
 
         # Left: host frame for the WellGrid (no own scrollbars anymore)
-        self.wellgrid_host = ttk.Frame(content)
-        self.wellgrid_host.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        self.wellgrid_host = ttk.Frame(left_panel)
+        self.wellgrid_host.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
 
         # Right: Notebook with tabs (Experiment / Run Overview / Channel Activity)
-        self.tabs = ttk.Notebook(content)
-        self.tabs.grid(row=0, column=1, sticky="nsew")
+        self.tabs = ttk.Notebook(right_panel)
+        self.tabs.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
 
         self.tab_experiment = ttk.Frame(self.tabs)
         self.tab_run_overview = ttk.Frame(self.tabs)
@@ -227,11 +234,11 @@ class MainWindowView(tk.Tk):
         Args:
             parent: Root container hosting the status row.
         """
-        status = ttk.Frame(parent)
-        status.grid(row=2, column=0, sticky="ew", padx=8, pady=(4, 8))
+        status = ttk.Frame(parent, style="Card.TFrame")
+        status.grid(row=2, column=0, sticky="ew", padx=12, pady=(6, 12), ipady=4)
         status.columnconfigure(1, weight=1)
 
-        ttk.Label(status, text="Run:").grid(row=0, column=0, sticky="w")
+        ttk.Label(status, text="Run:", style="Subtle.TLabel").grid(row=0, column=0, sticky="w", padx=(8,0))
         self.lbl_run_id = ttk.Label(status, text="-")
         self.lbl_run_id.grid(row=0, column=1, sticky="w")
 
@@ -241,7 +248,7 @@ class MainWindowView(tk.Tk):
         self._relay_labels = {}  # type: dict[str, ttk.Label]
 
         self.status_message_var = tk.StringVar(value="Ready.")
-        ttk.Label(status, textvariable=self.status_message_var).grid(row=0, column=3, sticky="e")
+        ttk.Label(status, textvariable=self.status_message_var, style="Subtle.TLabel").grid(row=0, column=3, sticky="e", padx=(0, 8))
 
     # ------------------------------------------------------------------
     # Public API (called by VMs/presenters)

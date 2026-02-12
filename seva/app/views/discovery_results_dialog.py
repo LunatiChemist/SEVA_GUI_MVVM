@@ -7,6 +7,8 @@ controller layers.
 from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
+
+from seva.app.views.theme import apply_modern_theme
 from typing import Iterable, Mapping, Optional
 
 class DiscoveryResultsDialog(tk.Toplevel):
@@ -26,6 +28,7 @@ class DiscoveryResultsDialog(tk.Toplevel):
             on_close: Optional callback invoked before dialog destroy.
         """
         super().__init__(master)
+        apply_modern_theme(self)
         self.title(title)
         self.on_close = on_close
         self.resizable(True, True)
@@ -57,7 +60,7 @@ class DiscoveryResultsDialog(tk.Toplevel):
         yscroll.grid(row=0, column=1, sticky="ns")
 
         # --- Buttons
-        btn = ttk.Button(self, text="Close", command=self._on_close)
+        btn = ttk.Button(self, text="Close", style="Primary.TButton", command=self._on_close)
         btn.grid(row=1, column=0, columnspan=2, pady=8)
 
         # --- Populate
