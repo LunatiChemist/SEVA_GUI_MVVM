@@ -23,6 +23,7 @@ from typing import Optional, Literal, Dict, List, Any
 from datetime import timezone
 import serial.tools.list_ports
 from fastapi import Body, FastAPI, HTTPException, Header, Request, Response, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
@@ -662,6 +663,19 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Potentiostat Box API", version=API_VERSION, lifespan=lifespan)
 # TODO(metrics): optional Prometheus /metrics exporter (future)
+
+cors_origins_raw = os.getenv("SEVA_CORS_ALLOW_ORIGINS", "").strip()
+if cors_origins_raw:
+    cors_origins = [origin.strip() for origin in cors_origins_raw.split(",") if origin.strip()]
+    if cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=cors_origins,
+            allow_credentials=False,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+        log.info("CORS enabled for %d origin(s).", len(cors_origins))
 
 
 @app.exception_handler(RequestValidationError)

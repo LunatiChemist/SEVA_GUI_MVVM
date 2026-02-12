@@ -46,6 +46,7 @@ If you are new to the project, follow this order:
 Use this if you want the shortest path to a specific task:
 
 - **I want to run GUI/API locally** -> [Development Setup](dev-setup.md), then [REST API Setup Tutorial](rest-api-setup.md).
+- **I want to run the NiceGUI web runtime** -> [NiceGUI Web Runtime](web_ui_runtime.md).
 - **I want to understand architecture boundaries** -> [Architecture Overview](architecture_overview.md).
 - **I need call-chain debugging for start/poll/cancel** -> [SEVA GUI Workflows](workflows_seva.md) and [REST API Workflows](workflows_rest_api.md).
 - **I need endpoint/module reference details** -> [REST API Classes & Modules](classes_rest_api.md) and [SEVA GUI Classes & Modules](classes_seva.md).
@@ -92,14 +93,15 @@ inside `seva/` and `rest_api/`.
 Follow this order for a linear tour through the docs:
 
 1. **[Development Setup](dev-setup.md)** (local environment + run GUI/API)
-2. **[REST API Setup Tutorial](rest-api-setup.md)** (API install, env, smoke tests, restart)
-3. **[Architecture Overview](architecture_overview.md)** (MVVM + Hexagonal boundaries)
-4. **[MVVM + Hexagonal Tutorial Notebooks](mvvm_tutorial_notebooks.md)**
-5. **[SEVA GUI workflows](workflows_seva.md)**
-6. **[REST API workflows](workflows_rest_api.md)**
-7. **[Troubleshooting](troubleshooting.md)**
-8. **[Glossary](glossary.md)**
-9. **[ChatGPT Codex Guide](codex_guide.md)**
+2. **[NiceGUI Web Runtime](web_ui_runtime.md)** (parallel web runtime startup and behavior)
+3. **[REST API Setup Tutorial](rest-api-setup.md)** (API install, env, smoke tests, restart)
+4. **[Architecture Overview](architecture_overview.md)** (MVVM + Hexagonal boundaries)
+5. **[MVVM + Hexagonal Tutorial Notebooks](mvvm_tutorial_notebooks.md)**
+6. **[SEVA GUI workflows](workflows_seva.md)**
+7. **[REST API workflows](workflows_rest_api.md)**
+8. **[Troubleshooting](troubleshooting.md)**
+9. **[Glossary](glossary.md)**
+10. **[ChatGPT Codex Guide](codex_guide.md)**
 
 ### User guide track
 

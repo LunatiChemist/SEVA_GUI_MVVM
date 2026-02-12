@@ -37,12 +37,14 @@ nav:
   - Developer Docs:
       - Getting Started:
           - Development Setup: dev-setup.md
+          - NiceGUI Web Runtime: web_ui_runtime.md
           - REST API Setup Tutorial: rest-api-setup.md
       - Architecture:
           - Architecture Overview: architecture_overview.md
           - MVVM + Hexagonal Tutorial Notebooks: mvvm_tutorial_notebooks.md
       - Workflows:
           - SEVA GUI Workflows: workflows_seva.md
+          - Web UI Parity Inventory: web_ui_parity_inventory.md
           - REST API Workflows: workflows_rest_api.md
       - Reference:
           - SEVA GUI Classes & Modules: classes_seva.md

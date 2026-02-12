@@ -25,6 +25,19 @@ Start the Tkinter GUI locally with:
 python -m seva.app.main
 ```
 
+## Run the NiceGUI Web UI (Windows/Linux)
+
+Start the web runtime locally with:
+
+```bash
+python -m seva.web_ui.main --host 127.0.0.1 --port 8080
+```
+
+Then open `http://127.0.0.1:8080` in your browser.
+
+The Tkinter and NiceGUI runtimes are parallel entrypoints; you can run either,
+or both, during migration/parity work.
+
 If you need a custom storage root (where the GUI reads/writes local files), set
 `SEVA_STORAGE_ROOT` before starting:
 
@@ -62,6 +75,7 @@ and restart procedures), see:
 - `BOX_ID`: Identifier for the box (used in health/device responses).
 - `NAS_CONFIG_PATH`: Optional path for NAS/SMB configuration persistence.
 - `BOX_BUILD` / `BOX_BUILD_ID`: Optional build metadata for versioning.
+- `SEVA_CORS_ALLOW_ORIGINS`: Optional comma-separated browser origins for CORS (for example `http://127.0.0.1:8080,http://localhost:8080`).
 
 Example:
 

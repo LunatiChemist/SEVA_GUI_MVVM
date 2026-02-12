@@ -23,6 +23,20 @@ pip install -r requirements.txt
 python -m seva.app.main
 ```
 
+### Use the Web UI (NiceGUI, parallel runtime)
+
+```bash
+pip install -r requirements.txt
+python -m seva.web_ui.main --host 127.0.0.1 --port 8080
+```
+
+Open `http://127.0.0.1:8080` in your browser.
+
+Notes:
+- Tkinter and NiceGUI runtimes are available in parallel.
+- Web settings persist in browser `localStorage`.
+- Settings can be exported/imported as JSON from the `Settings` tab.
+
 ### Run the REST API (Raspberry Pi / Linux)
 
 ```bash
