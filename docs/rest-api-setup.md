@@ -14,7 +14,7 @@ Use this page if you want to:
 
 Recommended target: Linux/Raspberry Pi.
 
-- Python 3.10–3.12
+- Python >=3.10
 - Git
 - Network access for dependency install (or a prepared offline wheelhouse)
 
@@ -110,11 +110,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=pi
-Group=pi
-WorkingDirectory=/opt/box/rest_api
+User=root
+Group=root
+WorkingDirectory=<REPOSITORY_PATH>/rest_api
 EnvironmentFile=/etc/seva/box-api.env
-ExecStart=/opt/box/.venv/bin/uvicorn app:app --host 0.0.0.0 --port 8000
+ExecStart=<VENV_PATH>/.venv/bin/uvicorn app:app --host 0.0.0.0 --port 8000
 Restart=on-failure
 RestartSec=3
 
@@ -124,7 +124,7 @@ UNIT
 ```
 
 Adjust `User`, `Group`, `WorkingDirectory`, and `ExecStart` paths to match your
-installation.
+installation. (Optional) Keep `User` and `Group` as `root` if you are unsure about your permissions.
 
 ### B) Enable and start autostart
 
