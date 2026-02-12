@@ -26,6 +26,7 @@ from fastapi import Body, FastAPI, HTTPException, Header, Request, Response, Upl
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from contextlib import asynccontextmanager
 import shlex  
@@ -83,6 +84,30 @@ _resolve_run_directory = storage.resolve_run_directory
 configure_run_storage_root = storage.configure_runs_root
 
 API_VERSION = "1.0"
+
+
+def _parse_csv_env(name: str, default: Optional[str] = None) -> List[str]:
+    """Parse a comma-separated environment variable into trimmed string items."""
+    raw = os.getenv(name, default or "")
+    items = [part.strip() for part in str(raw or "").split(",")]
+    return [item for item in items if item]
+
+
+def _parse_bool_env(name: str, default: bool = False) -> bool:
+    """Parse boolean-like environment variables."""
+    raw = str(os.getenv(name, "")).strip().lower()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "on"}
+
+
+CORS_ALLOW_ORIGINS = _parse_csv_env("CORS_ALLOW_ORIGINS")
+CORS_ALLOW_METHODS = _parse_csv_env("CORS_ALLOW_METHODS", "GET,POST,OPTIONS")
+CORS_ALLOW_HEADERS = _parse_csv_env(
+    "CORS_ALLOW_HEADERS",
+    "Authorization,Content-Type,X-API-Key",
+)
+CORS_ALLOW_CREDENTIALS = _parse_bool_env("CORS_ALLOW_CREDENTIALS", default=False)
 
 try:
     from seva.utils.logging import configure_root as _configure_logging, level_name as _level_name
@@ -662,6 +687,24 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Potentiostat Box API", version=API_VERSION, lifespan=lifespan)
 # TODO(metrics): optional Prometheus /metrics exporter (future)
+
+if CORS_ALLOW_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=CORS_ALLOW_ORIGINS,
+        allow_credentials=CORS_ALLOW_CREDENTIALS,
+        allow_methods=CORS_ALLOW_METHODS or ["GET", "POST", "OPTIONS"],
+        allow_headers=CORS_ALLOW_HEADERS or ["Authorization", "Content-Type", "X-API-Key"],
+    )
+    log.info(
+        "CORS enabled origins=%s methods=%s headers=%s credentials=%s",
+        CORS_ALLOW_ORIGINS,
+        CORS_ALLOW_METHODS,
+        CORS_ALLOW_HEADERS,
+        CORS_ALLOW_CREDENTIALS,
+    )
+else:
+    log.info("CORS disabled (CORS_ALLOW_ORIGINS is empty)")
 
 
 @app.exception_handler(RequestValidationError)
