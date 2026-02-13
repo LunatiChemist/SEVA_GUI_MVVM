@@ -769,11 +769,10 @@ def _firmware_storage_dir() -> pathlib.Path:
 
 def _flash_script_path() -> pathlib.Path:
     """Return configured firmware flashing script path."""
-    default_path = pathlib.Path("/opt/box/auto_flash_linux.py")
     configured = os.getenv("FLASH_SCRIPT_PATH", "")
     if configured.strip():
         return pathlib.Path(configured.strip())
-    return default_path
+    return pathlib.Path(__file__).resolve().with_name("auto_flash_linux.py")
 
 
 def _store_uploaded_firmware(file: UploadFile) -> pathlib.Path:

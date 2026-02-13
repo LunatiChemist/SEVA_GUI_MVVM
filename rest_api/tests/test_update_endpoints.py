@@ -162,3 +162,15 @@ def test_updates_status_not_found(api_module, tmp_path: Path) -> None:
     response = client.get("/updates/does-not-exist")
     assert response.status_code == 404
     assert response.json()["code"] == "updates.not_found"
+
+
+def test_flash_script_path_defaults_to_rest_api_dir(api_module, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("FLASH_SCRIPT_PATH", raising=False)
+    expected = Path(api_module.__file__).resolve().with_name("auto_flash_linux.py")
+    assert api_module._flash_script_path() == expected
+
+
+def test_flash_script_path_respects_override(api_module, monkeypatch: pytest.MonkeyPatch) -> None:
+    override = Path("/tmp/custom_flash.py")
+    monkeypatch.setenv("FLASH_SCRIPT_PATH", str(override))
+    assert api_module._flash_script_path() == override
