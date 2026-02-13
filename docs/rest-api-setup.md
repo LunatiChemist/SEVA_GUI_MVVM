@@ -141,6 +141,21 @@ sudo systemctl status pybeep-box.service --no-pager
 sudo journalctl -u pybeep-box.service -f
 ```
 
+
+### E) Remote update target directories (important)
+
+If you implement or use the remote update bundle workflow, keep target paths
+explicit and stable:
+
+- **REST API target directory** must be resolved from deployment/environment
+  configuration (for example, values loaded through `/etc/seva/box-api.env` and
+  service setup conventions). Do not hardcode this path inside update bundles.
+- **pyBEEP vendor target directory** is fixed to
+  `<REPOSITORY_PATH>/vendor/pyBEEP` for update application logic.
+
+This distinction is required so package authors can build one predictable update
+format while still supporting deployment-specific API paths.
+
 ### D) Update environment variables later
 
 After editing `/etc/seva/box-api.env`, reload and restart:

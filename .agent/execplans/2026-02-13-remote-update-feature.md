@@ -1,121 +1,128 @@
-# Remote-Update-Feature für REST API + GUI Settings
+# Remote update feature for REST API + GUI settings
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Diese Planung wird gemäß `.agent/PLANS.md` geführt und muss während der Umsetzung laufend aktualisiert werden.
+This plan follows `.agent/PLANS.md` and must be maintained during implementation.
 
 ## Purpose / Big Picture
 
-Nach dieser Änderung kann ein User in den Settings der GUI ein einziges Update-ZIP auswählen und remote an eine Box (Raspberry Pi mit `rest_api`) senden. Die Box entpackt das Archiv, validiert ein festes Manifest und führt dann gezielt Teil-Updates aus: REST API, pyBEEP (`.vendor`) und optional Firmware-Image-Vorbereitung. Der eigentliche Firmware-Flash bleibt weiterhin ein separater Endpoint/Schritt, wie gefordert.
+After this change, a user can select one update ZIP in the GUI settings and upload it to a box (Raspberry Pi running `rest_api`). The box validates a strict manifest, unpacks safely, and applies component updates for REST API and pyBEEP vendor files. Firmware flashing remains a separate endpoint and operation.
 
-User-sichtbar bedeutet das:
+User-visible outcomes:
 
-- Ein neuer „Gesamt-Update“-Flow ersetzt im Settings-Dialog den bisherigen „nur Firmware“-Flow.
-- Ein standardisiertes ZIP-Format stellt sicher, dass API und Raspberry Pi sich auf Struktur, Versionen und Prüfsummen verlassen können.
-- Der User bekommt pro Komponente ein klares Ergebnis (angewendet/übersprungen/fehlgeschlagen) plus konkrete Fehlercodes.
-- Versionen von API, pyBEEP und Geräte-Firmware sind gezielt einsehbar.
+- A new “Remote Update” workflow replaces the current firmware-only update entry point in settings.
+- A fixed ZIP format guarantees that API and Raspberry Pi can rely on package structure, checksums, and metadata.
+- The user receives per-component status (`updated`, `skipped`, `staged`, `failed`) with explicit error codes.
+- The user can inspect API version, pyBEEP version, and firmware state in a consistent way.
 
 ## Progress
 
-- [x] (2026-02-13 00:00Z) Ist-Zustand in `rest_api/`, `seva/` und `docs/` geprüft (Firmware-Flow, Version-Endpoint, Settings-Integration).
-- [x] (2026-02-13 00:00Z) Zielbild für ZIP-Struktur, API-Endpoint, Ausführungsreihenfolge, Rückgabeformat und Version-Checks definiert.
-- [ ] ExecPlan in Implementierungs-Milestones umsetzen (API, UseCases, Adapter, GUI, Tests, Doku).
-- [ ] Legacy-„nur Firmware“-UI-Pfad entfernen und vollständig durch Gesamt-Update ersetzen.
+- [x] (2026-02-13 00:00Z) Current state reviewed in `rest_api/`, `seva/`, and `docs/` (firmware flow, version endpoint, settings integration).
+- [x] (2026-02-13 00:00Z) Initial target design captured for ZIP format, API endpoint family, execution order, result schema, and version visibility.
+- [x] (2026-02-13 00:00Z) ExecPlan updated to English-only and aligned with target directory constraints from setup docs and repository vendor path.
+- [ ] Implement the plan milestones (API, use cases, adapter, GUI, tests, docs).
+- [ ] Remove the legacy firmware-only settings path after remote update flow is fully integrated.
 
 ## Surprises & Discoveries
 
-- Observation: Die API liefert bereits `/version` mit `api`, `pybeep`, `python`, `build`; es fehlt nur noch ein strukturierter Geräte-Firmware-Stand.
-  Evidence: `rest_api/app.py` enthält `version_info()` und `PYBEEP_VERSION`-Ermittlung.
+- Observation: `/version` already returns `api`, `pybeep`, `python`, and `build`; firmware-specific version reporting still needs an explicit contract.
+  Evidence: `rest_api/app.py` `version_info()`.
 
-- Observation: Der aktuelle GUI-Settings-Flow ist auf lokale `.bin`-Datei + `POST /firmware/flash` ausgelegt und in Controller/View eng verbunden.
-  Evidence: `seva/app/settings_controller.py` (`handle_browse_firmware`, `handle_flash_firmware`) und `seva/app/views/settings_dialog.py` (Firmware-Group).
+- Observation: Current settings UI/controller are wired to local `.bin` upload + `/firmware/flash` and therefore need structural replacement for a full ZIP-based flow.
+  Evidence: `seva/app/views/settings_dialog.py`, `seva/app/settings_controller.py`.
 
-- Observation: Architekturgrenzen sind bereits gut vorbereitet: UseCase-orchestriert, Adapter für Transport, View nur UI.
-  Evidence: `seva/usecases/flash_firmware.py`, `seva/adapters/firmware_rest.py`, `docs/workflows_seva.md`.
+- Observation: Deployment path handling for the API should be environment-driven from REST API setup guidance (systemd `EnvironmentFile`), while pyBEEP target must be repository-local at `<REPOSITORY_PATH>/vendor/pyBEEP`.
+  Evidence: `docs/rest-api-setup.md` (environment configuration), user requirement in this task.
 
 ## Decision Log
 
-- Decision: ZIP bekommt ein verpflichtendes Manifest (`manifest.json`) als Single Source of Truth für Inhalte, Zielpfade und Prüfsummen.
-  Rationale: Frühe Validierung, robuste Fehlercodes, keine impliziten Dateinamen-Heuristiken.
+- Decision: The update ZIP requires a mandatory `manifest.json` as the single source of truth for included components, checksums, and versions.
+  Rationale: Enables early validation and deterministic error reporting.
   Date/Author: 2026-02-13 / Codex
 
-- Decision: Firmware-Flash bleibt separater Endpoint (`/firmware/flash`). Gesamt-Update darf Firmware-Binary nur bereitstellen/ablegen und als „pending_flash“ markieren.
-  Rationale: Entspricht Benutzeranforderung und trennt riskanten Hardware-Flash von Paketdeployment.
+- Decision: Firmware flashing remains separate (`/firmware/flash`). The remote update package may only stage firmware binaries for a later explicit flash action.
+  Rationale: Matches product requirement and keeps hardware-risky flash separate from package deployment.
   Date/Author: 2026-02-13 / Codex
 
-- Decision: API-seitig wird ein asynchroner Job-Endpoint für Gesamt-Updates eingeführt (`start -> poll`), statt langer synchroner Upload-Request.
-  Rationale: Große ZIPs + Entpacken + Dateikopie können länger dauern; GUI braucht Polling-kompatiblen Fortschritt.
+- Decision: Use asynchronous update jobs (`start -> poll`) instead of a long synchronous upload request.
+  Rationale: ZIP validation and file replacement can be long-running; polling fits existing client behavior.
   Date/Author: 2026-02-13 / Codex
 
-- Decision: GUI ersetzt bestehenden Firmware-Block durch „Remote Update“-Block; separater Button „Firmware jetzt flashen“ bleibt als Folgeschritt sichtbar.
-  Rationale: Bestehender Nutzer-Workflow bleibt verständlich, gleichzeitig wird Gesamt-Update zentralisiert.
+- Decision: API component target directory is not hardcoded in the package contract. It is resolved from environment-backed deployment configuration (as documented in REST API setup). pyBEEP target directory is fixed to `<REPOSITORY_PATH>/vendor/pyBEEP`.
+  Rationale: Keeps deployment-specific API path configurable and enforces a stable pyBEEP location for update logic.
   Date/Author: 2026-02-13 / Codex
 
 ## Outcomes & Retrospective
 
-Noch offen (Planungsstand). Erwartetes Ergebnis nach Umsetzung:
+Planning phase only; implementation still pending.
 
-- Einheitliches Paketformat mit validierbarem Manifest.
-- Ein konsistenter End-to-End-Updateflow über MVVM + Hexagonal Grenzen.
-- Verbesserte Transparenz durch strukturierte Statusrückgaben und Versionsendpoints.
+Expected outcome after implementation:
+
+- A strict package contract with manifest validation and checksum guarantees.
+- End-to-end remote update flow across API and GUI layers within MVVM + Hexagonal boundaries.
+- Clear user feedback and version visibility for API, pyBEEP, and firmware state.
 
 ## Context and Orientation
 
-Aktueller Stand in diesem Repository:
+Current repository state:
 
-- `rest_api/app.py` hat bereits:
-  - `POST /firmware/flash` (Upload `.bin`, dann Flash via `auto_flash_linux.py`),
-  - `GET /version` mit API/pyBEEP/Python/Build,
-  - keine Gesamt-Update-Route.
-- GUI Settings haben bereits Firmware-Upload-UI:
-  - View: `seva/app/views/settings_dialog.py` (Firmware-Datei + Flash-Button)
-  - Controller: `seva/app/settings_controller.py` (Datei wählen, UseCase triggern)
+- `rest_api/app.py` currently provides:
+  - `POST /firmware/flash` (upload `.bin`, run `auto_flash_linux.py`),
+  - `GET /version` (API/pyBEEP/Python/build metadata),
+  - no remote update endpoint family.
+- GUI settings currently provide firmware-only upload/flash:
+  - View: `seva/app/views/settings_dialog.py`
+  - Controller: `seva/app/settings_controller.py`
   - UseCase: `seva/usecases/flash_firmware.py`
   - Adapter: `seva/adapters/firmware_rest.py`
-- Architektur-Regeln (MVVM + Hexagonal) und Workflows sind dokumentiert in:
+- Architecture and workflow references:
   - `docs/workflows_rest_api.md`
   - `docs/workflows_seva.md`
   - `docs/classes_rest_api.md`
   - `docs/classes_seva.md`
+- Deployment/environment reference:
+  - `docs/rest-api-setup.md`
 
-Begriffe in diesem Plan:
+Terms used in this plan:
 
-- „Manifest“: JSON-Datei im ZIP, die Versionsinfos, enthaltene Komponenten, Prüfsummen und Update-Policy enthält.
-- „Staging“: temporäres Ablegen und Entpacken eines Uploads in einem Arbeitsverzeichnis vor finalem Kopieren.
-- „Component Result“: einzelnes Ergebnis je Teilkomponente (`rest_api`, `pybeep`, `firmware_bundle`).
+- Manifest: JSON metadata file inside the ZIP describing included components, checksums, versions, and rules.
+- Staging: temporary upload extraction area before component replacement.
+- Component result: explicit per-component action outcome in job status.
 
 ## Plan of Work
 
-### 1) ZIP-Format standardisieren (verbindlicher Vertrag)
+### 1) Define strict ZIP format and manifest contract
 
-Einführung eines festen Paketformats:
+Package format:
 
-- Dateiname (empfohlen): `seva-box-update_<bundle-version>.zip`
-- Top-Level Inhalt:
-  - `manifest.json` (pflicht)
+- Recommended file name: `seva-box-update_<bundle-version>.zip`
+- Required top-level entries:
+  - `manifest.json` (required)
   - `payload/rest_api/...` (optional)
   - `payload/pybeep_vendor/...` (optional)
-  - `payload/firmware/*.bin` (optional, genau 0..1 je Zielboardtyp im ersten Schritt)
+  - `payload/firmware/*.bin` (optional)
 
-Vorgeschlagenes `manifest.json` (Version 1):
+Proposed `manifest.json` v1:
 
     {
       "manifest_version": 1,
       "bundle_version": "2026.02.13-rc1",
       "created_at_utc": "2026-02-13T10:30:00Z",
       "min_installer_api": "0.1.0",
+      "paths": {
+        "api_target_env_var": "BOX_API_TARGET_DIR",
+        "pybeep_target": "<REPOSITORY_PATH>/vendor/pyBEEP"
+      },
       "components": {
         "rest_api": {
           "present": true,
           "source_dir": "payload/rest_api",
-          "target_dir": "/opt/box/rest_api",
           "sha256": "...",
           "version": "0.9.0"
         },
         "pybeep_vendor": {
           "present": true,
           "source_dir": "payload/pybeep_vendor",
-          "target_dir": "/opt/box/.vendor/pyBEEP",
           "sha256": "...",
           "version": "1.4.2"
         },
@@ -128,94 +135,97 @@ Vorgeschlagenes `manifest.json` (Version 1):
       }
     }
 
-Wichtige Regeln:
+Validation rules:
 
-- Kein `present=true` ohne existierende Quelle.
-- SHA256 muss für jede vorhandene Komponente verifiziert werden.
-- Unbekannte Komponenten => harter Fehler (`update.manifest_unknown_component`), um stilles Ignorieren zu vermeiden.
-- Path Traversal-Schutz (`..`, absolute Pfade, Symlink-Eskapaden) beim Entpacken verpflichtend.
+- `present=true` requires the source path/file to exist.
+- SHA256 must match for each present component.
+- Unknown component keys fail hard (`update.manifest_unknown_component`).
+- Safe unzip must block path traversal and symlink escape.
+- API target directory is resolved from environment/deployment config, not trusted from ZIP path fields.
+- pyBEEP target is always `<REPOSITORY_PATH>/vendor/pyBEEP`.
 
-### 2) REST API-Update-Orchestrierung einführen
+### 2) Add REST API update orchestration endpoints
 
-Neue Endpoint-Familie in `rest_api/app.py`:
+Add endpoint family in `rest_api/app.py` (or extracted module):
 
-- `POST /updates` (multipart: `file=<zip>`) -> erstellt Update-Job und startet Verarbeitung im Hintergrund.
-- `GET /updates/{update_id}` -> Polling-Status des Jobs.
-- `GET /updates/latest` -> optionaler Convenience-Endpunkt für zuletzt gestarteten Job.
+- `POST /updates` (multipart `file=<zip>`) -> creates update job and starts background processing.
+- `GET /updates/{update_id}` -> returns job status.
+- `GET /updates/latest` -> optional convenience endpoint.
 
-Job-Statusmodell (typed Pydantic) enthält:
+Job status schema:
 
 - `update_id`, `status` (`queued|running|done|failed|partial`)
 - `started_at`, `finished_at`
 - `bundle_version`
-- `steps`: Liste mit Schritten (`validate_archive`, `apply_rest_api`, `apply_pybeep_vendor`, `stage_firmware`)
-- `component_results` mit je:
-  - `component`, `action` (`updated|skipped|staged|failed`),
-  - `from_version`, `to_version`,
+- `steps` (`validate_archive`, `apply_rest_api`, `apply_pybeep_vendor`, `stage_firmware`)
+- `component_results[]` with:
+  - `component`
+  - `action` (`updated|skipped|staged|failed`)
+  - `from_version`, `to_version`
   - `message`, `error_code` (optional)
 
-Fehlerpolitik:
+API-side execution flow:
 
-- Adapter-/Systemnahe Fehler in typed API-Error-Codes mappen.
-- Keine stillen Fallbacks; bei Manifest-/Checksum-Fehlern sofort klar abbrechen.
-- Bei Teilfehlern `partial` erlauben, aber explizit je Komponente berichten.
+1. Save ZIP under `/opt/box/updates/incoming/{update_id}.zip`.
+2. Securely extract to `/opt/box/updates/staging/{update_id}/`.
+3. Validate manifest and checksums.
+4. Apply components in order:
+   - `rest_api`: replace atomically in API target directory resolved from environment-backed config.
+   - `pybeep_vendor`: replace atomically in `<REPOSITORY_PATH>/vendor/pyBEEP`.
+   - `firmware_bundle`: copy to `/opt/box/firmware/` only (no auto-flash).
+5. Persist/report update job status for polling.
 
-Ablauf API-seitig:
+Error policy:
 
-1. ZIP speichern nach `/opt/box/updates/incoming/{update_id}.zip`.
-2. Sicher entpacken nach `/opt/box/updates/staging/{update_id}/`.
-3. Manifest laden + validieren.
-4. Komponenten sequentiell anwenden:
-   - `rest_api`: atomar in Zielverzeichnis austauschen (Backup + replace).
-   - `pybeep_vendor`: atomar in `.vendor` austauschen.
-   - `firmware_bundle`: nach `/opt/box/firmware/` ablegen, aber nicht flashen.
-5. Ergebniszustand schreiben (in-memory + optional persistente Jobdatei), dann Polling-Endpunkt bedienbar halten.
+- No silent fallback branches.
+- Manifest/checksum violations fail with typed API errors.
+- Partial completion allowed only when explicitly represented as `partial` with per-component detail.
 
-### 3) Firmware-Endpoint erhalten und ergänzen
+### 3) Keep firmware flash endpoint and wire staged firmware usage
 
-`POST /firmware/flash` bleibt erhalten.
+`POST /firmware/flash` stays active.
 
-Ergänzungen:
+Possible extension:
 
-- Optionales Feld `filename`/`version_hint` oder separater Endpoint `POST /firmware/flash/staged` zur Verwendung der zuletzt gestagten Firmware aus Gesamt-Update.
-- Bei Erfolg Rückgabe inkl. verwendeter Firmware-Datei und Version-Hinweis aus Manifest.
+- Add optional staged firmware selector, or `POST /firmware/flash/staged` to flash last staged artifact from a successful update bundle.
+- Return firmware file + version metadata in success response.
 
-### 4) GUI-Integration im Settings-Menü (Ablösung alter Funktion)
+### 4) Replace settings firmware-only flow with remote update flow
 
-MVVM-konform umstellen:
+MVVM + Hexagonal alignment:
 
-- View (`settings_dialog.py`): Firmware-Group ersetzen durch „Remote Update“-Group:
-  - ZIP-Pfad
-  - „Browse ZIP…"
-  - „Upload & Apply Update"
-  - „Firmware jetzt flashen“ (separater Schritt)
-  - Statusanzeige letzter Update-Job
-- Controller (`settings_controller.py`): neue Handler auf neue UseCases verdrahten.
-- Neue UseCases:
-  - `UploadRemoteUpdate` (startet `POST /updates`)
-  - `PollRemoteUpdateStatus` (fragt `GET /updates/{id}`)
-- Neuer Adapter:
-  - `update_rest.py` (transportiert `/updates` calls, typed errors)
+- View (`settings_dialog.py`): replace firmware group with `Remote Update` group:
+  - ZIP path
+  - `Browse ZIP...`
+  - `Upload & Apply Update`
+  - `Flash Firmware Now` (separate action)
+  - latest update status summary
+- Controller (`settings_controller.py`): wire new callbacks to use cases.
+- New use cases:
+  - `UploadRemoteUpdate` -> starts `/updates`.
+  - `PollRemoteUpdateStatus` -> polls `/updates/{id}`.
+- New adapter:
+  - `seva/adapters/update_rest.py` for `/updates` transport and typed errors.
 
-Legacy entfernen:
+Legacy removal:
 
-- Der bisherige „nur Firmware“-Einstieg in den Settings wird gelöscht.
-- Flash-UseCase bleibt als separater Schritt innerhalb des neuen Gesamt-Update-Bereichs verfügbar.
+- Remove old firmware-only settings entry path once replacement is complete.
+- Keep dedicated flash operation available inside new remote update section.
 
-### 5) User-Rückgaben und UX-Feedback definieren
+### 5) Define user feedback contract
 
-Unmittelbar nach Upload:
+Immediate feedback after upload:
 
-- Toast: „Update gestartet (ID: …)“
-- UI zeigt `queued/running` + aktuellen Schritt.
+- Toast: `Update started (ID: ...)`
+- UI displays `queued/running` state and current step.
 
-Nach Abschluss:
+Completion feedback:
 
-- Erfolg: „Update erfolgreich: API x->y, pyBEEP a->b, Firmware staged v.“
-- Partial: „Update teilweise erfolgreich“, plus Box/Komponenten-Details.
-- Fehler: eindeutiger Code + Human Message + ggf. Handlungshinweis.
+- Success: summarize API, pyBEEP, and firmware staging transitions.
+- Partial: explicit component failures and still-applied components.
+- Failure: user-visible error code + message + remediation hint.
 
-Fehlercodes (Startset):
+Initial error code set:
 
 - `update.invalid_upload`
 - `update.manifest_missing`
@@ -226,67 +236,68 @@ Fehlercodes (Startset):
 - `update.apply_pybeep_failed`
 - `update.stage_firmware_failed`
 
-### 6) Version-Checks für User bereitstellen
+### 6) Define version visibility strategy
 
-API-Seite:
+API:
 
-- `GET /version` erweitern um:
-  - `firmware_staged_version` (aus letztem validen Manifest, falls vorhanden)
-  - `firmware_device_version` (wenn durch Geräteabfrage verfügbar; sonst `unknown`)
-- Optional separater Endpoint `GET /devices/firmware` mit Slot-basierter Firmware-Version.
+- Extend `GET /version` with:
+  - `firmware_staged_version`
+  - `firmware_device_version` (or `unknown` if unavailable)
+- Optionally add `GET /devices/firmware` for per-slot firmware details.
 
-GUI-Seite:
+GUI settings:
 
-- Settings zeigt pro Box:
-  - API-Version
-  - pyBEEP-Version
-  - Geräte-Firmware-Version (pro Box aggregiert oder je Device in Detaildialog)
-  - staged Firmware-Version
+- Show per-box version panel including:
+  - API version
+  - pyBEEP version
+  - staged firmware version
+  - device firmware version (if provided)
 
-### 7) Tests und Dokumentation
+### 7) Tests and documentation updates
 
-Tests:
+Contract-focused tests:
 
-- API Contract Tests für `/updates`:
-  - gültiges ZIP -> `done`
-  - fehlendes Manifest -> `400`
-  - falsche SHA -> `400`
-  - nur eine Komponente vorhanden -> `partial` oder `done` mit `skipped`
-- GUI/UseCase-Tests:
-  - Adapter-Fehler werden in UseCaseError gemappt.
-  - Statuspolling aktualisiert ViewModel ohne I/O in View.
+- API contract tests for `/updates`:
+  - valid ZIP -> `done`
+  - missing manifest -> `400`
+  - checksum mismatch -> `400`
+  - subset package -> explicit `skipped` actions
+- UseCase↔Adapter tests:
+  - typed adapter errors are mapped to consistent use-case errors
+  - polling updates ViewModel state without direct I/O in views
 
-Dokumentationsupdates:
+Documentation updates required during implementation:
 
-- `docs/workflows_rest_api.md`: neuer Workflow „Remote Update“ + Verweis auf Firmware-Flash-Trennung.
-- `docs/classes_rest_api.md`: neue Endpoint-/Modulbeschreibung.
-- `docs/workflows_seva.md` und `docs/classes_seva.md`: neue Update-UseCases/Adapter/UI-Fluss.
+- `docs/workflows_rest_api.md`: new remote update workflow + explicit separation from flashing.
+- `docs/classes_rest_api.md`: endpoint/model/module references for update flow.
+- `docs/workflows_seva.md`, `docs/classes_seva.md`: GUI/use case/adapter integration updates.
+- `docs/rest-api-setup.md`: explicit note that API update target directory is environment/deployment configured and pyBEEP target is `<REPOSITORY_PATH>/vendor/pyBEEP` (critical for package authors).
 
 ## Concrete Steps
 
-Arbeitsverzeichnis: `/workspace/SEVA_GUI_MVVM`
+Working directory: `/workspace/SEVA_GUI_MVVM`
 
-1) Implementierung vorbereiten
+1) Gather implementation anchors:
 
     rg -n "firmware|version|updates|settings" rest_api seva docs
 
-2) API-Änderungen einführen
+2) Implement API update flow:
 
-    # Dateien erweitern: rest_api/app.py (+ ggf. neues rest_api/update_service.py)
+    # edit rest_api/app.py (+ optional rest_api/update_service.py)
     pytest -q
 
-3) GUI-Änderungen einführen
+3) Implement GUI + use case + adapter changes:
 
-    # Dateien: settings_dialog.py, settings_controller.py, neue adapter/usecases
+    # edit settings dialog/controller + new update adapter/usecases
     pytest -q
 
-4) End-to-End manuell prüfen (Beispiel)
+4) Manual endpoint verification:
 
     curl -X POST -H "X-API-Key: ..." -F "file=@seva-box-update_2026.02.13-rc1.zip" http://<box>:8000/updates
     curl -H "X-API-Key: ..." http://<box>:8000/updates/<update_id>
     curl -H "X-API-Key: ..." http://<box>:8000/version
 
-Erwartung (gekürzt):
+Expected response shape (example):
 
     {"update_id":"...","status":"queued"}
     {"update_id":"...","status":"done","component_results":[...]}
@@ -294,55 +305,54 @@ Erwartung (gekürzt):
 
 ## Validation and Acceptance
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Ein valides ZIP startet erfolgreich einen Update-Job und liefert pollbaren Status.
-- Manifest- oder Checksum-Fehler sind klar als API-Fehlercode sichtbar.
-- Firmware wird im Gesamt-Update nicht automatisch geflasht.
-- Der separate Firmware-Flash ist weiterhin aufrufbar und funktionsfähig.
-- GUI-Settings zeigen den neuen Gesamt-Update-Flow statt altem „nur Firmware“-Flow.
-- User kann API-, pyBEEP- und Firmware-Versionen sichtbar prüfen.
+- Valid ZIP starts an update job and returns pollable progress/status.
+- Manifest and checksum issues produce clear typed error responses.
+- Remote update never auto-flashes firmware.
+- Separate firmware flash endpoint remains operational.
+- Settings UI exposes remote update flow instead of old firmware-only path.
+- User can inspect API, pyBEEP, and firmware version state.
 
 ## Idempotence and Recovery
 
-- Upload desselben Bundles ist wiederholbar; `bundle_version` + Hash können zur Duplicate-Erkennung genutzt werden.
-- Bei Abbruch im Staging dürfen Zielverzeichnisse unverändert bleiben (atomare Replace-Strategie).
-- Vor Überschreiben produktiver Verzeichnisse Backup unter `/opt/box/updates/backups/<timestamp>/` ablegen.
-- Recovery: fehlgeschlagenen Job verwerfen, Backup zurückspielen, Endpoint erneut aufrufen.
+- Re-uploading the same bundle is allowed; de-duplication may use bundle version + hash.
+- Staging failures must leave active target directories unchanged (atomic replacement strategy).
+- Before replacement, backup production directories under `/opt/box/updates/backups/<timestamp>/`.
+- Recovery path: mark failed job, restore backup, rerun update.
 
 ## Artifacts and Notes
 
-Wichtige Referenzen im Ist-Zustand:
+Current-state references:
 
-- REST API Firmware-Endpunkt in `rest_api/app.py` (`POST /firmware/flash`).
-- Versionsausgabe in `rest_api/app.py` (`GET /version`).
-- GUI Firmware-UI in `seva/app/views/settings_dialog.py`.
-- GUI Firmware-Aktion in `seva/app/settings_controller.py`.
+- Firmware flash endpoint: `rest_api/app.py` (`POST /firmware/flash`).
+- Version endpoint: `rest_api/app.py` (`GET /version`).
+- Settings firmware UI path: `seva/app/views/settings_dialog.py`.
+- Settings firmware action path: `seva/app/settings_controller.py`.
 
 ## Interfaces and Dependencies
 
-Neue/angepasste Interfaces:
+Proposed interfaces:
 
-- `UpdatePort` in `seva/domain/ports.py` mit Methoden:
+- Add `UpdatePort` in `seva/domain/ports.py` with:
   - `start_update(box_id: BoxId, zip_path: str | Path) -> UpdateStartResult`
   - `get_update_status(box_id: BoxId, update_id: str) -> UpdateStatus`
-- Adapter `seva/adapters/update_rest.py` implementiert `UpdatePort`.
-- UseCases:
+- Implement adapter `seva/adapters/update_rest.py`.
+- Add use cases:
   - `seva/usecases/upload_remote_update.py`
   - `seva/usecases/poll_remote_update_status.py`
 
-API-Modelle (in `rest_api/app.py` oder ausgelagert):
+API DTOs/models:
 
 - `UpdateStartResponse`
 - `UpdateStep`
 - `UpdateComponentResult`
 - `UpdateStatusResponse`
 
-Abhängigkeiten:
+Dependencies:
 
-- Standardbibliothek reicht weitgehend (`zipfile`, `hashlib`, `tempfile`, `shutil`, `pathlib`).
-- Keine neuen externen Libraries nötig, sofern sichere Entpack-Checks intern implementiert werden.
+- Standard library is enough (`zipfile`, `hashlib`, `tempfile`, `shutil`, `pathlib`) if secure extraction and validation are implemented internally.
 
 ---
 
-Change note (2026-02-13): Neuer ExecPlan für Remote-Update erstellt, basierend auf aktuellem API-/GUI-Stand und den geforderten Planungsfragen (ZIP-Struktur, Ablauf, Rückgaben, Versionsprüfung, Endpoint-Design).
+Change note (2026-02-13): ExecPlan updated per feedback: English-only wording, API target directory policy aligned with environment/deployment configuration, and pyBEEP target explicitly fixed to `<REPOSITORY_PATH>/vendor/pyBEEP` with required docs update callout.
