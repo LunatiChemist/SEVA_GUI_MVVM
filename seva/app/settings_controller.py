@@ -15,6 +15,7 @@ import time
 from typing import Callable, Optional
 from tkinter import filedialog, messagebox
 
+from seva.domain.box_version import BoxVersionInfo
 from seva.domain.ports import StoragePort, UseCaseError
 from seva.domain.remote_update import UpdateStartReceipt
 from seva.viewmodels.settings_vm import SettingsVM
@@ -255,6 +256,39 @@ class SettingsController:
                 start_failures=start_result.failures,
             )
 
+        def handle_refresh_versions() -> None:
+            """Refresh returned version/health info for all configured boxes."""
+            if not dlg:
+                return
+            if not self._ensure_adapter():
+                return
+            refresh_uc = self.controller.uc_refresh_box_versions
+            if refresh_uc is None:
+                self.win.show_toast("Version refresh is not available.")
+                return
+            box_ids = sorted(
+                box_id
+                for box_id, url in (self.settings_vm.api_base_urls or {}).items()
+                if isinstance(url, str) and url.strip()
+            )
+            if not box_ids:
+                self.win.show_toast("Configure at least one box URL before refreshing versions.")
+                return
+            dlg.set_version_info_text("Refreshing version data...")
+            try:
+                result = refresh_uc(box_ids=box_ids)
+            except Exception as exc:
+                self._toast_error(exc, context="Refresh versions")
+                return
+
+            text = self._format_version_info_output(infos=result.infos, failures=result.failures)
+            self.settings_vm.version_info_text = text
+            dlg.set_version_info_text(text)
+            if result.failures:
+                self.win.show_toast("Version info refreshed with failures.")
+            else:
+                self.win.show_toast("Version info refreshed.")
+
         def handle_open_nas_setup() -> None:
             """Open standalone NAS setup dialog."""
             NASSetupGUI(self.win)
@@ -269,6 +303,7 @@ class SettingsController:
             on_open_nas_setup=handle_open_nas_setup,
             on_save=self._on_settings_saved,
             on_start_package_update=handle_start_package_update,
+            on_refresh_versions=handle_refresh_versions,
             on_close=lambda: None,
         )
 
@@ -287,7 +322,50 @@ class SettingsController:
         dlg.set_debug_logging(self.settings_vm.debug_logging)
         dlg.set_relay_config(self.settings_vm.relay_ip, self.settings_vm.relay_port)
         dlg.set_update_package_path(self.settings_vm.update_package_path)
+        dlg.set_version_info_text(self.settings_vm.version_info_text)
         dlg.set_save_enabled(self.settings_vm.is_valid())
+
+    @staticmethod
+    def _format_version_info_output(
+        *,
+        infos: dict[str, BoxVersionInfo],
+        failures: dict[str, str],
+    ) -> str:
+        """Format per-box version refresh data into a multiline UI text block."""
+        all_boxes = sorted(set(infos.keys()) | set(failures.keys()))
+        if not all_boxes:
+            return "No boxes were queried."
+
+        lines: list[str] = []
+        for box_id in all_boxes:
+            failure = failures.get(box_id)
+            if failure:
+                lines.append(f"Box {box_id}: error={failure}")
+                continue
+
+            info = infos.get(box_id)
+            if info is None:
+                lines.append(f"Box {box_id}: error=No data returned.")
+                continue
+
+            health_label = "unknown"
+            if info.health_ok is True:
+                health_label = "ok"
+            elif info.health_ok is False:
+                health_label = "failed"
+            devices = "?" if info.health_devices is None else str(info.health_devices)
+            reported_box = info.reported_box_id or "-"
+            api_version = info.api_version or "-"
+            pybeep_version = info.pybeep_version or "-"
+            python_version = info.python_version or "-"
+            build_identifier = info.build_identifier or "-"
+            lines.append(
+                f"Box {box_id}: api={api_version}, pybeep={pybeep_version}, "
+                f"python={python_version}, build={build_identifier}, "
+                f"health={health_label}, devices={devices}, box_id={reported_box}"
+            )
+
+        return "\n".join(lines)
 
     def _poll_remote_updates(
         self,

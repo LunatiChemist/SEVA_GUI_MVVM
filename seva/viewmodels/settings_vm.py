@@ -86,6 +86,7 @@ class SettingsVM:
         self.use_streaming: bool = False
         self.relay_ip: str = ""
         self.relay_port: int = 0
+        self.version_info_text: str = ""
         self.debug_logging: bool = _default_debug_logging()
 
     # ------------------------------------------------------------------

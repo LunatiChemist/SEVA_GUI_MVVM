@@ -34,6 +34,7 @@ class SettingsDialog(tk.Toplevel):
         on_open_nas_setup: OnVoid = None,
         on_save: OnSave = None,
         on_start_package_update: OnVoid = None,
+        on_refresh_versions: OnVoid = None,
         on_close: OnVoid = None,
     ) -> None:
         """Initialize modal settings dialog and field variables.
@@ -49,6 +50,7 @@ class SettingsDialog(tk.Toplevel):
             on_open_nas_setup: Callback opening NAS setup flow.
             on_save: Callback receiving a normalized settings payload dict.
             on_start_package_update: Callback starting package update flow.
+            on_refresh_versions: Callback refreshing returned version details.
             on_close: Callback invoked when dialog closes.
         """
         super().__init__(parent)
@@ -65,6 +67,7 @@ class SettingsDialog(tk.Toplevel):
         self._on_open_nas_setup = on_open_nas_setup
         self._on_save = on_save
         self._on_start_package_update = on_start_package_update
+        self._on_refresh_versions = on_refresh_versions
         self._on_close = on_close
 
         self.protocol("WM_DELETE_WINDOW", self._on_close_clicked)
@@ -189,11 +192,24 @@ class SettingsDialog(tk.Toplevel):
             text="Browse…",
             command=lambda: self._safe(self._on_browse_update_package),
         ).grid(row=0, column=2, sticky="w")
+        update_actions = ttk.Frame(update_pkg)
+        update_actions.grid(row=1, column=0, columnspan=3, sticky="w", pady=(6, 0))
         ttk.Button(
-            update_pkg,
+            update_actions,
             text="Start Remote Update",
             command=lambda: self._safe(self._on_start_package_update),
-        ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        ).pack(side="left")
+        ttk.Button(
+            update_actions,
+            text="Refresh Version",
+            command=lambda: self._safe(self._on_refresh_versions),
+        ).pack(side="left", padx=(8, 0))
+        ttk.Label(update_pkg, text="Returned info per box").grid(
+            row=2, column=0, columnspan=3, sticky="w", pady=(8, 0)
+        )
+        self._version_info_text = tk.Text(update_pkg, height=6, wrap="word")
+        self._version_info_text.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(4, 0))
+        self._version_info_text.configure(state=tk.DISABLED)
 
         # NAS group
         nas = ttk.Labelframe(self, text="NAS")
@@ -377,6 +393,13 @@ class SettingsDialog(tk.Toplevel):
         """
         self.update_package_path_var.set(path)
 
+    def set_version_info_text(self, text: str) -> None:
+        """Set multiline version-refresh output shown in package update section."""
+        self._version_info_text.configure(state=tk.NORMAL)
+        self._version_info_text.delete("1.0", tk.END)
+        self._version_info_text.insert(tk.END, str(text or ""))
+        self._version_info_text.configure(state=tk.DISABLED)
+
     def set_save_enabled(self, enabled: bool) -> None:
         """Enable or disable the Save button.
 
@@ -413,12 +436,12 @@ class SettingsDialog(tk.Toplevel):
             pw = parent.winfo_width()
             ph = parent.winfo_height()
             width = 600
-            height = 650
+            height = 740
             x = px + (pw - width) // 2
             y = py + (ph - height) // 2
             return f"{width}x{height}+{x}+{y}"
         except Exception:
-            return "600x650"
+            return "600x740"
 
     def _safe(self, fn: OnVoid) -> None:
         """Invoke no-arg callback only when provided.
@@ -455,6 +478,7 @@ if __name__ == "__main__":
         on_open_nas_setup=lambda: print("[demo] open NAS setup"),
         on_save=lambda payload: print(f"[demo] save payload with {len(payload)} keys"),
         on_start_package_update=lambda: print("[demo] start package update"),
+        on_refresh_versions=lambda: print("[demo] refresh versions"),
         on_close=lambda: print("[demo] close dialog"),
     )
 
@@ -485,5 +509,6 @@ if __name__ == "__main__":
     dialog.set_debug_logging(False)
     dialog.set_relay_config(ip="10.0.10.40", port=502)
     dialog.set_update_package_path(r"C:\Users\User\Downloads\update-package.zip")
+    dialog.set_version_info_text("Box A: api=1.2.3, pybeep=0.9.1, python=3.13.0, build=build-42")
 
     dialog.mainloop()
