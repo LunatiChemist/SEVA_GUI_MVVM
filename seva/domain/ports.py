@@ -67,6 +67,10 @@ class JobPort(Protocol):
 class DevicePort(Protocol):
     """Device metadata and capability endpoints provided by the boxes."""
 
+    def version(self, box_id: BoxId) -> Dict[str, Any]:
+        """Fetch `/version` metadata for one box."""
+        ...
+
     def health(self, box_id: BoxId) -> Dict[str, Any]:
         """Fetch box health metadata."""
         ...

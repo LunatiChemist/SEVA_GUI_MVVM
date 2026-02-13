@@ -15,6 +15,7 @@ from seva.adapters.update_rest import UpdateRestAdapter
 from seva.usecases.cancel_group import CancelGroup
 from seva.usecases.download_group_results import DownloadGroupResults
 from seva.usecases.poll_remote_update import PollRemoteUpdate
+from seva.usecases.refresh_box_versions import RefreshBoxVersions
 from seva.usecases.poll_device_status import PollDeviceStatus
 from seva.usecases.poll_group_status import PollGroupStatus
 from seva.usecases.start_remote_update import StartRemoteUpdate
@@ -55,6 +56,7 @@ class AppController:
         self.uc_cancel_runs: Optional["CancelRuns"] = None
         self.uc_poll_device_status: Optional[PollDeviceStatus] = None
         self.uc_test_connection: Optional[TestConnection] = None
+        self.uc_refresh_box_versions: Optional[RefreshBoxVersions] = None
         self.uc_start_remote_update: Optional[StartRemoteUpdate] = None
         self.uc_poll_remote_update: Optional[PollRemoteUpdate] = None
 
@@ -85,6 +87,7 @@ class AppController:
         self.uc_cancel_runs = None
         self.uc_poll_device_status = None
         self.uc_test_connection = None
+        self.uc_refresh_box_versions = None
         self.uc_start_remote_update = None
         self.uc_poll_remote_update = None
 
@@ -143,6 +146,7 @@ class AppController:
             self.uc_start = StartExperimentBatch(self._job_adapter)
             self.uc_test_connection = TestConnection(self._device_adapter)
             self.uc_poll_device_status = PollDeviceStatus(self._device_adapter)
+            self.uc_refresh_box_versions = RefreshBoxVersions(self._device_adapter)
         if self._update_adapter:
             self.uc_start_remote_update = StartRemoteUpdate(self._update_adapter)
             self.uc_poll_remote_update = PollRemoteUpdate(self._update_adapter)
