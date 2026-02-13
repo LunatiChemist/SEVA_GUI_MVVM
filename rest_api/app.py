@@ -76,6 +76,7 @@ FLASH_SCRIPT_PATH = pathlib.Path(os.getenv("BOX_FLASH_SCRIPT", "/opt/box/auto_fl
 UPDATE_SERVICE = UpdateService(
     updates_root=UPDATES_ROOT,
     firmware_dir=FIRMWARE_DIR,
+    flash_script_path=FLASH_SCRIPT_PATH,
     repository_root=pathlib.Path(__file__).resolve().parent.parent,
     logger=logging.getLogger("rest_api.update"),
 )
@@ -770,13 +771,11 @@ def version_info() -> Dict[str, str]:
     HTTPException
         Raises HTTPException when request data, auth, or storage resolution fails.
     """
-    staged = UPDATE_SERVICE.get_staged_firmware_info()
     return {
         "api": API_VERSION,
         "pybeep": _detect_pybeep_version(),
         "python": PYTHON_VERSION,
         "build": BUILD_IDENTIFIER,
-        "firmware_staged_version": staged.get("version", "unknown"),
         "firmware_device_version": "unknown",
     }
 
@@ -2080,37 +2079,6 @@ def flash_firmware(file: UploadFile = File(...), x_api_key: Optional[str] = Head
 
     return _run_flash_script(target_path, source_label="direct_upload")
 
-
-@app.post("/firmware/flash/staged")
-def flash_staged_firmware(x_api_key: Optional[str] = Header(None)):
-    """Flash the latest staged firmware artifact from `/updates` workflow."""
-    if auth_error := require_key(x_api_key):
-        return auth_error
-
-    staged = UPDATE_SERVICE.get_staged_firmware_info()
-    file_name = staged.get("file_name", "").strip()
-    if not file_name:
-        return http_error(
-            status_code=404,
-            code="firmware.staged_missing",
-            message="No staged firmware available",
-            hint="Run a remote update with firmware_bundle first.",
-        )
-
-    target_path = FIRMWARE_DIR / pathlib.Path(file_name).name
-    if not target_path.is_file():
-        return http_error(
-            status_code=404,
-            code="firmware.staged_missing",
-            message="Staged firmware file is missing",
-            hint=f"Expected file at {target_path}.",
-        )
-
-    return _run_flash_script(
-        target_path,
-        source_label="staged_bundle",
-        firmware_version=staged.get("version", "unknown"),
-    )
 
 # ---------- SEE Stream (Endpoint there) ----------
 

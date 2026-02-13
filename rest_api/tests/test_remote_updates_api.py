@@ -210,11 +210,11 @@ def test_post_updates_valid_bundle_finishes_done(api_client: TestClient, tmp_pat
         for item in final_payload.get("component_results", [])
     }
     assert actions["rest_api"] == "updated"
-    assert actions["firmware_bundle"] == "staged"
+    assert actions["firmware_bundle"] == "updated"
     assert actions["pybeep_vendor"] == "skipped"
 
     version_payload = api_client.get("/version").json()
-    assert version_payload["firmware_staged_version"] == "2.7.0"
+    assert "firmware_staged_version" not in version_payload
     assert version_payload["firmware_device_version"] == "unknown"
 
 

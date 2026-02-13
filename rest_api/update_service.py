@@ -21,6 +21,7 @@ import logging
 import os
 from pathlib import Path, PurePosixPath
 import shutil
+import subprocess
 import threading
 from typing import BinaryIO, Dict, List, Mapping, Optional
 import uuid
@@ -31,12 +32,12 @@ ALLOWED_COMPONENTS: tuple[str, ...] = ("rest_api", "pybeep_vendor", "firmware_bu
 STEP_VALIDATE_ARCHIVE = "validate_archive"
 STEP_APPLY_REST_API = "apply_rest_api"
 STEP_APPLY_PYBEEP = "apply_pybeep_vendor"
-STEP_STAGE_FIRMWARE = "stage_firmware"
+STEP_FLASH_FIRMWARE = "flash_firmware"
 STEP_ORDER: tuple[str, ...] = (
     STEP_VALIDATE_ARCHIVE,
     STEP_APPLY_REST_API,
     STEP_APPLY_PYBEEP,
-    STEP_STAGE_FIRMWARE,
+    STEP_FLASH_FIRMWARE,
 )
 PYBEEP_TARGET_PLACEHOLDER = "<REPOSITORY_PATH>/vendor/pyBEEP"
 
@@ -180,17 +181,18 @@ class UpdateService:
         *,
         updates_root: Path,
         firmware_dir: Path,
+        flash_script_path: Path,
         repository_root: Path,
         logger: Optional[logging.Logger] = None,
     ) -> None:
         self.log = logger or logging.getLogger("rest_api.update_service")
         self.updates_root = Path(updates_root)
         self.firmware_dir = Path(firmware_dir)
+        self.flash_script_path = Path(flash_script_path)
         self.repository_root = Path(repository_root)
         self.incoming_root = self.updates_root / "incoming"
         self.staging_root = self.updates_root / "staging"
         self.backups_root = self.updates_root / "backups"
-        self.staged_metadata_path = self.firmware_dir / "staged_firmware.json"
         self.pybeep_target_dir = self.repository_root / "vendor" / "pyBEEP"
 
         for directory in (self.incoming_root, self.staging_root, self.backups_root, self.firmware_dir):
@@ -270,24 +272,6 @@ class UpdateService:
         if not latest:
             return None
         return self.get_status(latest)
-
-    def get_staged_firmware_info(self) -> Dict[str, str]:
-        """Return staged firmware metadata for `/version` and flash endpoints."""
-        if not self.staged_metadata_path.is_file():
-            return {}
-        try:
-            payload = json.loads(self.staged_metadata_path.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-        if not isinstance(payload, Mapping):
-            return {}
-        return {
-            "version": str(payload.get("version") or "unknown"),
-            "file_name": str(payload.get("file_name") or ""),
-            "sha256": str(payload.get("sha256") or ""),
-            "update_id": str(payload.get("update_id") or ""),
-            "staged_at": str(payload.get("staged_at") or ""),
-        }
 
     def _preflight_validate_archive(self, update_id: str, archive_path: Path) -> _ManifestPayload:
         """Run strict archive validation before queueing a background apply job."""
@@ -442,9 +426,9 @@ class UpdateService:
         component: _ManifestComponent,
         staging_dir: Path,
     ) -> None:
-        """Stage firmware bundle file without flashing."""
+        """Apply firmware bundle by copying and flashing immediately."""
         if not component.present:
-            self._set_step(update_id, STEP_STAGE_FIRMWARE, "skipped", "Component not present in bundle.")
+            self._set_step(update_id, STEP_FLASH_FIRMWARE, "skipped", "Component not present in bundle.")
             self._append_component_result(
                 update_id,
                 UpdateComponentResult(
@@ -470,37 +454,55 @@ class UpdateService:
                 f"Got '{source_file.name}'.",
             )
 
-        self._set_step(update_id, STEP_STAGE_FIRMWARE, "running")
-        previous = self.get_staged_firmware_info()
+        self._set_step(update_id, STEP_FLASH_FIRMWARE, "running")
         try:
-            target_name = source_file.name
-            target_path = self.firmware_dir / target_name
+            target_path = self.firmware_dir / source_file.name
             shutil.copy2(source_file, target_path)
-            metadata = {
-                "version": component.version,
-                "file_name": target_name,
-                "sha256": component.sha256 or "",
-                "update_id": update_id,
-                "staged_at": _utc_now_iso(),
-            }
-            self.staged_metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+            self._run_flash_script(target_path)
+        except UpdateServiceError:
+            raise
         except Exception as exc:
             raise UpdateServiceError(
-                "update.stage_firmware_failed",
-                "Failed to stage firmware bundle",
+                "update.flash_firmware_failed",
+                "Failed to flash firmware bundle",
                 str(exc),
             ) from exc
 
-        self._set_step(update_id, STEP_STAGE_FIRMWARE, "done")
+        self._set_step(update_id, STEP_FLASH_FIRMWARE, "done")
         self._append_component_result(
             update_id,
             UpdateComponentResult(
                 component="firmware_bundle",
-                action="staged",
-                from_version=previous.get("version") or "unknown",
+                action="updated",
                 to_version=component.version,
-                message=f"Firmware staged at {self.firmware_dir / source_file.name}.",
+                message=f"Firmware flashed from {target_path}.",
             ),
+        )
+
+    def _run_flash_script(self, firmware_path: Path) -> None:
+        """Run configured flash script and raise typed errors on failure."""
+        if not self.flash_script_path.is_file():
+            raise UpdateServiceError(
+                "update.flash_firmware_failed",
+                "Firmware flash script missing",
+                f"Expected script at {self.flash_script_path}.",
+            )
+
+        result = subprocess.run(
+            ["python", self.flash_script_path.name, str(firmware_path)],
+            cwd=str(self.flash_script_path.parent),
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return
+
+        stdout = (result.stdout or "").strip()
+        stderr = (result.stderr or "").strip()
+        raise UpdateServiceError(
+            "update.flash_firmware_failed",
+            "Failed to flash firmware bundle",
+            f"exit_code={result.returncode}; stdout={stdout}; stderr={stderr}",
         )
 
     def _load_manifest(self, staging_dir: Path) -> _ManifestPayload:
@@ -834,7 +836,7 @@ class UpdateService:
         with self._lock:
             job = self._jobs[update_id]
             failed = [item for item in job.component_results if item.action == "failed"]
-            changed = [item for item in job.component_results if item.action in ("updated", "staged")]
+            changed = [item for item in job.component_results if item.action == "updated"]
             if failed and changed:
                 job.status = "partial"
             elif failed:
@@ -858,7 +860,7 @@ class UpdateService:
         mapping = {
             STEP_APPLY_REST_API: "rest_api",
             STEP_APPLY_PYBEEP: "pybeep_vendor",
-            STEP_STAGE_FIRMWARE: "firmware_bundle",
+            STEP_FLASH_FIRMWARE: "firmware_bundle",
         }
         return mapping.get(step_name)
 
