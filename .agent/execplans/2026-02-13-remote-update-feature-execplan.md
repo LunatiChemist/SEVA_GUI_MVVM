@@ -1,4 +1,4 @@
-# Implement remote package update across all boxes (REST API + GUI + ZIP generator)
+﻿# Implement remote package update across all boxes (REST API + GUI + ZIP generator)
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be updated continuously during implementation.
 
@@ -17,23 +17,29 @@ A separate standalone ZIP Generator GUI tool is also delivered to build valid up
 - [x] (2026-02-13 00:00Z) Captured product direction: async updates, all-box scope, lock + audit, auto restart.
 - [x] (2026-02-13 00:10Z) Confirmed constraints: no signature verification, no dry-run, no compatibility matrix, partial packages allowed.
 - [x] (2026-02-13 00:20Z) Confirmed GUI migration rule: single update-package UX, no fallback track.
-- [ ] Define and implement package contract (`manifest.json`, checksums, folder layout).
-- [ ] Implement async REST orchestration endpoints and in-memory job state.
-- [ ] Reuse existing firmware flash endpoint logic from package flow.
-- [ ] Add strict modal “update running” popup with heartbeat/progress in GUI.
-- [ ] Remove legacy GUI firmware-only controls and related wiring.
-- [ ] Build standalone ZIP Generator GUI script.
-- [ ] Add contract-driven tests at UseCase↔Adapter and REST boundary.
-- [ ] Update docs for REST/API workflow and operator usage.
-- [ ] Run validation, collect evidence, and finalize retrospective.
+- [x] (2026-02-13 05:40Z) Implemented package contract + validation module (rest_api/update_package.py) with typed manifest parsing, checksum/path safety checks, and component model enforcement.
+- [x] (2026-02-13 05:55Z) Implemented async REST endpoints and in-memory update orchestration (POST /updates/package, GET /updates/{update_id}, GET /updates) with lock, audit log, ordered apply, and restart result capture.
+- [x] (2026-02-13 06:00Z) Refactored firmware flashing into shared helper in rest_api/app.py and wired both POST /firmware/flash and package-update worker to it.
+- [x] (2026-02-13 06:12Z) Migrated GUI Settings to package-update-only controls and added strict modal progress popup (seva/app/views/update_progress_dialog.py) with backend step + heartbeat polling.
+- [x] (2026-02-13 06:15Z) Removed legacy GUI firmware-only wiring (controller callbacks, settings view-model field, and settings dialog controls).
+- [x] (2026-02-13 06:20Z) Added standalone ZIP Generator GUI (StreamingStandalone/update_zip_generator.py) for full or partial package creation.
+- [x] (2026-02-13 06:28Z) Added contract-driven tests for UseCase↔Adapter and REST boundary (`seva/tests/test_remote_update_usecases.py`, `rest_api/tests/test_update_endpoints.py`).
+- [x] (2026-02-13 06:34Z) Updated /docs for REST workflow, SEVA workflow, class/module maps, and operator GUI usage.
+- [x] (2026-02-13 06:36Z) Ran validation (py -3.13 -m pytest -q) and manual curl start/poll verification; captured evidence snippets below.
 
 ## Surprises & Discoveries
 
 - Observation: Firmware flashing is already implemented end-to-end with upload validation, script execution, and typed HTTP error payloads.
-  Evidence: `rest_api/app.py` route `POST /firmware/flash` includes validation, storage, subprocess call, and structured errors.
+  Evidence: rest_api/app.py route POST /firmware/flash includes validation, storage, subprocess call, and structured errors.
 
 - Observation: Current GUI follows MVVM + Hexagonal layering for settings actions and firmware use case calls.
   Evidence: existing flow is View -> UseCase -> Adapter -> API, so package-update can be added without breaking architecture boundaries.
+
+- Observation: Local Python 3.13 validation environment does not include serial/pyBEEP, so REST boundary tests and manual validation required startup stubs.
+  Evidence: rest_api/tests/test_update_endpoints.py and .tmp_validation/validation_server.py inject serial and pyBEEP stubs before importing rest_api/app.py.
+
+- Observation: First manual curl upload failed due malformed checksum sample generation (\\n literal in checksum line), not backend logic.
+  Evidence: API returned updates.checksum_missing; regenerated sample ZIP succeeded with terminal status=done.
 
 ## Decision Log
 
@@ -45,7 +51,7 @@ A separate standalone ZIP Generator GUI tool is also delivered to build valid up
   Rationale: If a package includes only firmware + pyBEEP, only those components are applied.
   Date/Author: 2026-02-13 / Codex.
 
-- Decision: Keep `POST /firmware/flash` as public API and reuse its core implementation in package flow.
+- Decision: Keep POST /firmware/flash as public API and reuse its core implementation in package flow.
   Rationale: No legacy removal at API contract level; strict DRY implementation for flashing behavior.
   Date/Author: 2026-02-13 / Codex.
 
@@ -61,16 +67,32 @@ A separate standalone ZIP Generator GUI tool is also delivered to build valid up
   Rationale: Keep v1 minimal and operationally clear.
   Date/Author: 2026-02-13 / Codex.
 
+- Decision: Implement package-update worker as dedicated module rest_api/update_package.py with typed update exceptions.
+  Rationale: Keeps route handlers focused on HTTP concerns and makes validation/apply logic testable in isolation.
+  Date/Author: 2026-02-13 / Codex.
+
+- Decision: Service restart command is configurable via BOX_RESTART_COMMAND and defaults to systemctl restart seva-rest-api.service.
+  Rationale: Supports deployment-specific service names while preserving automatic restart behavior.
+  Date/Author: 2026-02-13 / Codex.
+
+- Decision: GUI polling loop uses backend snapshots as source of truth and blocks conflicting actions with strict modal grab.
+  Rationale: Aligns with architecture guardrails and the explicit non-frozen UX requirement.
+  Date/Author: 2026-02-13 / Codex.
+
 ## Outcomes & Retrospective
 
-Current state: planning refined and aligned with clarified requirements.
+Implemented outcome:
 
-Definition of done for this initiative:
+- Backend now supports validated async package updates with lock/audit/restart and server-authoritative status polling.
+- POST /firmware/flash and package-worker firmware step share the same flashing core helper in rest_api/app.py.
+- GUI Settings is fully migrated to package-update-only flow with strict modal progress dialog and heartbeat updates.
+- Standalone ZIP generator GUI is available at StreamingStandalone/update_zip_generator.py.
+- New tests cover use-case contracts and REST endpoint boundary behavior; full suite passes on Python 3.13.
 
-- One package-update UX in GUI with modal live status.
-- Async backend update endpoints with lock, audit, and restart.
-- Shared firmware flashing implementation between package-update and firmware-only API endpoint.
-- Standalone ZIP Generator GUI can create valid full or partial packages.
+Gaps and residual risk:
+
+- Automatic restart command behavior depends on deployment service naming (BOX_RESTART_COMMAND) and host process privileges.
+- GUI screenshot evidence is not embedded here because this execution environment is headless.
 
 ## Context and Orientation
 
@@ -191,7 +213,7 @@ Replace firmware-only settings controls with update-package controls. Add strict
 
 The modal remains open until terminal state and blocks conflicting actions.
 
-Acceptance: operator clearly sees “running” progress and never receives a frozen-looking static screen.
+Acceptance: operator clearly sees â€œrunningâ€ progress and never receives a frozen-looking static screen.
 
 ### Milestone 7: Standalone ZIP Generator GUI tool
 
@@ -210,13 +232,13 @@ Acceptance: generated ZIP is accepted by `POST /updates/package` for full and pa
 
 ### Milestone 8: Tests and documentation
 
-Add contract-driven tests for REST payloads and UseCase↔Adapter interactions. Keep UI tests minimal. Update docs in `/docs` for new workflow and endpoint contract.
+Add contract-driven tests for REST payloads and UseCaseâ†”Adapter interactions. Keep UI tests minimal. Update docs in `/docs` for new workflow and endpoint contract.
 
 Acceptance: test suite passes; docs match implemented behavior and operator flow.
 
 ## Concrete Steps
 
-Working directory: `/workspace/SEVA_GUI_MVVM`.
+Working directory: /workspace/SEVA_GUI_MVVM.
 
 1. Baseline and branch state.
 
@@ -232,23 +254,24 @@ Working directory: `/workspace/SEVA_GUI_MVVM`.
 
 6. Add/update tests.
 
-    pytest -q
+    py -3.13 -m pytest -q
 
 7. Manual API verification (local API running).
 
-    curl -X POST http://localhost:8000/updates/package \
-      -H "X-API-Key: <key>" \
-      -F "file=@sample-update.zip"
+    curl -X POST http://127.0.0.1:8000/updates/package -F "file=@sample-update.zip"
 
-    curl -H "X-API-Key: <key>" \
-      http://localhost:8000/updates/<update_id>
+    curl http://127.0.0.1:8000/updates/<update_id>
 
-Expected progression example:
+Execution record:
 
-    {"update_id":"...","status":"queued"}
-    {"update_id":"...","status":"running","step":"apply_pybeep"}
-    {"update_id":"...","status":"running","step":"flash_firmware"}
-    {"update_id":"...","status":"done","restart":{"ok":true}}
+    py -3.13 -m pytest -q
+    14 passed in 1.68s
+
+    curl -X POST http://127.0.0.1:8000/updates/package -F "file=@sample-update.zip"
+    {"update_id":"fc23ac1e427441bb9873ce35b604dab5","status":"running","step":"validate_package","queued_at":"2026-02-13T06:34:20Z"}
+
+    curl http://127.0.0.1:8000/updates/fc23ac1e427441bb9873ce35b604dab5
+    {"update_id":"fc23ac1e427441bb9873ce35b604dab5","status":"done","step":"done","components":{"pybeep":"skipped","rest_api":"skipped","firmware":"done"},"restart":{"ok":true,"exit_code":0,"stdout":"","stderr":""}}
 
 ## Validation and Acceptance
 
@@ -275,11 +298,27 @@ The feature is accepted when all items are true:
 
 Collect these implementation artifacts:
 
-- sample `manifest.json` and checksum file,
+- sample manifest.json and checksum file,
 - sample audit log excerpt,
 - curl start/poll transcript,
 - GUI screenshot of modal progress,
 - test output snippet for new contract tests.
+
+Collected evidence snippets:
+
+    py -3.13 -m pytest -q seva/tests/test_remote_update_usecases.py rest_api/tests/test_update_endpoints.py
+    ......                                                                   [100%]
+    6 passed in 1.57s
+
+    py -3.13 -m pytest -q
+    ..............                                                           [100%]
+    14 passed in 1.68s
+
+    curl -X POST http://127.0.0.1:8000/updates/package -F "file=@sample-update.zip"
+    {"update_id":"fc23ac1e427441bb9873ce35b604dab5","status":"running","step":"validate_package","queued_at":"2026-02-13T06:34:20Z"}
+
+    curl http://127.0.0.1:8000/updates/fc23ac1e427441bb9873ce35b604dab5
+    {"update_id":"fc23ac1e427441bb9873ce35b604dab5","status":"done","step":"done","components":{"pybeep":"skipped","rest_api":"skipped","firmware":"done"},"restart":{"ok":true,"exit_code":0,"stdout":"","stderr":""}}
 
 ## Interfaces and Dependencies
 
@@ -304,3 +343,9 @@ Suggested v1 operational limits:
 Plan revision notes:
 
 - 2026-02-13: rewritten in English and aligned with clarified product constraints (no manifest targets, strict modal popup, partial packages, full GUI migration, standalone ZIP generator, and shared firmware logic).
+- 2026-02-13: implemented milestones 1-8, updated living sections with execution evidence, and documented final behavior/tests.
+
+
+
+
+

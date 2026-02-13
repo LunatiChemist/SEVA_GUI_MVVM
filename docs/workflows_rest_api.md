@@ -11,6 +11,7 @@ For installation, environment variables, startup checks, and restart procedures,
 - Server snapshots (`job_snapshot`) are authoritative for `progress_pct` and `remaining_s`.
 - Download/export uses `GET /runs/{run_id}/zip` (plus file endpoints where needed).
 - `POST /modes/{mode}/validate` exists for explicit pre-flight checks, but is not required in the current default start path.
+- Remote package update uses `POST /updates/package` and `GET /updates/{update_id}`.
 
 ## Terminology used on this page
 
@@ -26,6 +27,7 @@ For broader vocabulary, see **[Glossary](glossary.md)**.
 - `seva/adapters/device_rest.py` -> discovery and mode metadata endpoints.
 - `seva/adapters/job_rest.py` -> validation/start/status/cancel/download endpoints.
 - `seva/adapters/firmware_rest.py` -> firmware upload endpoint.
+- `seva/adapters/update_rest.py` -> package-update upload/status endpoints.
 - `seva/adapters/discovery_http.py` -> `/health` probe during box discovery.
 
 The corresponding usecases include experiment launch/poll/cancel flows and firmware flashing flows in `seva/usecases/`.
@@ -67,7 +69,19 @@ Validation note: `POST /modes/{mode}/validate` is available for explicit pre-fli
 4. Script sends boot command, flashes with `dfu-util`, and waits for CDC reconnection.
 5. API returns command stdout/stderr and exit code; failures are mapped to typed API error payloads.
 
-## Workflow 5: Telemetry stream demo (backend capability)
+## Workflow 5: Remote package update (async)
+
+1. GUI uploads one package ZIP to `POST /updates/package`.
+2. API stores upload in update staging storage and acquires a global update lock.
+3. Background worker validates `manifest.json` + `checksums.sha256` and rejects malformed packages with typed API codes.
+4. Worker applies only included components in fixed order (`pybeep`, `rest_api`, `firmware`).
+5. Firmware component flashing calls the same shared flash logic used by `POST /firmware/flash`.
+6. On successful apply, API executes restart command (`BOX_RESTART_COMMAND` override supported).
+7. GUI polls `GET /updates/{update_id}` for authoritative status/step/heartbeat until terminal.
+
+Partial package rule: any subset of components is valid; omitted components are marked `skipped`.
+
+## Workflow 6: Telemetry stream demo (backend capability)
 
 1. Client calls `/api/telemetry/temperature/latest` to fetch cache snapshot.
 2. Client opens SSE stream `/api/telemetry/temperature/stream`.
