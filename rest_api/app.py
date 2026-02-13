@@ -39,6 +39,8 @@ from dataclasses import dataclass, asdict
 from fastapi import Query
 from fastapi.responses import StreamingResponse
 
+from update_service import UpdateService, UpdateServiceError
+
 try:
     from importlib import metadata as importlib_metadata
 except ImportError:  # pragma: no cover
@@ -68,6 +70,15 @@ RUNS_ROOT.mkdir(parents=True, exist_ok=True)
 storage.configure_runs_root(RUNS_ROOT)
 NAS_CONFIG_PATH = pathlib.Path(os.getenv("NAS_CONFIG_PATH", "/opt/box/nas_smb.json"))
 NAS = nas.NASManager(runs_root=RUNS_ROOT, config_path=NAS_CONFIG_PATH, logger=logging.getLogger("nas_smb"))
+UPDATES_ROOT = pathlib.Path(os.getenv("BOX_UPDATES_ROOT", "/opt/box/updates"))
+FIRMWARE_DIR = pathlib.Path(os.getenv("BOX_FIRMWARE_DIR", "/opt/box/firmware"))
+FLASH_SCRIPT_PATH = pathlib.Path(os.getenv("BOX_FLASH_SCRIPT", "/opt/box/auto_flash_linux.py"))
+UPDATE_SERVICE = UpdateService(
+    updates_root=UPDATES_ROOT,
+    firmware_dir=FIRMWARE_DIR,
+    repository_root=pathlib.Path(__file__).resolve().parent.parent,
+    logger=logging.getLogger("rest_api.update"),
+)
 
 RunStorageInfo = storage.RunStorageInfo
 RUN_DIRECTORY_LOCK = storage.RUN_DIRECTORY_LOCK
@@ -269,7 +280,6 @@ def http_error(status_code: int, code: str, message: str, hint: Optional[str] = 
     return JSONResponse(status_code=status_code, content=_build_error_detail(code, message, hint))
 
 
-PYBEEP_VERSION = _detect_pybeep_version()
 PYTHON_VERSION = platform.python_version()
 BUILD_IDENTIFIER = _detect_build_identifier()
 
@@ -760,12 +770,72 @@ def version_info() -> Dict[str, str]:
     HTTPException
         Raises HTTPException when request data, auth, or storage resolution fails.
     """
+    staged = UPDATE_SERVICE.get_staged_firmware_info()
     return {
         "api": API_VERSION,
-        "pybeep": PYBEEP_VERSION,
+        "pybeep": _detect_pybeep_version(),
         "python": PYTHON_VERSION,
         "build": BUILD_IDENTIFIER,
+        "firmware_staged_version": staged.get("version", "unknown"),
+        "firmware_device_version": "unknown",
     }
+
+
+def _update_error_response(exc: UpdateServiceError) -> JSONResponse:
+    """Map update service errors to API responses with stable codes."""
+    client_codes = {
+        "update.invalid_upload",
+        "update.manifest_missing",
+        "update.manifest_invalid",
+        "update.manifest_unknown_component",
+        "update.checksum_mismatch",
+    }
+    status = 400 if exc.code in client_codes else 500
+    return http_error(status, exc.code, exc.message, exc.hint)
+
+
+@app.post("/updates")
+def start_update(file: UploadFile = File(...), x_api_key: Optional[str] = Header(None)):
+    """Upload one remote update ZIP and start asynchronous processing."""
+    if auth_error := require_key(x_api_key):
+        return auth_error
+    try:
+        return UPDATE_SERVICE.start_update(file.filename or "", file.file)
+    except UpdateServiceError as exc:
+        return _update_error_response(exc)
+
+
+@app.get("/updates/latest")
+def update_status_latest(x_api_key: Optional[str] = Header(None)):
+    """Return latest update status snapshot."""
+    if auth_error := require_key(x_api_key):
+        return auth_error
+    payload = UPDATE_SERVICE.get_latest_status()
+    if payload is None:
+        return http_error(
+            status_code=404,
+            code="updates.not_found",
+            message="No updates available",
+            hint="Start a remote update first.",
+        )
+    return payload
+
+
+@app.get("/updates/{update_id}")
+def update_status(update_id: str, x_api_key: Optional[str] = Header(None)):
+    """Return update status snapshot for one update id."""
+    if auth_error := require_key(x_api_key):
+        return auth_error
+    payload = UPDATE_SERVICE.get_status(update_id)
+    if payload is None:
+        return http_error(
+            status_code=404,
+            code="updates.not_found",
+            message="Update not found",
+            hint="Check update_id or query /updates/latest.",
+        )
+    return payload
+
 
 # ---------- Health / Devices / Modes ----------
 @app.get("/health")
@@ -1916,31 +1986,53 @@ def rescan(x_api_key: Optional[str] = Header(None)):
         return {"devices": list(DEVICES.keys())}
 
 
+def _run_flash_script(
+    target_path: pathlib.Path,
+    *,
+    source_label: str,
+    firmware_version: str = "unknown",
+):
+    """Run external firmware flash script for a prepared binary path."""
+    if not FLASH_SCRIPT_PATH.is_file():
+        return http_error(
+            status_code=500,
+            code="firmware.script_missing",
+            message="Firmware flash script missing",
+            hint=f"Expected script at {FLASH_SCRIPT_PATH}.",
+        )
+
+    result = subprocess.run(
+        ["python", FLASH_SCRIPT_PATH.name, str(target_path)],
+        cwd=str(FLASH_SCRIPT_PATH.parent),
+        capture_output=True,
+        text=True,
+    )
+    exit_code = result.returncode
+    stdout = result.stdout or ""
+    stderr = result.stderr or ""
+
+    if exit_code != 0:
+        return http_error(
+            status_code=500,
+            code="firmware.flash_failed",
+            message="Firmware flash failed",
+            hint=f"Try increasing the Request timeout (s)\nexit_code={exit_code}\nstdout={stdout}\nstderr={stderr}",
+        )
+
+    return {
+        "ok": True,
+        "exit_code": exit_code,
+        "stdout": stdout,
+        "stderr": stderr,
+        "firmware_file": target_path.name,
+        "firmware_source": source_label,
+        "firmware_version": firmware_version,
+    }
+
+
 @app.post("/firmware/flash")
 def flash_firmware(file: UploadFile = File(...), x_api_key: Optional[str] = Header(None)):
-    """Invoke dfu-util to write firmware to the controller.
-    
-    Parameters
-    ----------
-    file : UploadFile
-        Value supplied by the API caller or internal orchestration.
-    x_api_key : Optional[str]
-        Value supplied by the API caller or internal orchestration.
-    
-    Returns
-    -------
-    Any
-        Value returned to the caller or consumed by the route handler.
-    
-    Notes
-    -----
-    Called by GUI adapter HTTP clients through the FastAPI router.
-    
-    Raises
-    ------
-    HTTPException
-        Raises HTTPException when request data, auth, or storage resolution fails.
-    """
+    """Upload one `.bin` and flash immediately."""
     if auth_error := require_key(x_api_key):
         return auth_error
 
@@ -1971,9 +2063,8 @@ def flash_firmware(file: UploadFile = File(...), x_api_key: Optional[str] = Head
             hint=str(exc.detail),
         )
 
-    firmware_dir = pathlib.Path("/opt/box/firmware")
-    firmware_dir.mkdir(parents=True, exist_ok=True)
-    target_path = firmware_dir / f"{sanitized_stem}.bin"
+    FIRMWARE_DIR.mkdir(parents=True, exist_ok=True)
+    target_path = FIRMWARE_DIR / f"{sanitized_stem}.bin"
 
     try:
         with target_path.open("wb") as handle:
@@ -1987,34 +2078,39 @@ def flash_firmware(file: UploadFile = File(...), x_api_key: Optional[str] = Head
             hint="Check storage permissions and available space.",
         )
 
-    script_path = pathlib.Path("/opt/box/auto_flash_linux.py")
-    if not script_path.is_file():
+    return _run_flash_script(target_path, source_label="direct_upload")
+
+
+@app.post("/firmware/flash/staged")
+def flash_staged_firmware(x_api_key: Optional[str] = Header(None)):
+    """Flash the latest staged firmware artifact from `/updates` workflow."""
+    if auth_error := require_key(x_api_key):
+        return auth_error
+
+    staged = UPDATE_SERVICE.get_staged_firmware_info()
+    file_name = staged.get("file_name", "").strip()
+    if not file_name:
         return http_error(
-            status_code=500,
-            code="firmware.script_missing",
-            message="Firmware flash script missing",
-            hint=f"Expected script at {script_path}.",
+            status_code=404,
+            code="firmware.staged_missing",
+            message="No staged firmware available",
+            hint="Run a remote update with firmware_bundle first.",
         )
 
-    result = subprocess.run(
-        ["python", script_path.name, str(target_path)],
-        cwd=str(script_path.parent),
-        capture_output=True,
-        text=True,
+    target_path = FIRMWARE_DIR / pathlib.Path(file_name).name
+    if not target_path.is_file():
+        return http_error(
+            status_code=404,
+            code="firmware.staged_missing",
+            message="Staged firmware file is missing",
+            hint=f"Expected file at {target_path}.",
+        )
+
+    return _run_flash_script(
+        target_path,
+        source_label="staged_bundle",
+        firmware_version=staged.get("version", "unknown"),
     )
-    exit_code = result.returncode
-    stdout = result.stdout or ""
-    stderr = result.stderr or ""
-
-    if exit_code != 0:
-        return http_error(
-            status_code=500,
-            code="firmware.flash_failed",
-            message="Firmware flash failed",
-            hint=f"Try increasing the Request timeout (s)\nexit_code={exit_code}\nstdout={stdout}\nstderr={stderr}",
-        )
-
-    return {"ok": True, "exit_code": exit_code, "stdout": stdout, "stderr": stderr}
 
 # ---------- SEE Stream (Endpoint there) ----------
 
