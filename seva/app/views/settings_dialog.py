@@ -29,11 +29,11 @@ class SettingsDialog(tk.Toplevel):
         on_test_connection: OnBox = None,
         on_test_relay: OnVoid = None,
         on_browse_results_dir: OnVoid = None,
-        on_browse_firmware: OnVoid = None,
+        on_browse_update_package: OnVoid = None,
         on_discover_devices: OnVoid = None,
         on_open_nas_setup: OnVoid = None,
         on_save: OnSave = None,
-        on_flash_firmware: OnVoid = None,
+        on_start_package_update: OnVoid = None,
         on_close: OnVoid = None,
     ) -> None:
         """Initialize modal settings dialog and field variables.
@@ -44,11 +44,11 @@ class SettingsDialog(tk.Toplevel):
             on_test_connection: Per-box callback for connection tests.
             on_test_relay: Callback for relay connection test.
             on_browse_results_dir: Callback for selecting local results dir.
-            on_browse_firmware: Callback for selecting firmware image.
+            on_browse_update_package: Callback for selecting package ZIP.
             on_discover_devices: Callback that runs discovery workflow.
             on_open_nas_setup: Callback opening NAS setup flow.
             on_save: Callback receiving a normalized settings payload dict.
-            on_flash_firmware: Callback triggering firmware flashing flow.
+            on_start_package_update: Callback starting package update flow.
             on_close: Callback invoked when dialog closes.
         """
         super().__init__(parent)
@@ -60,11 +60,11 @@ class SettingsDialog(tk.Toplevel):
         self._on_test_connection = on_test_connection
         self._on_test_relay = on_test_relay
         self._on_browse_results_dir = on_browse_results_dir
-        self._on_browse_firmware = on_browse_firmware
+        self._on_browse_update_package = on_browse_update_package
         self._on_discover_devices = on_discover_devices
         self._on_open_nas_setup = on_open_nas_setup
         self._on_save = on_save
-        self._on_flash_firmware = on_flash_firmware
+        self._on_start_package_update = on_start_package_update
         self._on_close = on_close
 
         self.protocol("WM_DELETE_WINDOW", self._on_close_clicked)
@@ -83,7 +83,7 @@ class SettingsDialog(tk.Toplevel):
         self.debug_logging_var = tk.BooleanVar(value=False)
         self.relay_ip_var = tk.StringVar(value="")
         self.relay_port_var = tk.StringVar(value="0")
-        self.firmware_path_var = tk.StringVar(value="")
+        self.update_package_path_var = tk.StringVar(value="")
 
         self._build_ui()
 
@@ -176,21 +176,23 @@ class SettingsDialog(tk.Toplevel):
             row=3, column=0, columnspan=3, sticky="w", pady=(4, 0)
         )
 
-        # Firmware group
-        firmware = ttk.Labelframe(self, text="Firmware")
-        firmware.grid(row=4, column=0, sticky="ew", **pad)
-        firmware.columnconfigure(1, weight=1)
-        ttk.Label(firmware, text="Firmware image (.bin)").grid(row=0, column=0, sticky="w")
-        ttk.Entry(firmware, textvariable=self.firmware_path_var).grid(row=0, column=1, sticky="ew", padx=(0, 8))
+        # Package Update group
+        update_pkg = ttk.Labelframe(self, text="Package Update")
+        update_pkg.grid(row=4, column=0, sticky="ew", **pad)
+        update_pkg.columnconfigure(1, weight=1)
+        ttk.Label(update_pkg, text="Update package (.zip)").grid(row=0, column=0, sticky="w")
+        ttk.Entry(update_pkg, textvariable=self.update_package_path_var).grid(
+            row=0, column=1, sticky="ew", padx=(0, 8)
+        )
         ttk.Button(
-            firmware,
+            update_pkg,
             text="Browse…",
-            command=lambda: self._safe(self._on_browse_firmware),
+            command=lambda: self._safe(self._on_browse_update_package),
         ).grid(row=0, column=2, sticky="w")
         ttk.Button(
-            firmware,
-            text="Flash Firmware",
-            command=lambda: self._safe(self._on_flash_firmware),
+            update_pkg,
+            text="Start Remote Update",
+            command=lambda: self._safe(self._on_start_package_update),
         ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(6, 0))
 
         # NAS group
@@ -243,7 +245,7 @@ class SettingsDialog(tk.Toplevel):
             "debug_logging": bool(self.debug_logging_var.get()),
             "relay_ip": self.relay_ip_var.get().strip(),
             "relay_port": self._parse_int(self.relay_port_var.get(), 0),
-            "firmware_path": self.firmware_path_var.get().strip(),
+            "update_package_path": self.update_package_path_var.get().strip(),
         }
         if self._on_save:
             try:
@@ -367,13 +369,13 @@ class SettingsDialog(tk.Toplevel):
         self.relay_ip_var.set(ip)
         self.relay_port_var.set(str(port))
 
-    def set_firmware_path(self, path: str) -> None:
-        """Set firmware image path input.
+    def set_update_package_path(self, path: str) -> None:
+        """Set package update ZIP path input.
 
         Args:
-            path: Firmware image path string.
+            path: Package ZIP path string.
         """
-        self.firmware_path_var.set(path)
+        self.update_package_path_var.set(path)
 
     def set_save_enabled(self, enabled: bool) -> None:
         """Enable or disable the Save button.
@@ -448,11 +450,11 @@ if __name__ == "__main__":
         on_test_connection=lambda box: print(f"[demo] test connection for box {box}"),
         on_test_relay=lambda: print("[demo] test relay"),
         on_browse_results_dir=lambda: print("[demo] browse results dir"),
-        on_browse_firmware=lambda: print("[demo] browse firmware"),
+        on_browse_update_package=lambda: print("[demo] browse update package"),
         on_discover_devices=lambda: print("[demo] discover devices"),
         on_open_nas_setup=lambda: print("[demo] open NAS setup"),
         on_save=lambda payload: print(f"[demo] save payload with {len(payload)} keys"),
-        on_flash_firmware=lambda: print("[demo] flash firmware"),
+        on_start_package_update=lambda: print("[demo] start package update"),
         on_close=lambda: print("[demo] close dialog"),
     )
 
@@ -482,6 +484,6 @@ if __name__ == "__main__":
     dialog.set_use_streaming(True)
     dialog.set_debug_logging(False)
     dialog.set_relay_config(ip="10.0.10.40", port=502)
-    dialog.set_firmware_path(r"C:\Users\User\Downloads\potentiostat_v2.3.1.bin")
+    dialog.set_update_package_path(r"C:\Users\User\Downloads\update-package.zip")
 
     dialog.mainloop()

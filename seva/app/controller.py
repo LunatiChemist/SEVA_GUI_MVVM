@@ -10,13 +10,14 @@ from __future__ import annotations
 from typing import Optional
 
 from seva.adapters.device_rest import DeviceRestAdapter
-from seva.adapters.firmware_rest import FirmwareRestAdapter
 from seva.adapters.job_rest import JobRestAdapter
+from seva.adapters.update_rest import UpdateRestAdapter
 from seva.usecases.cancel_group import CancelGroup
 from seva.usecases.download_group_results import DownloadGroupResults
-from seva.usecases.flash_firmware import FlashFirmware
+from seva.usecases.poll_remote_update import PollRemoteUpdate
 from seva.usecases.poll_device_status import PollDeviceStatus
 from seva.usecases.poll_group_status import PollGroupStatus
+from seva.usecases.start_remote_update import StartRemoteUpdate
 from seva.usecases.start_experiment_batch import StartExperimentBatch
 from seva.usecases.test_connection import TestConnection
 from seva.viewmodels.settings_vm import SettingsVM
@@ -46,7 +47,7 @@ class AppController:
         self.settings_vm = settings_vm
         self._job_adapter: Optional[JobRestAdapter] = None
         self._device_adapter: Optional[DeviceRestAdapter] = None
-        self._firmware_adapter: Optional[FirmwareRestAdapter] = None
+        self._update_adapter: Optional[UpdateRestAdapter] = None
         self.uc_start: Optional[StartExperimentBatch] = None
         self.uc_poll: Optional[PollGroupStatus] = None
         self.uc_download: Optional[DownloadGroupResults] = None
@@ -54,7 +55,8 @@ class AppController:
         self.uc_cancel_runs: Optional["CancelRuns"] = None
         self.uc_poll_device_status: Optional[PollDeviceStatus] = None
         self.uc_test_connection: Optional[TestConnection] = None
-        self.uc_flash_firmware: Optional[FlashFirmware] = None
+        self.uc_start_remote_update: Optional[StartRemoteUpdate] = None
+        self.uc_poll_remote_update: Optional[PollRemoteUpdate] = None
 
     @property
     def job_adapter(self) -> Optional[JobRestAdapter]:
@@ -75,7 +77,7 @@ class AppController:
         """
         self._job_adapter = None
         self._device_adapter = None
-        self._firmware_adapter = None
+        self._update_adapter = None
         self.uc_start = None
         self.uc_poll = None
         self.uc_download = None
@@ -83,7 +85,8 @@ class AppController:
         self.uc_cancel_runs = None
         self.uc_poll_device_status = None
         self.uc_test_connection = None
-        self.uc_flash_firmware = None
+        self.uc_start_remote_update = None
+        self.uc_poll_remote_update = None
 
     def ensure_ready(self) -> bool:
         """Ensure adapters/use-cases are available for network operations.
@@ -95,7 +98,7 @@ class AppController:
         if (
             self._job_adapter
             and self._device_adapter
-            and self._firmware_adapter
+            and self._update_adapter
             and (self.uc_cancel_runs or _CancelRunsClass is None)
         ):
             return True
@@ -128,8 +131,8 @@ class AppController:
                 retries=2,
             )
 
-        if self._firmware_adapter is None:
-            self._firmware_adapter = FirmwareRestAdapter(
+        if self._update_adapter is None:
+            self._update_adapter = UpdateRestAdapter(
                 base_urls=base_urls,
                 api_keys=api_keys,
                 request_timeout_s=self.settings_vm.request_timeout_s,
@@ -140,8 +143,9 @@ class AppController:
             self.uc_start = StartExperimentBatch(self._job_adapter)
             self.uc_test_connection = TestConnection(self._device_adapter)
             self.uc_poll_device_status = PollDeviceStatus(self._device_adapter)
-        if self._firmware_adapter:
-            self.uc_flash_firmware = FlashFirmware(self._firmware_adapter)
+        if self._update_adapter:
+            self.uc_start_remote_update = StartRemoteUpdate(self._update_adapter)
+            self.uc_poll_remote_update = PollRemoteUpdate(self._update_adapter)
         return True
 
     def build_test_connection(
