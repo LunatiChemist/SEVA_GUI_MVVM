@@ -70,13 +70,19 @@ class SettingsController:
     def open_dialog(self) -> None:
         """Open settings dialog and wire per-button handlers."""
         dlg: Optional[SettingsDialog] = None
+        active_updates_by_box: dict[str, str] = {}
+        poll_timer: Optional[str] = None
+
+        def configured_box_ids() -> list[str]:
+            """Return sorted configured box ids from saved settings state."""
+            return sorted(
+                box_id
+                for box_id, url in (self.settings_vm.api_base_urls or {}).items()
+                if isinstance(url, str) and url.strip()
+            )
 
         def handle_test_connection(box_id: str) -> None:
-            """Test API connectivity for a single box id.
-
-            Args:
-                box_id: Box identifier selected from dialog row.
-            """
+            """Test API connectivity for a single box id."""
             if not dlg:
                 return
             url_var = dlg.url_vars.get(box_id)
@@ -179,14 +185,13 @@ class SettingsController:
                 return
             if not selected:
                 return
-            new_dir = os.path.normpath(selected)
-            dlg.set_results_dir(new_dir)
+            dlg.set_results_dir(os.path.normpath(selected))
 
-        def handle_browse_firmware() -> None:
-            """Open file picker and set firmware path field."""
+        def handle_browse_remote_update_zip() -> None:
+            """Open file picker and set remote update ZIP path."""
             if not dlg:
                 return
-            current = dlg.firmware_path_var.get().strip()
+            current = dlg.remote_update_zip_path_var.get().strip()
             initial_dir = ""
             if current:
                 expanded = os.path.expanduser(current)
@@ -198,44 +203,179 @@ class SettingsController:
                 selected = filedialog.askopenfilename(
                     parent=dlg,
                     initialdir=initial_dir or None,
-                    title="Select Firmware Image",
-                    filetypes=[("Firmware Image", "*.bin"), ("All Files", "*.*")],
+                    title="Select Remote Update ZIP",
+                    filetypes=[("Remote Update ZIP", "*.zip"), ("All Files", "*.*")],
                 )
             except Exception as exc:
                 self.win.show_toast(f"Could not open file picker: {exc}")
                 return
             if not selected:
                 return
-            dlg.set_firmware_path(os.path.normpath(selected))
+            normalized = os.path.normpath(selected)
+            dlg.set_remote_update_zip_path(normalized)
+            self.settings_vm.remote_update_zip_path = normalized
 
-        def handle_flash_firmware() -> None:
-            """Flash firmware to all configured boxes."""
+        def summarize_update_statuses(statuses: dict[str, object], errors: dict[str, str]) -> str:
+            """Build multiline summary for update status section."""
+            lines: list[str] = []
+            for box_id in sorted(statuses):
+                status = statuses[box_id]
+                running_step = ""
+                for step in getattr(status, "steps", ()):
+                    if getattr(step, "status", "") == "running":
+                        running_step = getattr(step, "step", "")
+                        break
+                state = getattr(status, "status", "unknown")
+                if state in ("queued", "running"):
+                    detail = f" [{running_step}]" if running_step else ""
+                    lines.append(f"{box_id}: {state}{detail}")
+                    continue
+                actions = ", ".join(
+                    f"{item.component}:{item.action}" for item in getattr(status, "component_results", ())
+                ) or "no components"
+                lines.append(f"{box_id}: {state} ({actions})")
+            for box_id in sorted(errors):
+                lines.append(f"{box_id}: failed ({errors[box_id]})")
+            return "\n".join(lines) if lines else "No remote update started."
+
+        def refresh_versions(*, show_errors: bool) -> None:
+            """Refresh version summary panel from `/version` endpoint."""
             if not dlg:
-                return
-            firmware_path = dlg.firmware_path_var.get().strip()
-            if not firmware_path:
-                self.win.show_toast("Select a firmware .bin file first.")
                 return
             if not self._ensure_adapter():
                 return
-            uc = self.controller.uc_flash_firmware
+            uc = self.controller.uc_fetch_box_version_info
+            if uc is None:
+                if show_errors:
+                    self.win.show_toast("Version lookup is not available.")
+                return
+            box_ids = configured_box_ids()
+            if not box_ids:
+                dlg.set_version_summary("No configured box URLs.")
+                return
+            lines: list[str] = []
+            for box_id in box_ids:
+                try:
+                    info = uc(box_id=box_id)
+                except Exception as exc:
+                    if show_errors:
+                        self._toast_error(exc, context=f"Version {box_id}")
+                    lines.append(f"{box_id}: unavailable")
+                    continue
+                lines.append(
+                    (
+                        f"{box_id}: api={info.api}, pybeep={info.pybeep}, "
+                        f"staged={info.firmware_staged_version}, "
+                        f"device={info.firmware_device_version}"
+                    )
+                )
+            dlg.set_version_summary("\n".join(lines) if lines else "No version data.")
+
+        def handle_upload_remote_update() -> None:
+            """Upload selected ZIP and start remote update polling."""
+            nonlocal poll_timer
+            if not dlg:
+                return
+            zip_path = dlg.remote_update_zip_path_var.get().strip()
+            if not zip_path:
+                self.win.show_toast("Select an update ZIP first.")
+                return
+            if not self._ensure_adapter():
+                return
+            uc_upload = self.controller.uc_upload_remote_update
+            uc_poll = self.controller.uc_poll_remote_update_status
+            if uc_upload is None or uc_poll is None:
+                self.win.show_toast("Remote update is not available.")
+                return
+
+            box_ids = configured_box_ids()
+            if not box_ids:
+                self.win.show_toast("No configured boxes found. Save settings first.")
+                return
+
+            active_updates_by_box.clear()
+            start_errors: dict[str, str] = {}
+            for box_id in box_ids:
+                try:
+                    start = uc_upload(box_id=box_id, zip_path=zip_path)
+                except Exception as exc:
+                    start_errors[box_id] = str(exc)
+                    continue
+                active_updates_by_box[box_id] = start.update_id
+
+            if active_updates_by_box:
+                ids = ", ".join(f"{box}:{update_id}" for box, update_id in sorted(active_updates_by_box.items()))
+                self.win.show_toast(f"Update started (ID: {ids})")
+            if start_errors:
+                details = "\n".join(f"{box}: {err}" for box, err in sorted(start_errors.items()))
+                messagebox.showerror("Remote Update Start Failed", details, parent=dlg)
+            if not active_updates_by_box:
+                dlg.set_remote_update_status(summarize_update_statuses({}, start_errors))
+                return
+
+            def poll_once() -> None:
+                nonlocal poll_timer
+                if not dlg:
+                    poll_timer = None
+                    return
+                try:
+                    if not dlg.winfo_exists():
+                        poll_timer = None
+                        return
+                except Exception:
+                    poll_timer = None
+                    return
+
+                latest_statuses: dict[str, object] = {}
+                poll_errors: dict[str, str] = {}
+                still_running = False
+                for box_id, update_id in sorted(active_updates_by_box.items()):
+                    try:
+                        status = uc_poll(box_id=box_id, update_id=update_id)
+                    except Exception as exc:
+                        poll_errors[box_id] = str(exc)
+                        continue
+                    latest_statuses[box_id] = status
+                    if not status.is_terminal:
+                        still_running = True
+
+                dlg.set_remote_update_status(summarize_update_statuses(latest_statuses, poll_errors))
+                if still_running:
+                    poll_timer = self.win.after(1000, poll_once)
+                    return
+
+                poll_timer = None
+                self.win.show_toast("Remote update finished.")
+                refresh_versions(show_errors=False)
+
+            if poll_timer is not None:
+                try:
+                    self.win.after_cancel(poll_timer)
+                except Exception:
+                    pass
+                poll_timer = None
+            poll_once()
+
+        def handle_flash_firmware_now() -> None:
+            """Flash staged firmware to all configured boxes."""
+            if not dlg:
+                return
+            if not self._ensure_adapter():
+                return
+            uc = self.controller.uc_flash_staged_firmware
             if uc is None:
                 self.win.show_toast("Firmware flashing is not available.")
                 return
-            box_ids = sorted(
-                box_id
-                for box_id, url in (self.settings_vm.api_base_urls or {}).items()
-                if isinstance(url, str) and url.strip()
-            )
+            box_ids = configured_box_ids()
             try:
-                result = uc(box_ids=box_ids, firmware_path=firmware_path)
+                result = uc(box_ids=box_ids)
             except Exception as exc:
-                self._toast_error(exc, context="Flash firmware")
+                self._toast_error(exc, context="Flash staged firmware")
                 return
 
             if result.failures:
                 failed_boxes = ", ".join(sorted(result.failures.keys()))
-                self.win.show_toast(f"Firmware flash failed on {failed_boxes}.")
+                self.win.show_toast(f"Staged firmware flash failed on {failed_boxes}.")
                 details = "\n".join(
                     f"{box_id}: {err}" for box_id, err in result.failures.items()
                 )
@@ -244,25 +384,38 @@ class SettingsController:
 
             flashed_boxes = ", ".join(sorted(result.successes.keys()))
             if flashed_boxes:
-                self.win.show_toast(f"Firmware flashed on {flashed_boxes}.")
+                self.win.show_toast(f"Staged firmware flashed on {flashed_boxes}.")
             else:
-                self.win.show_toast("Firmware flash completed.")
+                self.win.show_toast("Staged firmware flash completed.")
+            refresh_versions(show_errors=False)
 
         def handle_open_nas_setup() -> None:
             """Open standalone NAS setup dialog."""
             NASSetupGUI(self.win)
+
+        def handle_close_dialog() -> None:
+            """Cancel running poll timer when dialog closes."""
+            nonlocal poll_timer
+            if poll_timer is not None:
+                try:
+                    self.win.after_cancel(poll_timer)
+                except Exception:
+                    pass
+                poll_timer = None
 
         dlg = SettingsDialog(
             self.win,
             on_test_connection=handle_test_connection,
             on_test_relay=handle_test_relay,
             on_browse_results_dir=handle_browse_results_dir,
-            on_browse_firmware=handle_browse_firmware,
+            on_browse_remote_update_zip=handle_browse_remote_update_zip,
             on_discover_devices=lambda: self._on_discover_devices(dlg),
             on_open_nas_setup=handle_open_nas_setup,
             on_save=self._on_settings_saved,
-            on_flash_firmware=handle_flash_firmware,
-            on_close=lambda: None,
+            on_upload_remote_update=handle_upload_remote_update,
+            on_flash_firmware_now=handle_flash_firmware_now,
+            on_refresh_versions=lambda: refresh_versions(show_errors=True),
+            on_close=handle_close_dialog,
         )
 
         dlg.set_api_base_urls(self.settings_vm.api_base_urls)
@@ -279,8 +432,11 @@ class SettingsController:
         dlg.set_use_streaming(self.settings_vm.use_streaming)
         dlg.set_debug_logging(self.settings_vm.debug_logging)
         dlg.set_relay_config(self.settings_vm.relay_ip, self.settings_vm.relay_port)
-        dlg.set_firmware_path(self.settings_vm.firmware_path)
+        dlg.set_remote_update_zip_path(self.settings_vm.remote_update_zip_path)
+        dlg.set_remote_update_status("No remote update started.")
+        dlg.set_version_summary("No version data.")
         dlg.set_save_enabled(self.settings_vm.is_valid())
+        refresh_versions(show_errors=False)
 
     def _confirm_https_base_urls(self, payload: dict) -> bool:
         """Warn user when settings contain HTTPS box URLs and allow override."""

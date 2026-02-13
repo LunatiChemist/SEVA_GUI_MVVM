@@ -31,7 +31,7 @@ class SettingsConfig:
         poll_backoff_max_ms: Maximum backoff interval for polling.
         auto_download_on_complete: Whether completed groups auto-download.
         api_base_urls: Box id -> base URL mapping.
-        firmware_path: Selected firmware binary path.
+        remote_update_zip_path: Selected remote update ZIP path.
     """
 
     results_dir: str = "."
@@ -41,7 +41,7 @@ class SettingsConfig:
     poll_backoff_max_ms: int = 5000
     auto_download_on_complete: bool = True
     api_base_urls: Dict[BoxId, str] = field(default_factory=dict)
-    firmware_path: str = ""
+    remote_update_zip_path: str = ""
 
 
 def _default_debug_logging() -> bool:
@@ -162,14 +162,14 @@ class SettingsVM:
         self.config = replace(self.config, api_base_urls=dict(value or {}))
 
     @property
-    def firmware_path(self) -> str:
-        """Return selected firmware binary path."""
-        return self.config.firmware_path
+    def remote_update_zip_path(self) -> str:
+        """Return selected remote update ZIP path."""
+        return self.config.remote_update_zip_path
 
-    @firmware_path.setter
-    def firmware_path(self, value: str) -> None:
-        """Replace selected firmware binary path."""
-        self.config = replace(self.config, firmware_path=str(value or ""))
+    @remote_update_zip_path.setter
+    def remote_update_zip_path(self, value: str) -> None:
+        """Replace selected remote update ZIP path."""
+        self.config = replace(self.config, remote_update_zip_path=str(value or ""))
 
     # ------------------------------------------------------------------
     def is_valid(self) -> bool:
@@ -224,9 +224,6 @@ class SettingsVM:
         if "relay_port" in payload:
             self.relay_port = int(payload.get("relay_port") or 0)
 
-        if "firmware_path" in payload:
-            self.firmware_path = str(payload.get("firmware_path") or "")
-
     def to_dict(self) -> dict:
         """Serialize current settings state for persistence and callback handoff."""
         snapshot = asdict(self.config)
@@ -239,7 +236,6 @@ class SettingsVM:
                 "debug_logging": bool(self.debug_logging),
                 "relay_ip": self.relay_ip,
                 "relay_port": self.relay_port,
-                "firmware_path": self.firmware_path,
             }
         )
         return snapshot

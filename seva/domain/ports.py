@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Protocol, Tuple
 
 from seva.domain.entities import BoxId, ExperimentPlan, WellId
+from seva.domain.update_models import BoxVersionInfo, UpdateStartResult, UpdateStatus
 
 RunGroupId = str
 
@@ -132,4 +133,24 @@ class FirmwarePort(Protocol):
 
     def flash_firmware(self, box_id: BoxId, firmware_path: str | Path) -> Dict[str, Any]:
         """Upload and flash firmware on the selected box."""
+        ...
+
+    def flash_staged_firmware(self, box_id: BoxId) -> Dict[str, Any]:
+        """Flash the latest staged firmware artifact on the selected box."""
+        ...
+
+
+class UpdatePort(Protocol):
+    """Remote update lifecycle operations exposed by box REST API."""
+
+    def start_update(self, box_id: BoxId, zip_path: str | Path) -> UpdateStartResult:
+        """Upload one remote update ZIP and return update id/state."""
+        ...
+
+    def get_update_status(self, box_id: BoxId, update_id: str) -> UpdateStatus:
+        """Fetch remote update job status for one update id."""
+        ...
+
+    def get_version_info(self, box_id: BoxId) -> BoxVersionInfo:
+        """Fetch normalized version payload for one box."""
         ...

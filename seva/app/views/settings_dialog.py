@@ -29,11 +29,13 @@ class SettingsDialog(tk.Toplevel):
         on_test_connection: OnBox = None,
         on_test_relay: OnVoid = None,
         on_browse_results_dir: OnVoid = None,
-        on_browse_firmware: OnVoid = None,
+        on_browse_remote_update_zip: OnVoid = None,
         on_discover_devices: OnVoid = None,
         on_open_nas_setup: OnVoid = None,
         on_save: OnSave = None,
-        on_flash_firmware: OnVoid = None,
+        on_upload_remote_update: OnVoid = None,
+        on_flash_firmware_now: OnVoid = None,
+        on_refresh_versions: OnVoid = None,
         on_close: OnVoid = None,
     ) -> None:
         """Initialize modal settings dialog and field variables.
@@ -44,11 +46,13 @@ class SettingsDialog(tk.Toplevel):
             on_test_connection: Per-box callback for connection tests.
             on_test_relay: Callback for relay connection test.
             on_browse_results_dir: Callback for selecting local results dir.
-            on_browse_firmware: Callback for selecting firmware image.
+            on_browse_remote_update_zip: Callback for selecting update ZIP.
             on_discover_devices: Callback that runs discovery workflow.
             on_open_nas_setup: Callback opening NAS setup flow.
             on_save: Callback receiving a normalized settings payload dict.
-            on_flash_firmware: Callback triggering firmware flashing flow.
+            on_upload_remote_update: Callback triggering ZIP upload/apply.
+            on_flash_firmware_now: Callback flashing staged firmware.
+            on_refresh_versions: Callback for version panel refresh.
             on_close: Callback invoked when dialog closes.
         """
         super().__init__(parent)
@@ -60,11 +64,13 @@ class SettingsDialog(tk.Toplevel):
         self._on_test_connection = on_test_connection
         self._on_test_relay = on_test_relay
         self._on_browse_results_dir = on_browse_results_dir
-        self._on_browse_firmware = on_browse_firmware
+        self._on_browse_remote_update_zip = on_browse_remote_update_zip
         self._on_discover_devices = on_discover_devices
         self._on_open_nas_setup = on_open_nas_setup
         self._on_save = on_save
-        self._on_flash_firmware = on_flash_firmware
+        self._on_upload_remote_update = on_upload_remote_update
+        self._on_flash_firmware_now = on_flash_firmware_now
+        self._on_refresh_versions = on_refresh_versions
         self._on_close = on_close
 
         self.protocol("WM_DELETE_WINDOW", self._on_close_clicked)
@@ -83,7 +89,9 @@ class SettingsDialog(tk.Toplevel):
         self.debug_logging_var = tk.BooleanVar(value=False)
         self.relay_ip_var = tk.StringVar(value="")
         self.relay_port_var = tk.StringVar(value="0")
-        self.firmware_path_var = tk.StringVar(value="")
+        self.remote_update_zip_path_var = tk.StringVar(value="")
+        self.remote_update_status_var = tk.StringVar(value="No remote update started.")
+        self.version_summary_var = tk.StringVar(value="No version data.")
 
         self._build_ui()
 
@@ -176,22 +184,48 @@ class SettingsDialog(tk.Toplevel):
             row=3, column=0, columnspan=3, sticky="w", pady=(4, 0)
         )
 
-        # Firmware group
-        firmware = ttk.Labelframe(self, text="Firmware")
-        firmware.grid(row=4, column=0, sticky="ew", **pad)
-        firmware.columnconfigure(1, weight=1)
-        ttk.Label(firmware, text="Firmware image (.bin)").grid(row=0, column=0, sticky="w")
-        ttk.Entry(firmware, textvariable=self.firmware_path_var).grid(row=0, column=1, sticky="ew", padx=(0, 8))
+        # Remote update group
+        remote_update = ttk.Labelframe(self, text="Remote Update")
+        remote_update.grid(row=4, column=0, sticky="ew", **pad)
+        remote_update.columnconfigure(1, weight=1)
+        ttk.Label(remote_update, text="Update ZIP package").grid(row=0, column=0, sticky="w")
+        ttk.Entry(remote_update, textvariable=self.remote_update_zip_path_var).grid(
+            row=0, column=1, sticky="ew", padx=(0, 8)
+        )
         ttk.Button(
-            firmware,
+            remote_update,
             text="Browse…",
-            command=lambda: self._safe(self._on_browse_firmware),
+            command=lambda: self._safe(self._on_browse_remote_update_zip),
         ).grid(row=0, column=2, sticky="w")
         ttk.Button(
-            firmware,
-            text="Flash Firmware",
-            command=lambda: self._safe(self._on_flash_firmware),
-        ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(6, 0))
+            remote_update,
+            text="Upload & Apply Update",
+            command=lambda: self._safe(self._on_upload_remote_update),
+        ).grid(row=1, column=0, sticky="w", pady=(6, 0))
+        ttk.Button(
+            remote_update,
+            text="Flash Firmware Now",
+            command=lambda: self._safe(self._on_flash_firmware_now),
+        ).grid(row=1, column=1, sticky="w", pady=(6, 0))
+        ttk.Button(
+            remote_update,
+            text="Refresh Versions",
+            command=lambda: self._safe(self._on_refresh_versions),
+        ).grid(row=1, column=2, sticky="w", pady=(6, 0))
+        ttk.Label(remote_update, text="Latest update status").grid(row=2, column=0, sticky="nw", pady=(6, 0))
+        ttk.Label(
+            remote_update,
+            textvariable=self.remote_update_status_var,
+            justify="left",
+            wraplength=460,
+        ).grid(row=2, column=1, columnspan=2, sticky="w", pady=(6, 0))
+        ttk.Label(remote_update, text="Box versions").grid(row=3, column=0, sticky="nw", pady=(6, 0))
+        ttk.Label(
+            remote_update,
+            textvariable=self.version_summary_var,
+            justify="left",
+            wraplength=460,
+        ).grid(row=3, column=1, columnspan=2, sticky="w", pady=(6, 0))
 
         # NAS group
         nas = ttk.Labelframe(self, text="NAS")
@@ -243,7 +277,7 @@ class SettingsDialog(tk.Toplevel):
             "debug_logging": bool(self.debug_logging_var.get()),
             "relay_ip": self.relay_ip_var.get().strip(),
             "relay_port": self._parse_int(self.relay_port_var.get(), 0),
-            "firmware_path": self.firmware_path_var.get().strip(),
+            "remote_update_zip_path": self.remote_update_zip_path_var.get().strip(),
         }
         if self._on_save:
             try:
@@ -367,13 +401,21 @@ class SettingsDialog(tk.Toplevel):
         self.relay_ip_var.set(ip)
         self.relay_port_var.set(str(port))
 
-    def set_firmware_path(self, path: str) -> None:
-        """Set firmware image path input.
+    def set_remote_update_zip_path(self, path: str) -> None:
+        """Set remote update ZIP path input.
 
         Args:
-            path: Firmware image path string.
+            path: ZIP path string.
         """
-        self.firmware_path_var.set(path)
+        self.remote_update_zip_path_var.set(path)
+
+    def set_remote_update_status(self, summary: str) -> None:
+        """Set latest remote update status summary text."""
+        self.remote_update_status_var.set(str(summary or ""))
+
+    def set_version_summary(self, summary: str) -> None:
+        """Set per-box version summary text."""
+        self.version_summary_var.set(str(summary or ""))
 
     def set_save_enabled(self, enabled: bool) -> None:
         """Enable or disable the Save button.
@@ -411,12 +453,12 @@ class SettingsDialog(tk.Toplevel):
             pw = parent.winfo_width()
             ph = parent.winfo_height()
             width = 600
-            height = 650
+            height = 760
             x = px + (pw - width) // 2
             y = py + (ph - height) // 2
             return f"{width}x{height}+{x}+{y}"
         except Exception:
-            return "600x650"
+            return "600x760"
 
     def _safe(self, fn: OnVoid) -> None:
         """Invoke no-arg callback only when provided.
@@ -448,11 +490,13 @@ if __name__ == "__main__":
         on_test_connection=lambda box: print(f"[demo] test connection for box {box}"),
         on_test_relay=lambda: print("[demo] test relay"),
         on_browse_results_dir=lambda: print("[demo] browse results dir"),
-        on_browse_firmware=lambda: print("[demo] browse firmware"),
+        on_browse_remote_update_zip=lambda: print("[demo] browse update zip"),
         on_discover_devices=lambda: print("[demo] discover devices"),
         on_open_nas_setup=lambda: print("[demo] open NAS setup"),
         on_save=lambda payload: print(f"[demo] save payload with {len(payload)} keys"),
-        on_flash_firmware=lambda: print("[demo] flash firmware"),
+        on_upload_remote_update=lambda: print("[demo] upload remote update"),
+        on_flash_firmware_now=lambda: print("[demo] flash staged firmware"),
+        on_refresh_versions=lambda: print("[demo] refresh versions"),
         on_close=lambda: print("[demo] close dialog"),
     )
 
@@ -482,6 +526,8 @@ if __name__ == "__main__":
     dialog.set_use_streaming(True)
     dialog.set_debug_logging(False)
     dialog.set_relay_config(ip="10.0.10.40", port=502)
-    dialog.set_firmware_path(r"C:\Users\User\Downloads\potentiostat_v2.3.1.bin")
+    dialog.set_remote_update_zip_path(r"C:\Users\User\Downloads\seva-box-update_2026.02.13-rc1.zip")
+    dialog.set_remote_update_status("No remote update started.")
+    dialog.set_version_summary("A: api=1.0 pybeep=1.4.2 staged=2.7.0 device=unknown")
 
     dialog.mainloop()
