@@ -437,7 +437,7 @@ class SettingsDialog(tk.Toplevel):
             pw = parent.winfo_width()
             ph = parent.winfo_height()
             width = 600
-            height = 670
+            height = 700
             x = px + (pw - width) // 2
             y = py + (ph - height) // 2
             return f"{width}x{height}+{x}+{y}"
