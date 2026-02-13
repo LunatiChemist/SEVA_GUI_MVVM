@@ -80,6 +80,7 @@ Definition of done for this initiative:
 - Existing firmware-only endpoint: `POST /firmware/flash`.
 - Existing GUI Settings dialog currently exposes firmware-only controls and must be replaced.
 - Existing architecture requirement: Views render only, UseCases orchestrate, Adapters perform I/O.
+- pyBEEP offline editable install is documented as `-e ./vendor/pyBEEP`, and `vendor/` is located next to `rest_api/` in the repository tree.
 
 ### Terms used in this plan
 
@@ -87,6 +88,15 @@ Definition of done for this initiative:
 - Concurrency lock: only one active update operation at a time on the service.
 - Audit log: append-only event log with timestamps and step outcomes.
 - `archive_path` in `manifest.json`: relative file path inside the ZIP to a component archive file, e.g. `rest_api/rest_api_bundle.tar.gz`.
+- Vendor root derivation: resolve repository root from `rest_api/app.py` location (`Path(__file__).resolve().parent.parent`), then derive pyBEEP target path as `<repo_root>/vendor/pyBEEP`.
+
+### pyBEEP apply target rule (explicit)
+
+When the deployed API environment uses editable vendor installation (`-e ./vendor/pyBEEP`), the update worker must write pyBEEP updates into the vendor source directory at `<repo_root>/vendor/pyBEEP`.
+
+The target path must be derived from the REST API file location (repo root) rather than hardcoded absolute host paths, so the update remains portable across Raspberry Pi deployments.
+
+This is now a required behavior for implementation and validation.
 
 ## Package contract (v1)
 
@@ -153,6 +163,8 @@ Acceptance: GUI receives `update_id` quickly and can poll until terminal state.
 ### Milestone 3: Orchestrate component apply with lock + audit
 
 Implement background worker with ordered apply (`pybeep`, `rest_api`, `firmware` when present), service-wide lock, timeout handling, and audit writes.
+
+For `pybeep`, apply into `<repo_root>/vendor/pyBEEP` when editable vendor mode is used.
 
 Acceptance: parallel update requests are rejected while one job is active; audit log shows start, component steps, terminal result.
 
