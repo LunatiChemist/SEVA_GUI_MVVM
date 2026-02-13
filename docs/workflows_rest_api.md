@@ -10,6 +10,8 @@ For installation, environment variables, startup checks, and restart procedures,
 - Polling uses `POST /jobs/status` and optionally `GET /jobs/{run_id}`.
 - Server snapshots (`job_snapshot`) are authoritative for `progress_pct` and `remaining_s`.
 - Download/export uses `GET /runs/{run_id}/zip` (plus file endpoints where needed).
+- Remote update upload/poll uses `POST /updates` and `GET /updates/{update_id}`.
+- Firmware flashing is explicitly separate from remote update (`POST /firmware/flash` or `POST /firmware/flash/staged`).
 - `POST /modes/{mode}/validate` exists for explicit pre-flight checks, but is not required in the current default start path.
 
 ## Terminology used on this page
@@ -25,10 +27,11 @@ For broader vocabulary, see **[Glossary](glossary.md)**.
 
 - `seva/adapters/device_rest.py` -> discovery and mode metadata endpoints.
 - `seva/adapters/job_rest.py` -> validation/start/status/cancel/download endpoints.
-- `seva/adapters/firmware_rest.py` -> firmware upload endpoint.
+- `seva/adapters/update_rest.py` -> remote update + version endpoints (`/updates*`, `/version`).
+- `seva/adapters/firmware_rest.py` -> staged/direct firmware flashing endpoints.
 - `seva/adapters/discovery_http.py` -> `/health` probe during box discovery.
 
-The corresponding usecases include experiment launch/poll/cancel flows and firmware flashing flows in `seva/usecases/`.
+The corresponding usecases include experiment launch/poll/cancel flows, remote update upload/poll flows, version fetch flows, and firmware flashing flows in `seva/usecases/`.
 
 ## Workflow 1: Start -> Poll -> Download (default path)
 
@@ -59,15 +62,24 @@ Validation note: `POST /modes/{mode}/validate` is available for explicit pre-fli
 5. Upload worker mounts the share, copies files, verifies counts, and writes `UPLOAD_DONE` marker.
 6. Retention loop removes old locally uploaded runs based on configured retention days.
 
-## Workflow 4: Firmware flashing
+## Workflow 4: Remote update upload -> poll -> apply
 
-1. GUI uploads `.bin` via `POST /firmware/flash`.
-2. API stores file in `/opt/box/firmware` with sanitized filename.
+1. GUI uploads update bundle ZIP via `POST /updates`.
+2. API validates archive contract (manifest presence/schema, allowed component keys, safe extraction, checksums).
+3. API enqueues background update job and returns `update_id`.
+4. GUI polls `GET /updates/{update_id}` and renders step/component states (`updated|skipped|staged|failed`).
+5. API applies REST API and pyBEEP vendor components via backup + atomic swap strategy.
+6. API stages firmware bundle file only; no automatic flash is triggered.
+
+## Workflow 5: Firmware flashing (separate operation)
+
+1. Direct path: GUI uploads `.bin` via `POST /firmware/flash`.
+2. Staged path: GUI flashes previously staged artifact via `POST /firmware/flash/staged`.
 3. API runs `python auto_flash_linux.py <bin-path>`.
 4. Script sends boot command, flashes with `dfu-util`, and waits for CDC reconnection.
 5. API returns command stdout/stderr and exit code; failures are mapped to typed API error payloads.
 
-## Workflow 5: Telemetry stream demo (backend capability)
+## Workflow 6: Telemetry stream demo (backend capability)
 
 1. Client calls `/api/telemetry/temperature/latest` to fetch cache snapshot.
 2. Client opens SSE stream `/api/telemetry/temperature/stream`.

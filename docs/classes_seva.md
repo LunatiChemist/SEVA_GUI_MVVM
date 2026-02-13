@@ -71,7 +71,7 @@ Parameter schema mapping examples:
 
 - `seva/domain/runs_registry.py`: persistent registry for run groups and runtime attachment points.
 - `seva/domain/discovery.py`: discovery contracts (`DiscoveredBox`, `DeviceDiscoveryPort`).
-- `seva/domain/ports.py`: hexagonal ports (`JobPort`, `DevicePort`, `StoragePort`, `RelayPort`, `FirmwarePort`).
+- `seva/domain/ports.py`: hexagonal ports (`JobPort`, `DevicePort`, `StoragePort`, `RelayPort`, `FirmwarePort`, `UpdatePort`).
 - `seva/domain/device_activity.py`: typed activity snapshot objects for channel activity UI.
 
 ### Reserved compatibility modules
@@ -99,9 +99,14 @@ Parameter schema mapping examples:
   - calls `/health`, `/devices`, `/devices/status`, `/modes`, `/modes/{mode}/params`
   - normalizes mode keys and caches mode lists/schemas per box
   - raises typed adapter errors from `seva/adapters/api_errors.py`
-- `firmware_rest.py` (`FirmwarePort`): implements binary upload to `/firmware/flash`.
-  - consumed by `FlashFirmware`
-  - performs multipart upload with shared retry/timeout policy
+- `firmware_rest.py` (`FirmwarePort`): implements direct/staged flashing operations (`/firmware/flash`, `/firmware/flash/staged`).
+  - consumed by `FlashStagedFirmware` (settings flow)
+  - performs multipart upload or JSON post with shared retry/timeout policy
+  - raises typed adapter errors from `seva/adapters/api_errors.py`
+- `update_rest.py` (`UpdatePort`): implements remote update and version transport.
+  - consumed by `UploadRemoteUpdate`, `PollRemoteUpdateStatus`, `FetchBoxVersionInfo`
+  - calls `/updates`, `/updates/{id}`, and `/version`
+  - normalizes responses into domain update types (`UpdateStartResult`, `UpdateStatus`, `BoxVersionInfo`)
   - raises typed adapter errors from `seva/adapters/api_errors.py`
 - `discovery_http.py` (`DeviceDiscoveryPort`): implements host/base-url/CIDR discovery.
   - consumed by `DiscoverDevices` and `DiscoverAndAssignDevices`
@@ -138,7 +143,10 @@ Parameter schema mapping examples:
 - `poll_device_status.py`: per-channel status snapshots for activity UI.
 - `test_connection.py`: health + device diagnostics for a box.
 - `test_relay.py`, `set_electrode_mode.py`: relay diagnostics/configuration.
-- `flash_firmware.py`: multi-box firmware flashing.
+- `upload_remote_update.py`: one-box remote update upload orchestration.
+- `poll_remote_update_status.py`: one-box update polling orchestration.
+- `fetch_box_version_info.py`: one-box `/version` lookup orchestration.
+- `flash_staged_firmware.py`: multi-box staged firmware flashing.
 
 ### Layout and persistence workflows
 
@@ -171,8 +179,8 @@ Parameter schema mapping examples:
 - `settings_vm.py` (`SettingsVM`, `SettingsConfig`)
   - bound view/controller: `seva/app/settings_controller.py` + `SettingsDialog`
   - app wiring: loaded at startup in `App._load_user_settings`; consumed by `AppController.ensure_ready`
-  - usecase dependency: parameters passed into `BuildStorageMeta`, `StartExperimentBatch`, polling cadence, diagnostics, discovery
-  - state owned: typed runtime config, API URLs/keys, dialog-only fields (`experiment_name`, `subdir`, relay/debug flags)
+  - usecase dependency: parameters passed into `BuildStorageMeta`, `StartExperimentBatch`, polling cadence, diagnostics, discovery, remote update upload/poll/version refresh
+  - state owned: typed runtime config, API URLs/keys, remote update ZIP path, dialog-only fields (`experiment_name`, `subdir`, relay/debug flags)
 - `live_data_vm.py` (`LiveDataVM`)
   - bound view: standalone plotter (`seva/app/dataplotter_standalone.py`)
   - usecase dependency: none currently; reserved for future post-processing workflows

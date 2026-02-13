@@ -51,6 +51,10 @@ The API reads configuration from environment variables at startup.
 - `NAS_CONFIG_PATH` (optional): SMB config path,
   default `/opt/box/nas_smb.json`.
 - `BOX_BUILD` / `BOX_BUILD_ID` (optional): build metadata for `/version`.
+- `BOX_UPDATES_ROOT` (optional): remote update workspace root, default `/opt/box/updates`.
+- `BOX_FIRMWARE_DIR` (optional): firmware artifact directory, default `/opt/box/firmware`.
+- `BOX_API_TARGET_DIR` (required for remote update apply): deployment target directory for REST API component replacement.
+- `BOX_FLASH_SCRIPT` (optional): absolute path to flash helper script, default `/opt/box/auto_flash_linux.py`.
 
 ### A) Variables for interactive terminal runs
 
@@ -59,6 +63,10 @@ export BOX_API_KEY="change-me"
 export BOX_ID="lab-box-01"
 export RUNS_ROOT="/opt/box/runs"
 export NAS_CONFIG_PATH="/opt/box/nas_smb.json"
+export BOX_UPDATES_ROOT="/opt/box/updates"
+export BOX_FIRMWARE_DIR="/opt/box/firmware"
+export BOX_API_TARGET_DIR="<REPOSITORY_PATH>/rest_api"
+export BOX_FLASH_SCRIPT="/opt/box/auto_flash_linux.py"
 ```
 
 ### B) Variables for systemd service runs (recommended)
@@ -74,6 +82,10 @@ RUNS_ROOT=/opt/box/runs
 NAS_CONFIG_PATH=/opt/box/nas_smb.json
 BOX_BUILD=dev
 BOX_BUILD_ID=local
+BOX_UPDATES_ROOT=/opt/box/updates
+BOX_FIRMWARE_DIR=/opt/box/firmware
+BOX_API_TARGET_DIR=<REPOSITORY_PATH>/rest_api
+BOX_FLASH_SCRIPT=/opt/box/auto_flash_linux.py
 ENV
 sudo chmod 600 /etc/seva/box-api.env
 ```
@@ -152,6 +164,10 @@ explicit and stable:
   service setup conventions). Do not hardcode this path inside update bundles.
 - **pyBEEP vendor target directory** is fixed to
   `<REPOSITORY_PATH>/vendor/pyBEEP` (sibling to `<REPOSITORY_PATH>/rest_api`) for update application logic.
+- **Remote update endpoints** (`POST /updates`, `GET /updates/{id}`) are asynchronous:
+  upload validates manifest/checksums immediately, then component apply state is polled.
+- **Firmware flashing remains separate**: use `POST /firmware/flash/staged` to flash
+  staged artifacts after a successful remote update, or `POST /firmware/flash` for direct `.bin` uploads.
 
 This distinction is required so package authors can build one predictable update
 format while still supporting deployment-specific API paths.

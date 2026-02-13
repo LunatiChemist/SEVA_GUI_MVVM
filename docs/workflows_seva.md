@@ -18,7 +18,7 @@ Main composition happens in `seva/app/main.py` where callbacks are wired to pres
 - `MainWindowView.on_cancel_group` -> `App._on_cancel_group()` -> `RunFlowPresenter.cancel_active_group()`.
 - `ExperimentPanelView.on_end_selection` -> `App._on_end_selection()` -> `RunFlowPresenter.cancel_selected_runs()`.
 - `MainWindowView.on_save_layout` / `on_load_layout` -> `SavePlateLayout` / `LoadPlateLayout`.
-- Settings dialog test/scan/firmware actions -> `SettingsController` and `DiscoveryController` use-case calls.
+- Settings dialog test/scan/remote-update/flash actions -> `SettingsController` and `DiscoveryController` use-case calls.
 - `DownloadController.download_group_results()` handles run-artifact downloads.
 
 ## Workflow 1: Start -> Poll -> Complete
@@ -161,17 +161,29 @@ sequenceDiagram
 
 Outcome: reachable devices are discovered and assigned to open slots without manual URL editing.
 
-## Workflow 5: Diagnostics and Control
+## Workflow 5: Settings remote update and firmware control
+
+1. User selects update ZIP in settings dialog (`SettingsDialog`).
+2. `SettingsController` calls `UploadRemoteUpdate` per configured box.
+3. `UploadRemoteUpdate` delegates to `UpdatePort.start_update` (`UpdateRestAdapter` -> `POST /updates`).
+4. Poll timer in `SettingsController` calls `PollRemoteUpdateStatus`.
+5. `PollRemoteUpdateStatus` delegates to `UpdatePort.get_update_status` (`UpdateRestAdapter` -> `GET /updates/{update_id}`).
+6. UI renders server-authored step/component status; no client-derived progress states are fabricated.
+7. Optional staged flash action calls `FlashStagedFirmware` -> `FirmwarePort.flash_staged_firmware` (`POST /firmware/flash/staged`).
+8. Version panel refresh calls `FetchBoxVersionInfo` -> `UpdatePort.get_version_info` (`GET /version`).
+
+Outcome: settings now use one ZIP-driven update workflow with explicit polling/status and a separate staged-firmware flash action.
+
+## Workflow 6: Diagnostics and Control
 
 - `TestConnection`: settings test action -> `DevicePort.health` + `DevicePort.list_devices` (REST: `/health`, `/devices`).
 - `PollDeviceStatus`: periodic activity polling -> `DevicePort.list_device_status` + `list_devices` -> `DeviceActivitySnapshot` for `ProgressVM`.
 - `TestRelay`: relay diagnostics action -> `RelayPort.test`.
 - `SetElectrodeMode`: electrode mode toggle -> `RelayPort.set_electrode_mode`.
-- `FlashFirmware`: settings firmware action -> `FirmwarePort.flash_firmware` (REST: `POST /firmware/flash`).
 
 Outcome: diagnostics remain adapter-agnostic at use-case level while surfacing typed status to the UI.
 
-## Workflow 6: Layout Persistence
+## Workflow 7: Layout Persistence
 
 1. Save action calls `SavePlateLayout` with `ExperimentVM` state (selection + per-well params).
 2. `StoragePort.save_layout` persists payload.
@@ -196,7 +208,10 @@ Outcome: plate configurations round-trip through storage without view-level file
 - `discover_and_assign_devices.DiscoverAndAssignDevices`: scan + assignment orchestration; discovery port via nested use case.
 - `test_connection.TestConnection`: settings connection test; `DevicePort.health` + `DevicePort.list_devices`.
 - `poll_device_status.PollDeviceStatus`: activity polling; `DevicePort.list_device_status` + `DevicePort.list_devices`.
-- `flash_firmware.FlashFirmware`: settings firmware action; `FirmwarePort.flash_firmware`.
+- `upload_remote_update.UploadRemoteUpdate`: settings remote update upload; `UpdatePort.start_update`.
+- `poll_remote_update_status.PollRemoteUpdateStatus`: settings remote update polling; `UpdatePort.get_update_status`.
+- `fetch_box_version_info.FetchBoxVersionInfo`: settings version panel refresh; `UpdatePort.get_version_info`.
+- `flash_staged_firmware.FlashStagedFirmware`: settings staged flash action; `FirmwarePort.flash_staged_firmware`.
 - `test_relay.TestRelay`: relay diagnostics; `RelayPort.test`.
 - `set_electrode_mode.SetElectrodeMode`: relay control; `RelayPort.set_electrode_mode`.
 - `save_plate_layout.SavePlateLayout`: toolbar save layout; `StoragePort.save_layout`.
