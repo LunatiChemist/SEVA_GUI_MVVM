@@ -205,11 +205,15 @@ class SettingsDialog(tk.Toplevel):
             command=lambda: self._safe(self._on_refresh_versions),
         ).pack(side="left", padx=(8, 0))
         ttk.Label(update_pkg, text="Returned info per box").grid(
-            row=2, column=0, columnspan=3, sticky="w", pady=(8, 0)
+            row=2, column=0, sticky="w", pady=(8, 0)
         )
-        self._version_info_text = tk.Text(update_pkg, height=6, wrap="word")
-        self._version_info_text.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(4, 0))
-        self._version_info_text.configure(state=tk.DISABLED)
+        self.version_info_var = tk.StringVar(value="")
+        self._version_info_entry = ttk.Entry(
+            update_pkg,
+            textvariable=self.version_info_var,
+            state="readonly",
+        )
+        self._version_info_entry.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(4, 0))
 
         # NAS group
         nas = ttk.Labelframe(self, text="NAS")
@@ -394,11 +398,8 @@ class SettingsDialog(tk.Toplevel):
         self.update_package_path_var.set(path)
 
     def set_version_info_text(self, text: str) -> None:
-        """Set multiline version-refresh output shown in package update section."""
-        self._version_info_text.configure(state=tk.NORMAL)
-        self._version_info_text.delete("1.0", tk.END)
-        self._version_info_text.insert(tk.END, str(text or ""))
-        self._version_info_text.configure(state=tk.DISABLED)
+        """Set version-refresh output shown in package update section."""
+        self.version_info_var.set(str(text or ""))
 
     def set_save_enabled(self, enabled: bool) -> None:
         """Enable or disable the Save button.
@@ -436,12 +437,12 @@ class SettingsDialog(tk.Toplevel):
             pw = parent.winfo_width()
             ph = parent.winfo_height()
             width = 600
-            height = 740
+            height = 670
             x = px + (pw - width) // 2
             y = py + (ph - height) // 2
             return f"{width}x{height}+{x}+{y}"
         except Exception:
-            return "600x740"
+            return "600x670"
 
     def _safe(self, fn: OnVoid) -> None:
         """Invoke no-arg callback only when provided.
@@ -509,6 +510,6 @@ if __name__ == "__main__":
     dialog.set_debug_logging(False)
     dialog.set_relay_config(ip="10.0.10.40", port=502)
     dialog.set_update_package_path(r"C:\Users\User\Downloads\update-package.zip")
-    dialog.set_version_info_text("Box A: api=1.2.3, pybeep=0.9.1, python=3.13.0, build=build-42")
+    dialog.set_version_info_text("A(api=1.2.3, pybeep=0.9.1, python=3.13.0, build=build-42)")
 
     dialog.mainloop()

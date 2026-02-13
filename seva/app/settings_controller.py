@@ -331,7 +331,7 @@ class SettingsController:
         infos: dict[str, BoxVersionInfo],
         failures: dict[str, str],
     ) -> str:
-        """Format per-box version refresh data into a multiline UI text block."""
+        """Format per-box version refresh data into a compact one-line string."""
         all_boxes = sorted(set(infos.keys()) | set(failures.keys()))
         if not all_boxes:
             return "No boxes were queried."
@@ -340,12 +340,12 @@ class SettingsController:
         for box_id in all_boxes:
             failure = failures.get(box_id)
             if failure:
-                lines.append(f"Box {box_id}: error={failure}")
+                lines.append(f"{box_id}(error={failure})")
                 continue
 
             info = infos.get(box_id)
             if info is None:
-                lines.append(f"Box {box_id}: error=No data returned.")
+                lines.append(f"{box_id}(error=No data returned)")
                 continue
 
             health_label = "unknown"
@@ -360,12 +360,11 @@ class SettingsController:
             python_version = info.python_version or "-"
             build_identifier = info.build_identifier or "-"
             lines.append(
-                f"Box {box_id}: api={api_version}, pybeep={pybeep_version}, "
-                f"python={python_version}, build={build_identifier}, "
-                f"health={health_label}, devices={devices}, box_id={reported_box}"
+                f"{box_id}(api={api_version},pybeep={pybeep_version},python={python_version},"
+                f"build={build_identifier},health={health_label},devices={devices},box_id={reported_box})"
             )
 
-        return "\n".join(lines)
+        return " | ".join(lines)
 
     def _poll_remote_updates(
         self,
