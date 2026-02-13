@@ -31,7 +31,7 @@ User-visible outcomes:
 - Observation: Current settings UI/controller are wired to local `.bin` upload + `/firmware/flash` and therefore need structural replacement for a full ZIP-based flow.
   Evidence: `seva/app/views/settings_dialog.py`, `seva/app/settings_controller.py`.
 
-- Observation: Deployment path handling for the API should be environment-driven from REST API setup guidance (systemd `EnvironmentFile`), while pyBEEP target must be repository-local at `<REPOSITORY_PATH>/vendor/pyBEEP`.
+- Observation: Deployment path handling for the API should be environment-driven from REST API setup guidance (systemd `EnvironmentFile`), while pyBEEP target must be repository-local at `<REPOSITORY_PATH>/vendor/pyBEEP` (sibling to `<REPOSITORY_PATH>/rest_api`).
   Evidence: `docs/rest-api-setup.md` (environment configuration), user requirement in this task.
 
 ## Decision Log
@@ -48,7 +48,7 @@ User-visible outcomes:
   Rationale: ZIP validation and file replacement can be long-running; polling fits existing client behavior.
   Date/Author: 2026-02-13 / Codex
 
-- Decision: API component target directory is not hardcoded in the package contract. It is resolved from environment-backed deployment configuration (as documented in REST API setup). pyBEEP target directory is fixed to `<REPOSITORY_PATH>/vendor/pyBEEP`.
+- Decision: API component target directory is not hardcoded in the package contract. It is resolved from environment-backed deployment configuration (as documented in REST API setup). pyBEEP target directory is fixed to `<REPOSITORY_PATH>/vendor/pyBEEP` (sibling to `<REPOSITORY_PATH>/rest_api`).
   Rationale: Keeps deployment-specific API path configurable and enforces a stable pyBEEP location for update logic.
   Date/Author: 2026-02-13 / Codex
 
@@ -142,7 +142,7 @@ Validation rules:
 - Unknown component keys fail hard (`update.manifest_unknown_component`).
 - Safe unzip must block path traversal and symlink escape.
 - API target directory is resolved from environment/deployment config, not trusted from ZIP path fields.
-- pyBEEP target is always `<REPOSITORY_PATH>/vendor/pyBEEP`.
+- pyBEEP target is always `<REPOSITORY_PATH>/vendor/pyBEEP` (sibling to `<REPOSITORY_PATH>/rest_api`).
 
 ### 2) Add REST API update orchestration endpoints
 
@@ -171,7 +171,7 @@ API-side execution flow:
 3. Validate manifest and checksums.
 4. Apply components in order:
    - `rest_api`: replace atomically in API target directory resolved from environment-backed config.
-   - `pybeep_vendor`: replace atomically in `<REPOSITORY_PATH>/vendor/pyBEEP`.
+   - `pybeep_vendor`: replace atomically in `<REPOSITORY_PATH>/vendor/pyBEEP` (sibling to `<REPOSITORY_PATH>/rest_api`).
    - `firmware_bundle`: copy to `/opt/box/firmware/` only (no auto-flash).
 5. Persist/report update job status for polling.
 
@@ -271,7 +271,7 @@ Documentation updates required during implementation:
 - `docs/workflows_rest_api.md`: new remote update workflow + explicit separation from flashing.
 - `docs/classes_rest_api.md`: endpoint/model/module references for update flow.
 - `docs/workflows_seva.md`, `docs/classes_seva.md`: GUI/use case/adapter integration updates.
-- `docs/rest-api-setup.md`: explicit note that API update target directory is environment/deployment configured and pyBEEP target is `<REPOSITORY_PATH>/vendor/pyBEEP` (critical for package authors).
+- `docs/rest-api-setup.md`: explicit note that API update target directory is environment/deployment configured and pyBEEP target is `<REPOSITORY_PATH>/vendor/pyBEEP` (sibling to `<REPOSITORY_PATH>/rest_api`) (critical for package authors).
 
 ## Concrete Steps
 
@@ -355,4 +355,4 @@ Dependencies:
 
 ---
 
-Change note (2026-02-13): ExecPlan updated per feedback: English-only wording, API target directory policy aligned with environment/deployment configuration, and pyBEEP target explicitly fixed to `<REPOSITORY_PATH>/vendor/pyBEEP` with required docs update callout.
+Change note (2026-02-13): ExecPlan updated per feedback: English-only wording, API target directory policy aligned with environment/deployment configuration, and pyBEEP target explicitly fixed to `<REPOSITORY_PATH>/vendor/pyBEEP` (sibling to `<REPOSITORY_PATH>/rest_api`) with required docs update callout.

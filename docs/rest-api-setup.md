@@ -151,7 +151,7 @@ explicit and stable:
   configuration (for example, values loaded through `/etc/seva/box-api.env` and
   service setup conventions). Do not hardcode this path inside update bundles.
 - **pyBEEP vendor target directory** is fixed to
-  `<REPOSITORY_PATH>/vendor/pyBEEP` for update application logic.
+  `<REPOSITORY_PATH>/vendor/pyBEEP` (sibling to `<REPOSITORY_PATH>/rest_api`) for update application logic.
 
 This distinction is required so package authors can build one predictable update
 format while still supporting deployment-specific API paths.
