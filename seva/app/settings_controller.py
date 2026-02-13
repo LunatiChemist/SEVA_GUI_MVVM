@@ -265,7 +265,6 @@ class SettingsController:
                 lines.append(
                     (
                         f"{box_id}: api={info.api}, pybeep={info.pybeep}, "
-                        f"staged={info.firmware_staged_version}, "
                         f"device={info.firmware_device_version}"
                     )
                 )
@@ -356,39 +355,6 @@ class SettingsController:
                 poll_timer = None
             poll_once()
 
-        def handle_flash_firmware_now() -> None:
-            """Flash staged firmware to all configured boxes."""
-            if not dlg:
-                return
-            if not self._ensure_adapter():
-                return
-            uc = self.controller.uc_flash_staged_firmware
-            if uc is None:
-                self.win.show_toast("Firmware flashing is not available.")
-                return
-            box_ids = configured_box_ids()
-            try:
-                result = uc(box_ids=box_ids)
-            except Exception as exc:
-                self._toast_error(exc, context="Flash staged firmware")
-                return
-
-            if result.failures:
-                failed_boxes = ", ".join(sorted(result.failures.keys()))
-                self.win.show_toast(f"Staged firmware flash failed on {failed_boxes}.")
-                details = "\n".join(
-                    f"{box_id}: {err}" for box_id, err in result.failures.items()
-                )
-                messagebox.showerror("Firmware Flash Failed", details, parent=dlg)
-                return
-
-            flashed_boxes = ", ".join(sorted(result.successes.keys()))
-            if flashed_boxes:
-                self.win.show_toast(f"Staged firmware flashed on {flashed_boxes}.")
-            else:
-                self.win.show_toast("Staged firmware flash completed.")
-            refresh_versions(show_errors=False)
-
         def handle_open_nas_setup() -> None:
             """Open standalone NAS setup dialog."""
             NASSetupGUI(self.win)
@@ -413,7 +379,6 @@ class SettingsController:
             on_open_nas_setup=handle_open_nas_setup,
             on_save=self._on_settings_saved,
             on_upload_remote_update=handle_upload_remote_update,
-            on_flash_firmware_now=handle_flash_firmware_now,
             on_refresh_versions=lambda: refresh_versions(show_errors=True),
             on_close=handle_close_dialog,
         )

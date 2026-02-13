@@ -19,7 +19,6 @@ from seva.domain.update_models import (
     UpdateStatus,
     UpdateStep,
 )
-from seva.usecases.flash_staged_firmware import FlashStagedFirmware
 from seva.usecases.poll_remote_update_status import PollRemoteUpdateStatus
 from seva.usecases.upload_remote_update import UploadRemoteUpdate
 
@@ -58,7 +57,7 @@ class _FakeSession:
 
 
 class _UpdatePortDouble:
-    """Simple UpdatePort/FirmwarePort double for use-case tests."""
+    """Simple UpdatePort double for use-case tests."""
 
     def __init__(self, *, start_result=None, status_result=None, start_exc=None, status_exc=None):
         self.start_result = start_result
@@ -67,7 +66,6 @@ class _UpdatePortDouble:
         self.status_exc = status_exc
         self.start_calls: list[tuple[str, Path]] = []
         self.status_calls: list[tuple[str, str]] = []
-        self.flash_calls: list[str] = []
 
     def start_update(self, box_id: str, zip_path: str | Path):
         if self.start_exc:
@@ -85,10 +83,6 @@ class _UpdatePortDouble:
     def get_version_info(self, box_id: str):
         _ = box_id
         return BoxVersionInfo()
-
-    def flash_staged_firmware(self, box_id: str):
-        self.flash_calls.append(box_id)
-        return {"ok": True}
 
 
 def test_update_rest_adapter_start_update_returns_typed_result(tmp_path: Path) -> None:
@@ -139,7 +133,7 @@ def test_update_rest_adapter_get_update_status_returns_typed_payload() -> None:
                             {
                                 "component": "firmware_bundle",
                                 "action": "failed",
-                                "error_code": "update.stage_firmware_failed",
+                                "error_code": "update.flash_firmware_failed",
                                 "message": "disk full",
                             },
                         ],
@@ -161,7 +155,7 @@ def test_update_rest_adapter_get_update_status_returns_typed_payload() -> None:
         message="ok",
         error_code="",
     )
-    assert status.component_results[1].error_code == "update.stage_firmware_failed"
+    assert status.component_results[1].error_code == "update.flash_firmware_failed"
 
 
 def test_update_rest_adapter_get_version_info_returns_typed_payload() -> None:
@@ -177,7 +171,6 @@ def test_update_rest_adapter_get_version_info_returns_typed_payload() -> None:
                         "pybeep": "1.4.2",
                         "python": "3.13.2",
                         "build": "abc123",
-                        "firmware_staged_version": "2.7.0",
                         "firmware_device_version": "2.6.1",
                     },
                 )
@@ -190,7 +183,6 @@ def test_update_rest_adapter_get_version_info_returns_typed_payload() -> None:
         pybeep="1.4.2",
         python="3.13.2",
         build="abc123",
-        firmware_staged_version="2.7.0",
         firmware_device_version="2.6.1",
     )
 
@@ -262,18 +254,3 @@ def test_poll_remote_update_status_returns_typed_status() -> None:
     result = usecase(box_id="B", update_id="u1")
     assert result is expected
     assert port.status_calls == [("B", "u1")]
-
-
-def test_flash_staged_firmware_collects_successes_and_failures() -> None:
-    """Use case should aggregate per-box staged-flash outcomes."""
-
-    class _Port:
-        def flash_staged_firmware(self, box_id: str):
-            if box_id == "B":
-                raise RuntimeError("not staged")
-            return {"ok": True, "box": box_id}
-
-    usecase = FlashStagedFirmware(_Port())
-    result = usecase(box_ids=["A", "B"])
-    assert result.successes["A"]["ok"] is True
-    assert "B" in result.failures

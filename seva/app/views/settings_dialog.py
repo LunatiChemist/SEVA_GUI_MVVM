@@ -34,7 +34,6 @@ class SettingsDialog(tk.Toplevel):
         on_open_nas_setup: OnVoid = None,
         on_save: OnSave = None,
         on_upload_remote_update: OnVoid = None,
-        on_flash_firmware_now: OnVoid = None,
         on_refresh_versions: OnVoid = None,
         on_close: OnVoid = None,
     ) -> None:
@@ -51,7 +50,6 @@ class SettingsDialog(tk.Toplevel):
             on_open_nas_setup: Callback opening NAS setup flow.
             on_save: Callback receiving a normalized settings payload dict.
             on_upload_remote_update: Callback triggering ZIP upload/apply.
-            on_flash_firmware_now: Callback flashing staged firmware.
             on_refresh_versions: Callback for version panel refresh.
             on_close: Callback invoked when dialog closes.
         """
@@ -69,7 +67,6 @@ class SettingsDialog(tk.Toplevel):
         self._on_open_nas_setup = on_open_nas_setup
         self._on_save = on_save
         self._on_upload_remote_update = on_upload_remote_update
-        self._on_flash_firmware_now = on_flash_firmware_now
         self._on_refresh_versions = on_refresh_versions
         self._on_close = on_close
 
@@ -204,14 +201,9 @@ class SettingsDialog(tk.Toplevel):
         ).grid(row=1, column=0, sticky="w", pady=(6, 0))
         ttk.Button(
             remote_update,
-            text="Flash Firmware Now",
-            command=lambda: self._safe(self._on_flash_firmware_now),
-        ).grid(row=1, column=1, sticky="w", pady=(6, 0))
-        ttk.Button(
-            remote_update,
             text="Refresh Versions",
             command=lambda: self._safe(self._on_refresh_versions),
-        ).grid(row=1, column=2, sticky="w", pady=(6, 0))
+        ).grid(row=1, column=1, sticky="w", pady=(6, 0))
         ttk.Label(remote_update, text="Latest update status").grid(row=2, column=0, sticky="nw", pady=(6, 0))
         ttk.Label(
             remote_update,
@@ -495,7 +487,6 @@ if __name__ == "__main__":
         on_open_nas_setup=lambda: print("[demo] open NAS setup"),
         on_save=lambda payload: print(f"[demo] save payload with {len(payload)} keys"),
         on_upload_remote_update=lambda: print("[demo] upload remote update"),
-        on_flash_firmware_now=lambda: print("[demo] flash staged firmware"),
         on_refresh_versions=lambda: print("[demo] refresh versions"),
         on_close=lambda: print("[demo] close dialog"),
     )
@@ -528,6 +519,6 @@ if __name__ == "__main__":
     dialog.set_relay_config(ip="10.0.10.40", port=502)
     dialog.set_remote_update_zip_path(r"C:\Users\User\Downloads\seva-box-update_2026.02.13-rc1.zip")
     dialog.set_remote_update_status("No remote update started.")
-    dialog.set_version_summary("A: api=1.0 pybeep=1.4.2 staged=2.7.0 device=unknown")
+    dialog.set_version_summary("A: api=1.0 pybeep=1.4.2 device=unknown")
 
     dialog.mainloop()

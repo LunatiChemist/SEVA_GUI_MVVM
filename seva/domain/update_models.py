@@ -7,7 +7,7 @@ from typing import Literal, Optional, Tuple
 
 
 UpdateState = Literal["queued", "running", "done", "failed", "partial"]
-UpdateAction = Literal["updated", "skipped", "staged", "failed"]
+UpdateAction = Literal["updated", "skipped", "failed"]
 UpdateStepState = Literal["pending", "running", "done", "skipped", "failed"]
 
 
@@ -66,6 +66,4 @@ class BoxVersionInfo:
     pybeep: str = "unknown"
     python: str = "unknown"
     build: str = "unknown"
-    firmware_staged_version: str = "unknown"
     firmware_device_version: str = "unknown"
-

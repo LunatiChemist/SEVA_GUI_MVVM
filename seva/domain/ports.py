@@ -135,10 +135,6 @@ class FirmwarePort(Protocol):
         """Upload and flash firmware on the selected box."""
         ...
 
-    def flash_staged_firmware(self, box_id: BoxId) -> Dict[str, Any]:
-        """Flash the latest staged firmware artifact on the selected box."""
-        ...
-
 
 class UpdatePort(Protocol):
     """Remote update lifecycle operations exposed by box REST API."""

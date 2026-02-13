@@ -16,7 +16,6 @@ from seva.adapters.update_rest import UpdateRestAdapter
 from seva.usecases.cancel_group import CancelGroup
 from seva.usecases.download_group_results import DownloadGroupResults
 from seva.usecases.fetch_box_version_info import FetchBoxVersionInfo
-from seva.usecases.flash_staged_firmware import FlashStagedFirmware
 from seva.usecases.poll_remote_update_status import PollRemoteUpdateStatus
 from seva.usecases.poll_device_status import PollDeviceStatus
 from seva.usecases.poll_group_status import PollGroupStatus
@@ -59,7 +58,6 @@ class AppController:
         self.uc_cancel_runs: Optional["CancelRuns"] = None
         self.uc_poll_device_status: Optional[PollDeviceStatus] = None
         self.uc_test_connection: Optional[TestConnection] = None
-        self.uc_flash_staged_firmware: Optional[FlashStagedFirmware] = None
         self.uc_upload_remote_update: Optional[UploadRemoteUpdate] = None
         self.uc_poll_remote_update_status: Optional[PollRemoteUpdateStatus] = None
         self.uc_fetch_box_version_info: Optional[FetchBoxVersionInfo] = None
@@ -92,7 +90,6 @@ class AppController:
         self.uc_cancel_runs = None
         self.uc_poll_device_status = None
         self.uc_test_connection = None
-        self.uc_flash_staged_firmware = None
         self.uc_upload_remote_update = None
         self.uc_poll_remote_update_status = None
         self.uc_fetch_box_version_info = None
@@ -161,8 +158,6 @@ class AppController:
             self.uc_start = StartExperimentBatch(self._job_adapter)
             self.uc_test_connection = TestConnection(self._device_adapter)
             self.uc_poll_device_status = PollDeviceStatus(self._device_adapter)
-        if self._firmware_adapter:
-            self.uc_flash_staged_firmware = FlashStagedFirmware(self._firmware_adapter)
         if self._update_adapter:
             self.uc_upload_remote_update = UploadRemoteUpdate(self._update_adapter)
             self.uc_poll_remote_update_status = PollRemoteUpdateStatus(self._update_adapter)

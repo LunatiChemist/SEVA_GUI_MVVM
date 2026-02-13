@@ -30,7 +30,7 @@ from seva.adapters.http_client import HttpConfig, RetryingSession
 
 _UPDATE_STATES = {"queued", "running", "done", "failed", "partial"}
 _UPDATE_STEP_STATES = {"pending", "running", "done", "skipped", "failed"}
-_UPDATE_ACTIONS = {"updated", "skipped", "staged", "failed"}
+_UPDATE_ACTIONS = {"updated", "skipped", "failed"}
 
 
 class UpdateRestAdapter(UpdatePort):
@@ -87,7 +87,6 @@ class UpdateRestAdapter(UpdatePort):
             pybeep=str(payload.get("pybeep") or "unknown"),
             python=str(payload.get("python") or "unknown"),
             build=str(payload.get("build") or "unknown"),
-            firmware_staged_version=str(payload.get("firmware_staged_version") or "unknown"),
             firmware_device_version=str(payload.get("firmware_device_version") or "unknown"),
         )
 
@@ -220,4 +219,3 @@ class UpdateRestAdapter(UpdatePort):
 
 
 __all__ = ["UpdateRestAdapter"]
-

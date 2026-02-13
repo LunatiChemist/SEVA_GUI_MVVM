@@ -96,17 +96,6 @@ class FirmwareRestAdapter(FirmwarePort):
             return dict(data)
         return {"response": data}
 
-    def flash_staged_firmware(self, box_id: BoxId) -> Dict[str, Any]:
-        """Trigger flashing for the latest staged firmware bundle."""
-        url = self._make_url(box_id, "/firmware/flash/staged")
-        session = self._session(box_id)
-        resp = session.post(url, json_body=None, timeout=self.cfg.request_timeout_s)
-        self._ensure_ok(resp, f"flash_staged_firmware[{box_id}]")
-        data = self._json_any(resp)
-        if isinstance(data, dict):
-            return dict(data)
-        return {"response": data}
-
     # ------------------------------------------------------------------
     def _session(self, box_id: BoxId) -> RetryingSession:
         """Return configured session for a box.
