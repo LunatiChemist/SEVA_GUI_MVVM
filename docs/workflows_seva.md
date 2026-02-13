@@ -18,7 +18,7 @@ Main composition happens in `seva/app/main.py` where callbacks are wired to pres
 - `MainWindowView.on_cancel_group` -> `App._on_cancel_group()` -> `RunFlowPresenter.cancel_active_group()`.
 - `ExperimentPanelView.on_end_selection` -> `App._on_end_selection()` -> `RunFlowPresenter.cancel_selected_runs()`.
 - `MainWindowView.on_save_layout` / `on_load_layout` -> `SavePlateLayout` / `LoadPlateLayout`.
-- Settings dialog test/scan/remote-update/flash actions -> `SettingsController` and `DiscoveryController` use-case calls.
+- Settings dialog test/scan/remote-update actions -> `SettingsController` and `DiscoveryController` use-case calls.
 - `DownloadController.download_group_results()` handles run-artifact downloads.
 
 ## Workflow 1: Start -> Poll -> Complete
@@ -169,10 +169,10 @@ Outcome: reachable devices are discovered and assigned to open slots without man
 4. Poll timer in `SettingsController` calls `PollRemoteUpdateStatus`.
 5. `PollRemoteUpdateStatus` delegates to `UpdatePort.get_update_status` (`UpdateRestAdapter` -> `GET /updates/{update_id}`).
 6. UI renders server-authored step/component status; no client-derived progress states are fabricated.
-7. Optional staged flash action calls `FlashStagedFirmware` -> `FirmwarePort.flash_staged_firmware` (`POST /firmware/flash/staged`).
+7. Remote update firmware components are flashed by the backend during update apply.
 8. Version panel refresh calls `FetchBoxVersionInfo` -> `UpdatePort.get_version_info` (`GET /version`).
 
-Outcome: settings now use one ZIP-driven update workflow with explicit polling/status and a separate staged-firmware flash action.
+Outcome: settings use one ZIP-driven update workflow with explicit polling/status, and firmware is flashed automatically as part of update apply.
 
 ## Workflow 6: Diagnostics and Control
 
@@ -211,7 +211,6 @@ Outcome: plate configurations round-trip through storage without view-level file
 - `upload_remote_update.UploadRemoteUpdate`: settings remote update upload; `UpdatePort.start_update`.
 - `poll_remote_update_status.PollRemoteUpdateStatus`: settings remote update polling; `UpdatePort.get_update_status`.
 - `fetch_box_version_info.FetchBoxVersionInfo`: settings version panel refresh; `UpdatePort.get_version_info`.
-- `flash_staged_firmware.FlashStagedFirmware`: settings staged flash action; `FirmwarePort.flash_staged_firmware`.
 - `test_relay.TestRelay`: relay diagnostics; `RelayPort.test`.
 - `set_electrode_mode.SetElectrodeMode`: relay control; `RelayPort.set_electrode_mode`.
 - `save_plate_layout.SavePlateLayout`: toolbar save layout; `StoragePort.save_layout`.

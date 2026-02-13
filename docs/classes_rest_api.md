@@ -11,7 +11,7 @@ The REST package currently contains the following Python modules:
 - `rest_api/validation.py`: mode payload validators for `/modes/{mode}/validate`.
 - `rest_api/progress_utils.py`: progress and ETA computations used in status snapshots.
 - `rest_api/storage.py`: run-directory naming, sanitization, and persisted run-id path registry.
-- `rest_api/update_service.py`: remote update archive validation, checksum enforcement, and atomic apply/staging workflow.
+- `rest_api/update_service.py`: remote update archive validation, checksum enforcement, and atomic apply/flash workflow.
 - `rest_api/nas_smb.py`: SMB/CIFS upload adapter used by `/nas/*` and `/runs/{run_id}/upload`.
 - `rest_api/nas.py`: SSH/rsync NAS adapter kept for SSH-based deployments.
 - `rest_api/auto_flash_linux.py`: Linux firmware flashing subprocess helper for `/firmware/flash`.
@@ -28,10 +28,10 @@ The REST package currently contains the following Python modules:
   - Endpoints: `/modes/{mode}/validate`, `/jobs`, `/jobs/status`, `/jobs/{run_id}`, `/jobs/{run_id}/cancel`, `/runs/{run_id}/files`, `/runs/{run_id}/file`, `/runs/{run_id}/zip`
 - Firmware flashing:
   - GUI callers: `seva/adapters/firmware_rest.py`
-  - Endpoint: `/firmware/flash`, `/firmware/flash/staged`
+  - Endpoint: `/firmware/flash`
 - Remote update orchestration:
   - GUI callers: `seva/adapters/update_rest.py`
-  - Endpoints: `/updates`, `/updates/latest`, `/updates/{update_id}`, plus staged version fields from `/version`
+  - Endpoints: `/updates`, `/updates/latest`, `/updates/{update_id}`, plus version fields from `/version`
 - NAS management:
   - GUI callers: NAS settings flows through REST clients
   - Endpoints: `/nas/setup`, `/nas/health`, `/runs/{run_id}/upload`
@@ -44,7 +44,7 @@ The table below provides a practical, per-endpoint overview of method, purpose, 
 
 | Method | Path | Handler | Purpose | Typical caller(s) |
 |---|---|---|---|---|
-| GET | `/version` | `version_info` | Returns API/runtime/build metadata and staged/device firmware visibility fields. | Manual ops checks, service introspection |
+| GET | `/version` | `version_info` | Returns API/runtime/build metadata and device firmware visibility fields. | Manual ops checks, service introspection |
 | GET | `/health` | `health` | Basic service liveness + discovered device count. | `seva.adapters.discovery_http`, startup checks |
 | GET | `/devices` | `list_devices` | Enumerates discovered potentiostat slots and port metadata. | `seva.adapters.device_rest` |
 | GET | `/devices/status` | `list_device_status` | Returns slot state derived from active jobs (`idle/queued/running/...`). | GUI status polling |
@@ -67,7 +67,6 @@ The table below provides a practical, per-endpoint overview of method, purpose, 
 | GET | `/updates/latest` | `update_status_latest` | Returns latest update job snapshot for convenience polling/recovery. | `seva.adapters.update_rest` |
 | GET | `/updates/{update_id}` | `update_status` | Returns per-update status (`queued/running/done/failed/partial`) with step and component outcomes. | `seva.adapters.update_rest` |
 | POST | `/firmware/flash` | `flash_firmware` | Stores uploaded firmware binary and invokes Linux flashing subprocess flow. | `seva.adapters.firmware_rest` |
-| POST | `/firmware/flash/staged` | `flash_staged_firmware` | Flashes the most recently staged firmware artifact from remote update workflow. | `seva.adapters.firmware_rest` |
 | GET | `/api/telemetry/temperature/latest` | `get_latest` | Returns latest cached telemetry sample per device (demo endpoint). | Telemetry demos |
 | GET | `/api/telemetry/temperature/stream` | `temperature_stream` | SSE stream emitting periodic telemetry + keepalive pings (demo endpoint). | Streaming demo clients |
 
@@ -153,7 +152,7 @@ Remote update orchestration module consumed by `app.py` update endpoints.
 - `UpdateService._validate_manifest_payload(...)`: enforces manifest schema, allowed component keys, and target path policy.
 - `UpdateService._validate_manifest_checksums(...)`: verifies per-component SHA256 before apply.
 - `UpdateService._replace_directory_atomically(...)`: creates backups and swaps directories with rollback behavior.
-- `UpdateService.get_staged_firmware_info(...)`: exposes staged firmware metadata used by `/version` and `/firmware/flash/staged`.
+- `UpdateService._apply_firmware_component(...)`: copies firmware from bundle and flashes it immediately as part of update apply.
 
 ## `rest_api/nas_smb.py`
 

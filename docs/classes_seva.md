@@ -99,8 +99,8 @@ Parameter schema mapping examples:
   - calls `/health`, `/devices`, `/devices/status`, `/modes`, `/modes/{mode}/params`
   - normalizes mode keys and caches mode lists/schemas per box
   - raises typed adapter errors from `seva/adapters/api_errors.py`
-- `firmware_rest.py` (`FirmwarePort`): implements direct/staged flashing operations (`/firmware/flash`, `/firmware/flash/staged`).
-  - consumed by `FlashStagedFirmware` (settings flow)
+- `firmware_rest.py` (`FirmwarePort`): implements direct flashing operation (`/firmware/flash`).
+  - consumed by firmware flashing use cases where manual `.bin` flashing is needed
   - performs multipart upload or JSON post with shared retry/timeout policy
   - raises typed adapter errors from `seva/adapters/api_errors.py`
 - `update_rest.py` (`UpdatePort`): implements remote update and version transport.
@@ -146,7 +146,6 @@ Parameter schema mapping examples:
 - `upload_remote_update.py`: one-box remote update upload orchestration.
 - `poll_remote_update_status.py`: one-box update polling orchestration.
 - `fetch_box_version_info.py`: one-box `/version` lookup orchestration.
-- `flash_staged_firmware.py`: multi-box staged firmware flashing.
 
 ### Layout and persistence workflows
 

@@ -166,8 +166,8 @@ explicit and stable:
   `<REPOSITORY_PATH>/vendor/pyBEEP` (sibling to `<REPOSITORY_PATH>/rest_api`) for update application logic.
 - **Remote update endpoints** (`POST /updates`, `GET /updates/{id}`) are asynchronous:
   upload validates manifest/checksums immediately, then component apply state is polled.
-- **Firmware flashing remains separate**: use `POST /firmware/flash/staged` to flash
-  staged artifacts after a successful remote update, or `POST /firmware/flash` for direct `.bin` uploads.
+- **Remote update flashes firmware automatically** when `firmware_bundle` is present in the bundle.
+- **Manual direct firmware flashing remains available** via `POST /firmware/flash` for standalone `.bin` uploads.
 
 This distinction is required so package authors can build one predictable update
 format while still supporting deployment-specific API paths.
