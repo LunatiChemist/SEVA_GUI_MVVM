@@ -129,6 +129,7 @@ def test_updates_package_happy_path(api_module, tmp_path: Path) -> None:
     assert snapshot.get("status") == "done"
     assert snapshot.get("components", {}).get("firmware") == "done"
     assert snapshot.get("restart", {}).get("ok") is True
+    assert snapshot.get("versions", {}).get("firmware") == "3.4.1"
 
 
 def test_updates_package_respects_lock(api_module, tmp_path: Path) -> None:
@@ -192,6 +193,7 @@ def test_update_snapshot_survives_manager_restart(api_module, tmp_path: Path) ->
     assert restored_snapshot is not None
     assert restored_snapshot.get("status") == "done"
     assert restored_snapshot.get("restart", {}).get("ok") is True
+    assert restored_snapshot.get("versions", {}).get("firmware") == "3.4.1"
 
 
 def test_updates_status_not_found(api_module, tmp_path: Path) -> None:

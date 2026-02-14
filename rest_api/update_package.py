@@ -113,6 +113,13 @@ class UpdateJob:
             "firmware": "skipped",
         }
     )
+    versions: Dict[str, str] = field(
+        default_factory=lambda: {
+            "pybeep": "",
+            "rest_api": "",
+            "firmware": "",
+        }
+    )
     restart: Dict[str, Any] = field(default_factory=dict)
     error: Dict[str, str] = field(default_factory=dict)
     audit_log_path: str = ""
@@ -131,6 +138,7 @@ class UpdateJob:
             "ended_at": self.ended_at,
             "heartbeat_at": self.heartbeat_at,
             "components": dict(self.components),
+            "versions": dict(self.versions),
             "manifest": dict(self.manifest),
             "restart": dict(self.restart),
             "error": dict(self.error),
@@ -796,11 +804,17 @@ class PackageUpdateManager:
                 for name, component in manifest.components.items()
             },
         }
+        versions = {
+            "pybeep": manifest.components.get("pybeep").version if manifest.components.get("pybeep") else "",
+            "rest_api": manifest.components.get("rest_api").version if manifest.components.get("rest_api") else "",
+            "firmware": manifest.components.get("firmware").version if manifest.components.get("firmware") else "",
+        }
         with self._lock:
             job = self._jobs.get(update_id)
             if not job:
                 return
             job.manifest = manifest_payload
+            job.versions = versions
             job.heartbeat_at = self._utcnow_iso()
             self._persist_job_snapshot_locked(job)
 
@@ -987,6 +1001,11 @@ class PackageUpdateManager:
                 "pybeep": str((payload.get("components") or {}).get("pybeep") or "skipped"),
                 "rest_api": str((payload.get("components") or {}).get("rest_api") or "skipped"),
                 "firmware": str((payload.get("components") or {}).get("firmware") or "skipped"),
+            },
+            versions={
+                "pybeep": str((payload.get("versions") or {}).get("pybeep") or ""),
+                "rest_api": str((payload.get("versions") or {}).get("rest_api") or ""),
+                "firmware": str((payload.get("versions") or {}).get("firmware") or ""),
             },
             restart=dict(payload.get("restart") or {}),
             error={str(k): str(v) for k, v in dict(payload.get("error") or {}).items()},
