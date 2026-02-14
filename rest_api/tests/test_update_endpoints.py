@@ -156,6 +156,44 @@ def test_updates_package_respects_lock(api_module, tmp_path: Path) -> None:
     assert second_resp.json()["code"] == "updates.locked"
 
 
+def test_update_snapshot_survives_manager_restart(api_module, tmp_path: Path) -> None:
+    _make_update_manager(api_module, tmp_path)
+    client = TestClient(api_module.app)
+    package_path = _build_firmware_package(tmp_path / "update-package.zip")
+
+    with package_path.open("rb") as handle:
+        response = client.post(
+            "/updates/package",
+            files={"file": ("update-package.zip", handle, "application/zip")},
+        )
+    assert response.status_code == 200
+    update_id = response.json()["update_id"]
+
+    snapshot = {}
+    for _ in range(80):
+        poll = client.get(f"/updates/{update_id}")
+        assert poll.status_code == 200
+        snapshot = poll.json()
+        if snapshot.get("status") in {"done", "failed"}:
+            break
+        time.sleep(0.05)
+    assert snapshot.get("status") == "done"
+
+    from update_package import PackageUpdateManager
+
+    reloaded = PackageUpdateManager(
+        repo_root=tmp_path,
+        staging_root=tmp_path / "staging",
+        audit_root=tmp_path / "audit",
+        flash_firmware=lambda _path: {"ok": True},
+        restart_service=lambda: {"ok": True},
+    )
+    restored_snapshot = reloaded.get_job(update_id)
+    assert restored_snapshot is not None
+    assert restored_snapshot.get("status") == "done"
+    assert restored_snapshot.get("restart", {}).get("ok") is True
+
+
 def test_updates_status_not_found(api_module, tmp_path: Path) -> None:
     _make_update_manager(api_module, tmp_path)
     client = TestClient(api_module.app)
