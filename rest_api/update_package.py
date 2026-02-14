@@ -279,6 +279,32 @@ class PackageUpdateManager:
             snapshot["observed_at"] = observed_at
         return snapshots
 
+    def preferred_component_versions(self) -> Dict[str, str]:
+        """Return latest manifest versions for components successfully applied."""
+        preferred = {"pybeep": "", "rest_api": "", "firmware": ""}
+        with self._lock:
+            ordered = list(reversed(self._job_order))
+            jobs = [self._jobs.get(update_id) for update_id in ordered]
+
+        for job in jobs:
+            if not job:
+                continue
+            for component in ("pybeep", "rest_api", "firmware"):
+                if preferred[component]:
+                    continue
+                if str(job.components.get(component) or "") != "done":
+                    continue
+                version = str(job.versions.get(component) or "").strip()
+                if not version:
+                    version = str(
+                        ((job.manifest.get("components") or {}).get(component) or {}).get("version") or ""
+                    ).strip()
+                if version:
+                    preferred[component] = version
+            if all(preferred.values()):
+                break
+        return preferred
+
     # ------------------------------------------------------------------
     # Worker
     # ------------------------------------------------------------------

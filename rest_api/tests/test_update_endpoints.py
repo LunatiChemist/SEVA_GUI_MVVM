@@ -204,6 +204,35 @@ def test_updates_status_not_found(api_module, tmp_path: Path) -> None:
     assert response.json()["code"] == "updates.not_found"
 
 
+def test_restart_service_accepts_exit_code_minus_15(api_module, monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Result:
+        returncode = -15
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setenv("BOX_RESTART_COMMAND", "echo test")
+    monkeypatch.setenv("BOX_RESTART_ALLOWED_EXIT_CODES", "")
+    monkeypatch.setattr(api_module.subprocess, "run", lambda *args, **kwargs: _Result())
+    payload = api_module._restart_service_for_update()
+    assert payload["ok"] is True
+    assert payload["exit_code"] == -15
+
+
+def test_version_endpoint_prefers_update_manifest_versions(api_module, monkeypatch: pytest.MonkeyPatch) -> None:
+    class _FakeManager:
+        def preferred_component_versions(self):
+            return {"pybeep": "9.9.9", "rest_api": "2.0", "firmware": "1.2.3"}
+
+    monkeypatch.setattr(api_module, "UPDATES_MANAGER", _FakeManager())
+    client = TestClient(api_module.app)
+    response = client.get("/version")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["pybeep"] == "9.9.9"
+    assert payload["rest_api"] == "2.0"
+    assert payload["firmware"] == "1.2.3"
+
+
 def test_flash_script_path_defaults_to_rest_api_dir(api_module, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("FLASH_SCRIPT_PATH", raising=False)
     expected = Path(api_module.__file__).resolve().with_name("auto_flash_linux.py")
