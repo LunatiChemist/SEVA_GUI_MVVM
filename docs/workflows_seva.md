@@ -18,7 +18,7 @@ Main composition happens in `seva/app/main.py` where callbacks are wired to pres
 - `MainWindowView.on_cancel_group` -> `App._on_cancel_group()` -> `RunFlowPresenter.cancel_active_group()`.
 - `ExperimentPanelView.on_end_selection` -> `App._on_end_selection()` -> `RunFlowPresenter.cancel_selected_runs()`.
 - `MainWindowView.on_save_layout` / `on_load_layout` -> `SavePlateLayout` / `LoadPlateLayout`.
-- Settings dialog test/scan/firmware actions -> `SettingsController` and `DiscoveryController` use-case calls.
+- Settings dialog test/scan/package-update actions -> `SettingsController` and `DiscoveryController` use-case calls.
 - `DownloadController.download_group_results()` handles run-artifact downloads.
 
 ## Workflow 1: Start -> Poll -> Complete
@@ -167,7 +167,8 @@ Outcome: reachable devices are discovered and assigned to open slots without man
 - `PollDeviceStatus`: periodic activity polling -> `DevicePort.list_device_status` + `list_devices` -> `DeviceActivitySnapshot` for `ProgressVM`.
 - `TestRelay`: relay diagnostics action -> `RelayPort.test`.
 - `SetElectrodeMode`: electrode mode toggle -> `RelayPort.set_electrode_mode`.
-- `FlashFirmware`: settings firmware action -> `FirmwarePort.flash_firmware` (REST: `POST /firmware/flash`).
+- `StartRemoteUpdate`: settings package-update action -> `UpdatePort.start_package_update` (REST: `POST /updates/package`).
+- `PollRemoteUpdate`: modal polling loop -> `UpdatePort.get_package_update` (REST: `GET /updates/{update_id}`).
 
 Outcome: diagnostics remain adapter-agnostic at use-case level while surfacing typed status to the UI.
 
@@ -196,7 +197,8 @@ Outcome: plate configurations round-trip through storage without view-level file
 - `discover_and_assign_devices.DiscoverAndAssignDevices`: scan + assignment orchestration; discovery port via nested use case.
 - `test_connection.TestConnection`: settings connection test; `DevicePort.health` + `DevicePort.list_devices`.
 - `poll_device_status.PollDeviceStatus`: activity polling; `DevicePort.list_device_status` + `DevicePort.list_devices`.
-- `flash_firmware.FlashFirmware`: settings firmware action; `FirmwarePort.flash_firmware`.
+- `start_remote_update.StartRemoteUpdate`: settings package-update upload; `UpdatePort.start_package_update`.
+- `poll_remote_update.PollRemoteUpdate`: settings package-update polling; `UpdatePort.get_package_update`.
 - `test_relay.TestRelay`: relay diagnostics; `RelayPort.test`.
 - `set_electrode_mode.SetElectrodeMode`: relay control; `RelayPort.set_electrode_mode`.
 - `save_plate_layout.SavePlateLayout`: toolbar save layout; `StoragePort.save_layout`.

@@ -68,6 +68,28 @@ class DeviceRestAdapter(DevicePort):
         self._mode_list_cache: Dict[BoxId, List[str]] = {}
         self._mode_schema_cache: Dict[BoxId, Dict[str, Dict[str, Any]]] = {}
 
+    def version(self, box_id: BoxId) -> Dict[str, Any]:
+        """Read ``/version`` payload for one box.
+
+        Args:
+            box_id: Box identifier to query.
+
+        Returns:
+            Parsed JSON object from version endpoint.
+
+        Raises:
+            ValueError: If box/session is not configured.
+            ApiError: For non-2xx HTTP responses.
+            RuntimeError: If response JSON shape is unexpected.
+        """
+        url = self._make_url(box_id, "/version")
+        resp = self._session(box_id).get(url)
+        self._ensure_ok(resp, f"version[{box_id}]")
+        data = self._json_any(resp)
+        if not isinstance(data, dict):
+            raise RuntimeError(f"version[{box_id}]: expected object response")
+        return data
+
     def health(self, box_id: BoxId) -> Dict[str, Any]:
         """Read ``/health`` payload for one box.
 
