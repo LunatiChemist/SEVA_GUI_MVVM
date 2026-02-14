@@ -893,7 +893,7 @@ def _flash_firmware_for_update(bin_path: pathlib.Path) -> Dict[str, Any]:
 
 def _restart_service_for_update() -> Dict[str, Any]:
     """Execute configured service restart command after successful apply."""
-    command_text = os.getenv("BOX_RESTART_COMMAND", "systemctl restart seva-rest-api.service")
+    command_text = os.getenv("BOX_RESTART_COMMAND", "systemctl restart pybeep-box.service")
     args = shlex.split(command_text)
     if not args:
         raise UpdateApplyError(
