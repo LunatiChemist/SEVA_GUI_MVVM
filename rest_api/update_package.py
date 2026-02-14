@@ -113,6 +113,13 @@ class UpdateJob:
             "firmware": "skipped",
         }
     )
+    versions: Dict[str, str] = field(
+        default_factory=lambda: {
+            "pybeep": "",
+            "rest_api": "",
+            "firmware": "",
+        }
+    )
     restart: Dict[str, Any] = field(default_factory=dict)
     error: Dict[str, str] = field(default_factory=dict)
     audit_log_path: str = ""
@@ -131,6 +138,7 @@ class UpdateJob:
             "ended_at": self.ended_at,
             "heartbeat_at": self.heartbeat_at,
             "components": dict(self.components),
+            "versions": dict(self.versions),
             "manifest": dict(self.manifest),
             "restart": dict(self.restart),
             "error": dict(self.error),
@@ -167,6 +175,7 @@ class PackageUpdateManager:
         self._job_order: list[str] = []
         self._active_update_id: Optional[str] = None
         self._lock = threading.Lock()
+        self._restore_jobs_from_disk()
 
     # ------------------------------------------------------------------
     # Public API
@@ -199,6 +208,7 @@ class PackageUpdateManager:
             self._jobs[update_id] = job
             self._job_order.append(update_id)
             self._active_update_id = update_id
+            self._persist_job_snapshot_locked(job)
 
         try:
             stage_dir.mkdir(parents=True, exist_ok=True)
@@ -227,6 +237,7 @@ class PackageUpdateManager:
             job.step = "queued"
             job.message = "Package stored and queued for apply."
             job.heartbeat_at = self._utcnow_iso()
+            self._persist_job_snapshot_locked(job)
 
         self._append_audit(
             update_id,
@@ -773,6 +784,7 @@ class PackageUpdateManager:
             if ended:
                 job.ended_at = self._utcnow_iso()
             job.heartbeat_at = self._utcnow_iso()
+            self._persist_job_snapshot_locked(job)
 
     def _set_manifest(self, update_id: str, manifest: ManifestModel) -> None:
         """Persist parsed manifest metadata into job snapshot."""
@@ -792,12 +804,19 @@ class PackageUpdateManager:
                 for name, component in manifest.components.items()
             },
         }
+        versions = {
+            "pybeep": manifest.components.get("pybeep").version if manifest.components.get("pybeep") else "",
+            "rest_api": manifest.components.get("rest_api").version if manifest.components.get("rest_api") else "",
+            "firmware": manifest.components.get("firmware").version if manifest.components.get("firmware") else "",
+        }
         with self._lock:
             job = self._jobs.get(update_id)
             if not job:
                 return
             job.manifest = manifest_payload
+            job.versions = versions
             job.heartbeat_at = self._utcnow_iso()
+            self._persist_job_snapshot_locked(job)
 
     def _set_component_state(self, update_id: str, component: str, state: str) -> None:
         """Update one component apply status."""
@@ -807,6 +826,7 @@ class PackageUpdateManager:
                 return
             job.components[str(component)] = str(state)
             job.heartbeat_at = self._utcnow_iso()
+            self._persist_job_snapshot_locked(job)
 
     def _set_restart_result(self, update_id: str, result: Dict[str, Any]) -> None:
         """Attach restart command result to job status."""
@@ -816,6 +836,7 @@ class PackageUpdateManager:
                 return
             job.restart = dict(result or {})
             job.heartbeat_at = self._utcnow_iso()
+            self._persist_job_snapshot_locked(job)
 
     def _fail_job(
         self,
@@ -838,6 +859,7 @@ class PackageUpdateManager:
                 job.started_at = self._utcnow_iso()
             job.ended_at = self._utcnow_iso()
             job.heartbeat_at = self._utcnow_iso()
+            self._persist_job_snapshot_locked(job)
         self._append_audit(
             update_id,
             event="failed",
@@ -901,6 +923,94 @@ class PackageUpdateManager:
                 handle.write("\n")
         except Exception:
             self._log.exception("Failed writing update audit entry update_id=%s", update_id)
+
+    def _restore_jobs_from_disk(self) -> None:
+        """Load persisted job snapshots so polling can survive service restarts."""
+        restored: list[UpdateJob] = []
+        for snapshot_path in sorted(self._audit_root.glob("*.snapshot.json")):
+            try:
+                payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+                job = self._job_from_snapshot(payload)
+            except Exception:
+                self._log.exception("Failed loading persisted update snapshot path=%s", snapshot_path)
+                continue
+            restored.append(job)
+
+        if not restored:
+            return
+
+        now = self._utcnow_iso()
+        with self._lock:
+            for job in restored:
+                if job.status in RUNNING_STATUSES:
+                    job.status = "failed"
+                    job.step = "interrupted"
+                    job.message = "Update worker interrupted by service restart."
+                    job.error = {
+                        "code": "updates.interrupted",
+                        "message": "Update worker interrupted by service restart.",
+                        "hint": "The service restarted before polling finished. Verify system status and retry if needed.",
+                    }
+                    if not job.started_at:
+                        job.started_at = now
+                    if not job.ended_at:
+                        job.ended_at = now
+                    job.heartbeat_at = now
+                self._jobs[job.update_id] = job
+                if job.update_id not in self._job_order:
+                    self._job_order.append(job.update_id)
+                self._persist_job_snapshot_locked(job)
+            self._active_update_id = None
+
+    def _snapshot_path(self, update_id: str) -> Path:
+        """Return disk path for one persisted job snapshot."""
+        return self._audit_root / f"{update_id}.snapshot.json"
+
+    def _persist_job_snapshot_locked(self, job: UpdateJob) -> None:
+        """Persist one job snapshot while caller already owns ``self._lock``."""
+        snapshot_path = self._snapshot_path(job.update_id)
+        snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = job.to_dict()
+        try:
+            snapshot_path.write_text(
+                json.dumps(payload, separators=(",", ":"), ensure_ascii=True),
+                encoding="utf-8",
+            )
+        except Exception:
+            self._log.exception("Failed writing persisted update snapshot update_id=%s", job.update_id)
+
+    def _job_from_snapshot(self, payload: Dict[str, Any]) -> UpdateJob:
+        """Create :class:`UpdateJob` from a persisted snapshot payload."""
+        update_id = str(payload.get("update_id") or "").strip()
+        created_at = str(payload.get("created_at") or "").strip()
+        if not update_id or not created_at:
+            raise ValueError("Persisted update snapshot missing update_id or created_at")
+        return UpdateJob(
+            update_id=update_id,
+            package_filename=str(payload.get("package_filename") or ""),
+            created_at=created_at,
+            heartbeat_at=str(payload.get("heartbeat_at") or created_at),
+            status=str(payload.get("status") or "failed"),
+            step=str(payload.get("step") or "unknown"),
+            message=str(payload.get("message") or ""),
+            package_path=str(payload.get("package_path") or ""),
+            started_at=str(payload.get("started_at") or "") or None,
+            ended_at=str(payload.get("ended_at") or "") or None,
+            manifest=dict(payload.get("manifest") or {}),
+            components={
+                "pybeep": str((payload.get("components") or {}).get("pybeep") or "skipped"),
+                "rest_api": str((payload.get("components") or {}).get("rest_api") or "skipped"),
+                "firmware": str((payload.get("components") or {}).get("firmware") or "skipped"),
+            },
+            versions={
+                "pybeep": str((payload.get("versions") or {}).get("pybeep") or ""),
+                "rest_api": str((payload.get("versions") or {}).get("rest_api") or ""),
+                "firmware": str((payload.get("versions") or {}).get("firmware") or ""),
+            },
+            restart=dict(payload.get("restart") or {}),
+            error={str(k): str(v) for k, v in dict(payload.get("error") or {}).items()},
+            audit_log_path=str(payload.get("audit_log_path") or (self._audit_root / f"{update_id}.jsonl")),
+        )
 
     # ------------------------------------------------------------------
     # File helpers
