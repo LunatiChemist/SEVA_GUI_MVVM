@@ -129,6 +129,7 @@ def test_updates_package_happy_path(api_module, tmp_path: Path) -> None:
     assert snapshot.get("status") == "done"
     assert snapshot.get("components", {}).get("firmware") == "done"
     assert snapshot.get("restart", {}).get("ok") is True
+    assert snapshot.get("versions", {}).get("firmware") == "3.4.1"
 
 
 def test_updates_package_respects_lock(api_module, tmp_path: Path) -> None:
@@ -156,12 +157,80 @@ def test_updates_package_respects_lock(api_module, tmp_path: Path) -> None:
     assert second_resp.json()["code"] == "updates.locked"
 
 
+def test_update_snapshot_survives_manager_restart(api_module, tmp_path: Path) -> None:
+    _make_update_manager(api_module, tmp_path)
+    client = TestClient(api_module.app)
+    package_path = _build_firmware_package(tmp_path / "update-package.zip")
+
+    with package_path.open("rb") as handle:
+        response = client.post(
+            "/updates/package",
+            files={"file": ("update-package.zip", handle, "application/zip")},
+        )
+    assert response.status_code == 200
+    update_id = response.json()["update_id"]
+
+    snapshot = {}
+    for _ in range(80):
+        poll = client.get(f"/updates/{update_id}")
+        assert poll.status_code == 200
+        snapshot = poll.json()
+        if snapshot.get("status") in {"done", "failed"}:
+            break
+        time.sleep(0.05)
+    assert snapshot.get("status") == "done"
+
+    from update_package import PackageUpdateManager
+
+    reloaded = PackageUpdateManager(
+        repo_root=tmp_path,
+        staging_root=tmp_path / "staging",
+        audit_root=tmp_path / "audit",
+        flash_firmware=lambda _path: {"ok": True},
+        restart_service=lambda: {"ok": True},
+    )
+    restored_snapshot = reloaded.get_job(update_id)
+    assert restored_snapshot is not None
+    assert restored_snapshot.get("status") == "done"
+    assert restored_snapshot.get("restart", {}).get("ok") is True
+    assert restored_snapshot.get("versions", {}).get("firmware") == "3.4.1"
+
+
 def test_updates_status_not_found(api_module, tmp_path: Path) -> None:
     _make_update_manager(api_module, tmp_path)
     client = TestClient(api_module.app)
     response = client.get("/updates/does-not-exist")
     assert response.status_code == 404
     assert response.json()["code"] == "updates.not_found"
+
+
+def test_restart_service_accepts_exit_code_minus_15(api_module, monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Result:
+        returncode = -15
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setenv("BOX_RESTART_COMMAND", "echo test")
+    monkeypatch.setenv("BOX_RESTART_ALLOWED_EXIT_CODES", "")
+    monkeypatch.setattr(api_module.subprocess, "run", lambda *args, **kwargs: _Result())
+    payload = api_module._restart_service_for_update()
+    assert payload["ok"] is True
+    assert payload["exit_code"] == -15
+
+
+def test_version_endpoint_prefers_update_manifest_versions(api_module, monkeypatch: pytest.MonkeyPatch) -> None:
+    class _FakeManager:
+        def preferred_component_versions(self):
+            return {"pybeep": "9.9.9", "rest_api": "2.0", "firmware": "1.2.3"}
+
+    monkeypatch.setattr(api_module, "UPDATES_MANAGER", _FakeManager())
+    client = TestClient(api_module.app)
+    response = client.get("/version")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["pybeep"] == "9.9.9"
+    assert payload["rest_api"] == "2.0"
+    assert payload["firmware"] == "1.2.3"
 
 
 def test_flash_script_path_defaults_to_rest_api_dir(api_module, monkeypatch: pytest.MonkeyPatch) -> None:
