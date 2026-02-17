@@ -1,0 +1,2038 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Developer documentation for the SEVA GUI (MVVM) and REST API">
+      
+      
+        <meta name="author" content="LunatiChemist">
+      
+      
+      
+        <link rel="prev" href="../codex_guide/">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>GUI Overview & How to Use - SEVA GUI – Architecture & Developer Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#gui-overview-how-to-use-end-user-tutorial" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="SEVA GUI – Architecture &amp; Developer Documentation" class="md-header__button md-logo" aria-label="SEVA GUI – Architecture & Developer Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            SEVA GUI – Architecture & Developer Documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              GUI Overview & How to Use
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/LunatiChemist/SEVA_GUI_MVVM" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    LunatiChemist/SEVA_GUI_MVVM
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../dev-setup/" class="md-tabs__link">
+          
+  
+  
+  Developer Docs
+
+        </a>
+      </li>
+    
+  
+
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
+          
+  
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="SEVA GUI – Architecture &amp; Developer Documentation" class="md-nav__button md-logo" aria-label="SEVA GUI – Architecture & Developer Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    SEVA GUI – Architecture & Developer Documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/LunatiChemist/SEVA_GUI_MVVM" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    LunatiChemist/SEVA_GUI_MVVM
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Docs
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Docs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_1" id="__nav_2_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dev-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rest-api-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API Setup Tutorial
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_2" id="__nav_2_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Architecture
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mvvm_tutorial_notebooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MVVM + Hexagonal Tutorial Notebooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_3" id="__nav_2_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflows
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Workflows
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflows_seva/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SEVA GUI Workflows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflows_rest_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API Workflows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_4" id="__nav_2_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../classes_seva/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SEVA GUI Classes & Modules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../classes_rest_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API Classes & Modules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../glossary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_5" id="__nav_2_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operations
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Operations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_6" id="__nav_2_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contributing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../codex_guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ChatGPT Codex Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI Overview & How to Use
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI Overview & How to Use
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-main-window-orientation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1) Main window orientation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1) Main window orientation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#toolbar-top" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Toolbar (top)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tabs-right-side" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tabs (right side)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-first-time-setup-required-before-starting-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2) First-time setup (required before starting runs)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2) First-time setup (required before starting runs)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#boxes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Boxes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#relay-box" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relay box
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#timing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Timing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#storage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Storage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#package-update" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Package update
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nas-advanced-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NAS (advanced / optional)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flags
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-optional-discover-devices-from-the-network" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3) Optional: discover devices from the network
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-configure-wells-and-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4) Configure wells and methods
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4) Configure wells and methods">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-select-wells-in-the-grid" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 Select wells in the grid
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-set-experiment-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Set experiment parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-start-and-monitor-a-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5) Start and monitor a run
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5) Start and monitor a run">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Start
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-run-overview-tab" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 Run Overview tab
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-channel-activity-tab" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 Channel Activity tab
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-manage-run-history-and-download-folders" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6) Manage run history and download folders
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-plot-and-export-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7) Plot and export data
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-optional-advanced-workflow-nas-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8) Optional advanced workflow: NAS setup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-typical-end-to-end-workflow-quick-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9) Typical end-to-end workflow (quick checklist)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-main-window-orientation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1) Main window orientation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1) Main window orientation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#toolbar-top" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Toolbar (top)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tabs-right-side" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tabs (right side)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-first-time-setup-required-before-starting-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2) First-time setup (required before starting runs)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2) First-time setup (required before starting runs)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#boxes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Boxes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#relay-box" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relay box
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#timing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Timing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#storage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Storage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#package-update" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Package update
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nas-advanced-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NAS (advanced / optional)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flags
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-optional-discover-devices-from-the-network" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3) Optional: discover devices from the network
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-configure-wells-and-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4) Configure wells and methods
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4) Configure wells and methods">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-select-wells-in-the-grid" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 Select wells in the grid
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-set-experiment-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Set experiment parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-start-and-monitor-a-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5) Start and monitor a run
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5) Start and monitor a run">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Start
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-run-overview-tab" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 Run Overview tab
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-channel-activity-tab" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 Channel Activity tab
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-manage-run-history-and-download-folders" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6) Manage run history and download folders
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-plot-and-export-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7) Plot and export data
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-optional-advanced-workflow-nas-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8) Optional advanced workflow: NAS setup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-typical-end-to-end-workflow-quick-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9) Typical end-to-end workflow (quick checklist)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="gui-overview-how-to-use-end-user-tutorial">GUI Overview &amp; How to Use (End-User Tutorial)<a class="headerlink" href="#gui-overview-how-to-use-end-user-tutorial" title="Permanent link">&para;</a></h1>
+<p>This guide explains the SEVA GUI from an end-user perspective.</p>
+<ul>
+<li>Focus: <strong>what is where</strong> and <strong>what each function is for</strong>.</li>
+<li>Scope: complete workflow from setup to download.</li>
+<li>For architecture and code details, see <a href="../architecture_overview/">Architecture Overview</a>, <a href="../workflows_seva/">SEVA GUI Workflows</a>, and <a href="../classes_seva/">SEVA GUI Classes &amp; Modules</a>.</li>
+</ul>
+<hr />
+<h2 id="1-main-window-orientation">1) Main window orientation<a class="headerlink" href="#1-main-window-orientation" title="Permanent link">&para;</a></h2>
+<p>The main window is your starting point.</p>
+<p><img alt="Main window" src="../assets/gui/main_window.png" /></p>
+<h3 id="toolbar-top">Toolbar (top)<a class="headerlink" href="#toolbar-top" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Start</strong>: starts a new run group with the current plate/well configuration.</li>
+<li><strong>Cancel Group</strong>: cancels the currently active run group.</li>
+<li><strong>Save Layout / Load Layout</strong>: save or restore plate configuration presets.</li>
+<li><strong>Settings</strong>: open connectivity, storage, timing, relay, package-update, and NAS options.</li>
+<li><strong>Data Plotter</strong>: open the plotting tool for downloaded data.</li>
+</ul>
+<h3 id="tabs-right-side">Tabs (right side)<a class="headerlink" href="#tabs-right-side" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Experiment</strong>: define CV / DC-AC / Cdl / EIS parameters.</li>
+<li><strong>Run Overview</strong>: monitor group progress and trigger group download.</li>
+<li><strong>Runs</strong>: browse completed/running groups and open their folders.</li>
+<li><strong>Channel Activity</strong>: quick per-channel status view.</li>
+</ul>
+<hr />
+<h2 id="2-first-time-setup-required-before-starting-runs">2) First-time setup (required before starting runs)<a class="headerlink" href="#2-first-time-setup-required-before-starting-runs" title="Permanent link">&para;</a></h2>
+<p>Open <strong>Settings</strong> from the toolbar.</p>
+<p><img alt="Settings dialog" src="../assets/gui/settings_dialog.png" /></p>
+<h3 id="boxes">Boxes<a class="headerlink" href="#boxes" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Enter <strong>Box A/B/C/D URL</strong>.</li>
+<li>Enter <strong>API Key</strong> (if required by your deployment).</li>
+<li>Use <strong>Test</strong> per box to verify connectivity.</li>
+<li>Use <strong>Scan Network</strong> to discover available devices automatically.</li>
+</ul>
+<p><strong>Feature detail:</strong> discovery is not a blind scan only. The app uses your configured box URLs as discovery candidates and also derives subnet hints (for example <code>/24</code>) from those URLs, then deduplicates the candidate list before scanning.</p>
+<h3 id="relay-box">Relay box<a class="headerlink" href="#relay-box" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Configure relay controller <strong>IP</strong> and <strong>Port</strong>.</li>
+<li>Use <strong>Test Relay</strong> to verify relay communication.</li>
+</ul>
+<h3 id="timing">Timing<a class="headerlink" href="#timing" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Set request, polling, and download timeout values.</li>
+<li>Keep defaults unless your network/API behavior requires tuning.</li>
+</ul>
+<h3 id="storage">Storage<a class="headerlink" href="#storage" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Set local <strong>Results directory</strong>.</li>
+<li>Set <strong>Experiment name</strong> and optional subdirectory for organized output.</li>
+</ul>
+<h3 id="package-update">Package update<a class="headerlink" href="#package-update" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Select an update <code>.zip</code> package and use <strong>Start Remote Update</strong>.</li>
+<li>The modal update dialog stays open until terminal status and shows backend step + heartbeat updates.</li>
+<li>To build valid packages, use the standalone generator script:</li>
+<li><code>py -3.13 StreamingStandalone/update_zip_generator.py</code></li>
+</ul>
+<h3 id="nas-advanced-optional">NAS (advanced / optional)<a class="headerlink" href="#nas-advanced-optional" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Use <strong>Open NAS Setup...</strong> for SMB/NAS upload workflows.</li>
+</ul>
+<h3 id="flags">Flags<a class="headerlink" href="#flags" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Auto-download results on completion</strong>: downloads automatically when all runs finish.</li>
+<li><strong>Use streaming (SSE/WebSocket)</strong>: reserved toggle for streaming-capable deployments; default production run monitoring remains polling-based.</li>
+<li><strong>Enable debug logging</strong>: increases log detail for diagnostics.</li>
+</ul>
+<p>Finish by pressing <strong>Save</strong>.</p>
+<p><strong>Feature detail:</strong> saving settings performs validation first. The selected Results directory must exist and be writable, and the app shows an HTTPS warning dialog if box URLs use <code>https://</code> in environments that commonly run HTTP-only backend endpoints.</p>
+<hr />
+<h2 id="3-optional-discover-devices-from-the-network">3) Optional: discover devices from the network<a class="headerlink" href="#3-optional-discover-devices-from-the-network" title="Permanent link">&para;</a></h2>
+<p>When you run network discovery, this result dialog shows detected SEVA devices.</p>
+<p><img alt="Discovery results dialog" src="../assets/gui/discovery_results_dialog.png" /></p>
+<p>Use this to confirm that expected boxes are reachable and to validate API/build information.</p>
+<hr />
+<h2 id="4-configure-wells-and-methods">4) Configure wells and methods<a class="headerlink" href="#4-configure-wells-and-methods" title="Permanent link">&para;</a></h2>
+<h3 id="41-select-wells-in-the-grid">4.1 Select wells in the grid<a class="headerlink" href="#41-select-wells-in-the-grid" title="Permanent link">&para;</a></h3>
+<p>Use the well grid to choose which channels/wells should run.</p>
+<p><img alt="Well grid" src="../assets/gui/well_grid_view.png" /></p>
+<ul>
+<li><strong>Reset Well Config</strong>: clears configuration for the currently selected well(s).</li>
+<li><strong>Reset all Wells</strong>: clears the full plate configuration.</li>
+</ul>
+<p><strong>Feature detail:</strong> the grid supports several interaction patterns.
+- Single click selects one well.
+- Shift+click toggles multi-selection.
+- Right-click opens a context menu with copy/paste/reset/enable-toggle/open-PNG actions for fast editing flows.</p>
+<h3 id="42-set-experiment-parameters">4.2 Set experiment parameters<a class="headerlink" href="#42-set-experiment-parameters" title="Permanent link">&para;</a></h3>
+<p>In the <strong>Experiment</strong> tab, define methods and parameters.</p>
+<p><img alt="Experiment panel" src="../assets/gui/experiment_panel_view.png" /></p>
+<p>Available sections:</p>
+<ul>
+<li><strong>Cyclic Voltammetry (CV)</strong></li>
+<li><strong>Electrolysis (DC/AC)</strong></li>
+<li><strong>Capacitance (Cdl)</strong></li>
+<li><strong>Impedance (EIS)</strong></li>
+</ul>
+<p>Key actions:</p>
+<ul>
+<li>Enable/disable each method using its checkbox.</li>
+<li>Edit numeric parameters and control mode/targets where applicable.</li>
+<li><strong>Update Parameters</strong> applies values to selected wells.</li>
+<li><strong>End Selection</strong> ends the current selection workflow.</li>
+<li><strong>End Task</strong> ends active task context from the panel.</li>
+</ul>
+<hr />
+<h2 id="5-start-and-monitor-a-run">5) Start and monitor a run<a class="headerlink" href="#5-start-and-monitor-a-run" title="Permanent link">&para;</a></h2>
+<h3 id="51-start">5.1 Start<a class="headerlink" href="#51-start" title="Permanent link">&para;</a></h3>
+<p>From the toolbar, click <strong>Start</strong>.</p>
+<h3 id="52-run-overview-tab">5.2 Run Overview tab<a class="headerlink" href="#52-run-overview-tab" title="Permanent link">&para;</a></h3>
+<p>Use <strong>Run Overview</strong> to monitor active progress and status.</p>
+<p><img alt="Run overview" src="../assets/gui/run_overview_view.png" /></p>
+<ul>
+<li>Top cards show status per box (A/B/C/D).</li>
+<li>Table shows per-well information (phase, mode, progress, remaining time, last error, sub-run ID).</li>
+<li><strong>Download Group</strong> triggers a full group results download.</li>
+</ul>
+<p><strong>Feature detail:</strong> if a row contains a long error message, double-click that row to open a full error dialog and copy the text (useful for support/tickets).</p>
+<h3 id="53-channel-activity-tab">5.3 Channel Activity tab<a class="headerlink" href="#53-channel-activity-tab" title="Permanent link">&para;</a></h3>
+<p>Use <strong>Channel Activity</strong> for quick channel-state visibility.</p>
+<p><img alt="Channel activity" src="../assets/gui/channel_activity_view.png" /></p>
+<hr />
+<h2 id="6-manage-run-history-and-download-folders">6) Manage run history and download folders<a class="headerlink" href="#6-manage-run-history-and-download-folders" title="Permanent link">&para;</a></h2>
+<p>In the <strong>Runs</strong> tab, manage existing run groups.</p>
+<p><img alt="Runs panel" src="../assets/gui/runs_panel_view.png" /></p>
+<ul>
+<li><strong>Open Folder</strong>: opens the selected run group directory.</li>
+<li><strong>Cancel</strong>: requests cancel for selected running group.</li>
+<li><strong>Delete</strong>: removes selected row(s) from the list/history view.</li>
+</ul>
+<p><strong>Feature detail:</strong>
+- Action buttons are enabled only when a row is selected.
+- Cancel/Delete actions include confirmation dialogs in active-run cases.
+- This tab is intended for post-start run lifecycle management (open, cancel, remove history entries).</p>
+<p>Table columns include group ID, name, status, progress, boxes, start time, and download path.</p>
+<hr />
+<h2 id="7-plot-and-export-data">7) Plot and export data<a class="headerlink" href="#7-plot-and-export-data" title="Permanent link">&para;</a></h2>
+<p>Open <strong>Data Plotter</strong> from the toolbar after data is available locally.</p>
+<p><img alt="Data plotter" src="../assets/gui/data_plotter.png" /></p>
+<p>Typical use:</p>
+<ol>
+<li>Select your CSV input.</li>
+<li>Choose axis options and optional integration controls.</li>
+<li>Apply optional IR correction.</li>
+<li>Save/export the resulting data/plots.</li>
+</ol>
+<p>This view is focused on plotting and export operations from already downloaded data.</p>
+<hr />
+<h2 id="8-optional-advanced-workflow-nas-setup">8) Optional advanced workflow: NAS setup<a class="headerlink" href="#8-optional-advanced-workflow-nas-setup" title="Permanent link">&para;</a></h2>
+<p>Use NAS setup if your process requires SMB upload/retention handling.</p>
+<p><img alt="NAS setup" src="../assets/gui/nas_setup_dialog.png" /></p>
+<p>Typical fields:</p>
+<ul>
+<li>API connection (Base URL + API key)</li>
+<li>SMB host/share/credentials</li>
+<li>Retention days</li>
+<li>Manual upload by run ID</li>
+<li>Health checks and server response panel</li>
+</ul>
+<p>Use this only when your lab flow includes NAS archiving.</p>
+<hr />
+<h2 id="9-typical-end-to-end-workflow-quick-checklist">9) Typical end-to-end workflow (quick checklist)<a class="headerlink" href="#9-typical-end-to-end-workflow-quick-checklist" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Open <strong>Settings</strong> and configure box URLs/API keys.</li>
+<li>Test connectivity (and relay if used).</li>
+<li>Set results directory and save settings.</li>
+<li>Select wells in <strong>Well Grid</strong>.</li>
+<li>Configure methods in <strong>Experiment</strong> and apply parameters.</li>
+<li>Click <strong>Start</strong>.</li>
+<li>Monitor in <strong>Run Overview</strong> and <strong>Channel Activity</strong>.</li>
+<li>Download via <strong>Download Group</strong> (or auto-download).</li>
+<li>Open files in <strong>Runs</strong> tab.</li>
+<li>Optional: inspect/export in <strong>Data Plotter</strong>.</li>
+</ol>
+<p>If anything fails, see <a href="../troubleshooting/">Troubleshooting</a>.</p>
+<hr />
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Docs track the main branch.
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "toc.follow", "content.code.copy", "search.suggest", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

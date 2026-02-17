@@ -1,0 +1,1718 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Developer documentation for the SEVA GUI (MVVM) and REST API">
+      
+      
+        <meta name="author" content="LunatiChemist">
+      
+      
+      
+        <link rel="prev" href="../mvvm_tutorial_notebooks/">
+      
+      
+        <link rel="next" href="../workflows_rest_api/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>SEVA GUI Workflows - SEVA GUI – Architecture & Developer Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#seva-workflows" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="SEVA GUI – Architecture &amp; Developer Documentation" class="md-header__button md-logo" aria-label="SEVA GUI – Architecture & Developer Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            SEVA GUI – Architecture & Developer Documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              SEVA GUI Workflows
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/LunatiChemist/SEVA_GUI_MVVM" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    LunatiChemist/SEVA_GUI_MVVM
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../dev-setup/" class="md-tabs__link">
+          
+  
+  
+  Developer Docs
+
+        </a>
+      </li>
+    
+  
+
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../gui_overview_how_to_use/" class="md-tabs__link">
+          
+  
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="SEVA GUI – Architecture &amp; Developer Documentation" class="md-nav__button md-logo" aria-label="SEVA GUI – Architecture & Developer Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    SEVA GUI – Architecture & Developer Documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/LunatiChemist/SEVA_GUI_MVVM" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    LunatiChemist/SEVA_GUI_MVVM
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Docs
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Docs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_1" id="__nav_2_1_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dev-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rest-api-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API Setup Tutorial
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_2" id="__nav_2_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Architecture
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mvvm_tutorial_notebooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MVVM + Hexagonal Tutorial Notebooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2_3" id="__nav_2_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflows
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Workflows
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SEVA GUI Workflows
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SEVA GUI Workflows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#layer-contract-mvvm-hexagonal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Layer Contract (MVVM + Hexagonal)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ui-entrypoints-and-handoffs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        UI Entrypoints and Handoffs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workflow-1-start-poll-complete" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow 1: Start -&gt; Poll -&gt; Complete
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workflow-2-download-group-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow 2: Download Group Results
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workflow-3-cancellation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow 3: Cancellation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workflow-4-discovery-and-assignment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow 4: Discovery and Assignment
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workflow-5-diagnostics-and-control" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow 5: Diagnostics and Control
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workflow-6-layout-persistence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow 6: Layout Persistence
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#usecase-inventory-trigger-adapterport" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        UseCase Inventory (Trigger -&gt; Adapter/Port)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflows_rest_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API Workflows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_4" id="__nav_2_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../classes_seva/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SEVA GUI Classes & Modules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../classes_rest_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API Classes & Modules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../glossary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_5" id="__nav_2_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operations
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Operations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_6" id="__nav_2_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contributing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../codex_guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ChatGPT Codex Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gui_overview_how_to_use/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI Overview & How to Use
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#layer-contract-mvvm-hexagonal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Layer Contract (MVVM + Hexagonal)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ui-entrypoints-and-handoffs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        UI Entrypoints and Handoffs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workflow-1-start-poll-complete" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow 1: Start -&gt; Poll -&gt; Complete
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workflow-2-download-group-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow 2: Download Group Results
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workflow-3-cancellation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow 3: Cancellation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workflow-4-discovery-and-assignment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow 4: Discovery and Assignment
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workflow-5-diagnostics-and-control" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow 5: Diagnostics and Control
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workflow-6-layout-persistence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow 6: Layout Persistence
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#usecase-inventory-trigger-adapterport" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        UseCase Inventory (Trigger -&gt; Adapter/Port)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="seva-workflows">SEVA Workflows<a class="headerlink" href="#seva-workflows" title="Permanent link">&para;</a></h1>
+<p>This document maps GUI actions to use cases in <code>seva/usecases</code>, then to adapter ports/endpoints. The goal is to make run orchestration and diagnostics traceable end-to-end.</p>
+<h2 id="layer-contract-mvvm-hexagonal">Layer Contract (MVVM + Hexagonal)<a class="headerlink" href="#layer-contract-mvvm-hexagonal" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Views (<code>seva/app/views/*</code>) emit callbacks only.</li>
+<li>ViewModels (<code>seva/viewmodels/*</code>) hold UI state only.</li>
+<li>UseCases (<code>seva/usecases/*</code>) orchestrate workflow and validation.</li>
+<li>Adapters (<code>seva/adapters/*</code>) perform I/O and API payload transport.</li>
+<li>Server status remains authoritative for progress and phase information.</li>
+</ul>
+<h2 id="ui-entrypoints-and-handoffs">UI Entrypoints and Handoffs<a class="headerlink" href="#ui-entrypoints-and-handoffs" title="Permanent link">&para;</a></h2>
+<p>Main composition happens in <code>seva/app/main.py</code> where callbacks are wired to presenter/controller actions.</p>
+<ul>
+<li><code>MainWindowView.on_submit</code> -&gt; <code>App._on_submit()</code> -&gt; <code>RunFlowPresenter.start_run()</code>.</li>
+<li><code>MainWindowView.on_cancel_group</code> -&gt; <code>App._on_cancel_group()</code> -&gt; <code>RunFlowPresenter.cancel_active_group()</code>.</li>
+<li><code>ExperimentPanelView.on_end_selection</code> -&gt; <code>App._on_end_selection()</code> -&gt; <code>RunFlowPresenter.cancel_selected_runs()</code>.</li>
+<li><code>MainWindowView.on_save_layout</code> / <code>on_load_layout</code> -&gt; <code>SavePlateLayout</code> / <code>LoadPlateLayout</code>.</li>
+<li>Settings dialog test/scan/package-update actions -&gt; <code>SettingsController</code> and <code>DiscoveryController</code> use-case calls.</li>
+<li><code>DownloadController.download_group_results()</code> handles run-artifact downloads.</li>
+</ul>
+<h2 id="workflow-1-start-poll-complete">Workflow 1: Start -&gt; Poll -&gt; Complete<a class="headerlink" href="#workflow-1-start-poll-complete" title="Permanent link">&para;</a></h2>
+<ol>
+<li><code>RunFlowPresenter.start_run()</code> gathers configured wells from <code>PlateVM</code> and per-well mode snapshots from <code>ExperimentVM</code>.</li>
+<li><code>BuildExperimentPlan</code> validates typed snapshots and builds <code>ExperimentPlan</code>.</li>
+<li><code>BuildStorageMeta</code> builds <code>StorageMeta</code> from plan metadata and settings.</li>
+<li><code>RunFlowCoordinator.start()</code> calls <code>StartExperimentBatch</code>.</li>
+<li><code>StartExperimentBatch</code> delegates to <code>JobPort.start_batch</code> (<code>JobRestAdapter.start_batch</code> -&gt; <code>POST /jobs</code>).</li>
+<li>Presenter stores run metadata in <code>RunsRegistry</code>, schedules polling, and updates <code>ProgressVM</code>/<code>RunsVM</code>.</li>
+<li>Poll ticks call <code>RunFlowCoordinator.poll_once()</code> -&gt; <code>PollGroupStatus</code>.</li>
+<li><code>PollGroupStatus</code> calls <code>JobPort.poll_group</code> (<code>JobRestAdapter.poll_group</code> -&gt; <code>POST /jobs/status</code>) and normalizes to <code>GroupSnapshot</code>.</li>
+<li>On completion (<code>snapshot.all_done</code>), coordinator optionally auto-downloads via <code>DownloadGroupResults</code>.</li>
+</ol>
+<div class="highlight"><pre><span></span><code>sequenceDiagram
+    participant U as User
+    participant V as MainWindowView
+    participant P as RunFlowPresenter
+    participant BP as BuildExperimentPlan
+    participant BS as BuildStorageMeta
+    participant C as RunFlowCoordinator
+    participant SB as StartExperimentBatch
+    participant JP as JobPort/JobRestAdapter
+    participant API as REST API
+
+    U-&gt;&gt;V: Click Start
+    V-&gt;&gt;P: start_run()
+    P-&gt;&gt;BP: build ExperimentPlan
+    BP--&gt;&gt;P: ExperimentPlan
+    P-&gt;&gt;BS: build StorageMeta
+    BS--&gt;&gt;P: StorageMeta
+    P-&gt;&gt;C: start(plan, storage_meta)
+    C-&gt;&gt;SB: __call__(plan)
+    SB-&gt;&gt;JP: start_batch(plan)
+    JP-&gt;&gt;API: POST /jobs
+    API--&gt;&gt;JP: run_group_id + run_ids
+    JP--&gt;&gt;SB: typed result
+    SB--&gt;&gt;C: StartBatchResult
+    C--&gt;&gt;P: GroupContext
+
+    loop polling
+      P-&gt;&gt;C: poll_once(ctx)
+      C-&gt;&gt;JP: poll_group(group_id)
+      JP-&gt;&gt;API: POST /jobs/status
+      API--&gt;&gt;JP: status payload
+      JP--&gt;&gt;C: GroupSnapshot
+      C--&gt;&gt;P: FlowTick
+    end
+</code></pre></div>
+<p>Outcome: a typed plan is submitted once, server snapshots drive all progress updates, and completion can trigger download automatically.</p>
+<h2 id="workflow-2-download-group-results">Workflow 2: Download Group Results<a class="headerlink" href="#workflow-2-download-group-results" title="Permanent link">&para;</a></h2>
+<ol>
+<li>User triggers download from run overview/runs panel.</li>
+<li><code>DownloadController</code> resolves active group and metadata from <code>RunFlowPresenter</code>.</li>
+<li><code>DownloadGroupResults</code> validates <code>StorageMeta</code> and calls <code>JobPort.download_group_zip</code>.</li>
+<li><code>JobRestAdapter.download_group_zip</code> fetches per-run archives (<code>GET /runs/{run_id}/zip</code>).</li>
+<li>Use case extracts ZIPs, renames <code>slotNN</code> folders to well IDs via adapter slot registry, and applies cleanup mode (<code>keep|delete|archive</code>).</li>
+</ol>
+<div class="highlight"><pre><span></span><code>sequenceDiagram
+    participant U as User
+    participant D as DownloadController
+    participant P as RunFlowPresenter
+    participant UC as DownloadGroupResults
+    participant JP as JobPort/JobRestAdapter
+    participant API as REST API
+    participant FS as Filesystem
+
+    U-&gt;&gt;D: Download group
+    D-&gt;&gt;P: resolve group + storage meta
+    D-&gt;&gt;UC: __call__(group_id, target, storage_meta)
+    UC-&gt;&gt;JP: download_group_zip(group_id, root)
+    JP-&gt;&gt;API: GET /runs/{run_id}/zip
+    API--&gt;&gt;JP: ZIP stream(s)
+    JP--&gt;&gt;UC: zip_root
+    UC-&gt;&gt;FS: extract + slot-&gt;well rename
+    UC--&gt;&gt;D: extraction_root
+</code></pre></div>
+<p>Outcome: results are unpacked under <code>&lt;results&gt;/&lt;experiment&gt;/&lt;subdir?&gt;/&lt;client_datetime&gt;/...</code> with deterministic well folder names.</p>
+<h2 id="workflow-3-cancellation">Workflow 3: Cancellation<a class="headerlink" href="#workflow-3-cancellation" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Group cancel: <code>RunFlowPresenter.cancel_active_group()</code> -&gt; <code>CancelGroup</code> -&gt; <code>JobPort.cancel_group</code>.</li>
+<li>Selected-run cancel: <code>RunFlowPresenter.cancel_selected_runs()</code> -&gt; <code>CancelRuns</code> -&gt; <code>JobPort.cancel_run</code> per unique run id.</li>
+<li>Errors from adapters are mapped by <code>map_api_error</code> to stable <code>UseCaseError</code> codes/messages.</li>
+</ul>
+<div class="highlight"><pre><span></span><code>sequenceDiagram
+    participant U as User
+    participant P as RunFlowPresenter
+    participant CG as CancelGroup
+    participant CR as CancelRuns
+    participant JP as JobPort
+
+    alt cancel active group
+      U-&gt;&gt;P: Cancel Group
+      P-&gt;&gt;CG: __call__(group_id)
+      CG-&gt;&gt;JP: cancel_group(group_id)
+    else cancel selected runs
+      U-&gt;&gt;P: End Selection
+      P-&gt;&gt;CR: __call__(box_to_run_ids)
+      CR-&gt;&gt;JP: cancel_run(box_id, run_id)
+    end
+</code></pre></div>
+<p>Outcome: cancellation orchestration stays in use cases, with shared error semantics.</p>
+<h2 id="workflow-4-discovery-and-assignment">Workflow 4: Discovery and Assignment<a class="headerlink" href="#workflow-4-discovery-and-assignment" title="Permanent link">&para;</a></h2>
+<ol>
+<li><code>DiscoveryController.discover()</code> builds candidates from configured base URLs and subnet hints.</li>
+<li><code>DiscoverAndAssignDevices</code> calls <code>DiscoverDevices</code> (<code>DeviceDiscoveryPort.discover</code>, usually <code>HttpDiscoveryAdapter</code>).</li>
+<li>Discovered URLs are merged via <code>MergeDiscoveredIntoRegistry</code>.</li>
+<li>Empty configured slots are assigned in order; overflow URLs are reported as skipped.</li>
+<li>Updated registry is pushed to <code>SettingsVM</code> and persisted via <code>StoragePort.save_user_settings</code>.</li>
+</ol>
+<div class="highlight"><pre><span></span><code>sequenceDiagram
+    participant U as User
+    participant DC as DiscoveryController
+    participant DA as DiscoverAndAssignDevices
+    participant DD as DiscoverDevices
+    participant DP as DeviceDiscoveryPort
+    participant S as SettingsVM
+    participant ST as StoragePort
+
+    U-&gt;&gt;DC: Scan network
+    DC-&gt;&gt;DA: DiscoveryRequest
+    DA-&gt;&gt;DD: discover(candidates)
+    DD-&gt;&gt;DP: discover(...)
+    DP--&gt;&gt;DD: DiscoveredBox[]
+    DD--&gt;&gt;DA: DiscoveredBox[]
+    DA--&gt;&gt;DC: DiscoveryResult
+    DC-&gt;&gt;S: apply normalized_registry
+    DC-&gt;&gt;ST: save_user_settings(...)
+</code></pre></div>
+<p>Outcome: reachable devices are discovered and assigned to open slots without manual URL editing.</p>
+<h2 id="workflow-5-diagnostics-and-control">Workflow 5: Diagnostics and Control<a class="headerlink" href="#workflow-5-diagnostics-and-control" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>TestConnection</code>: settings test action -&gt; <code>DevicePort.health</code> + <code>DevicePort.list_devices</code> (REST: <code>/health</code>, <code>/devices</code>).</li>
+<li><code>PollDeviceStatus</code>: periodic activity polling -&gt; <code>DevicePort.list_device_status</code> + <code>list_devices</code> -&gt; <code>DeviceActivitySnapshot</code> for <code>ProgressVM</code>.</li>
+<li><code>TestRelay</code>: relay diagnostics action -&gt; <code>RelayPort.test</code>.</li>
+<li><code>SetElectrodeMode</code>: electrode mode toggle -&gt; <code>RelayPort.set_electrode_mode</code>.</li>
+<li><code>StartRemoteUpdate</code>: settings package-update action -&gt; <code>UpdatePort.start_package_update</code> (REST: <code>POST /updates/package</code>).</li>
+<li><code>PollRemoteUpdate</code>: modal polling loop -&gt; <code>UpdatePort.get_package_update</code> (REST: <code>GET /updates/{update_id}</code>).</li>
+</ul>
+<p>Outcome: diagnostics remain adapter-agnostic at use-case level while surfacing typed status to the UI.</p>
+<h2 id="workflow-6-layout-persistence">Workflow 6: Layout Persistence<a class="headerlink" href="#workflow-6-layout-persistence" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Save action calls <code>SavePlateLayout</code> with <code>ExperimentVM</code> state (selection + per-well params).</li>
+<li><code>StoragePort.save_layout</code> persists payload.</li>
+<li>Load action calls <code>LoadPlateLayout</code>.</li>
+<li><code>LoadPlateLayout</code> normalizes payload and reapplies it to <code>ExperimentVM</code> and <code>PlateVM</code>.</li>
+</ol>
+<p>Outcome: plate configurations round-trip through storage without view-level file I/O logic.</p>
+<h2 id="usecase-inventory-trigger-adapterport">UseCase Inventory (Trigger -&gt; Adapter/Port)<a class="headerlink" href="#usecase-inventory-trigger-adapterport" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>apply_ir_correction.ApplyIRCorrection</code>: processing hook placeholder; currently passthrough, no adapter call.</li>
+<li><code>build_experiment_plan.BuildExperimentPlan</code>: run start path from presenter; no adapter call.</li>
+<li><code>build_storage_meta.BuildStorageMeta</code>: run start/download metadata preparation; no adapter call.</li>
+<li><code>start_experiment_batch.StartExperimentBatch</code>: run start; <code>JobPort.start_batch</code>.</li>
+<li><code>poll_group_status.PollGroupStatus</code>: run polling; <code>JobPort.poll_group</code>.</li>
+<li><code>download_group_results.DownloadGroupResults</code>: download flow; <code>JobPort.download_group_zip</code> + filesystem.</li>
+<li><code>cancel_group.CancelGroup</code>: cancel active group; <code>JobPort.cancel_group</code>.</li>
+<li><code>cancel_runs.CancelRuns</code>: cancel selected runs; <code>JobPort.cancel_run</code>.</li>
+<li><code>run_flow_coordinator.RunFlowCoordinator</code>: orchestration wrapper around start/poll/download use cases.</li>
+<li><code>discover_devices.DiscoverDevices</code>: settings scan; <code>DeviceDiscoveryPort.discover</code>.</li>
+<li><code>discover_devices.MergeDiscoveredIntoRegistry</code>: settings scan helper; no adapter call.</li>
+<li><code>discover_and_assign_devices.DiscoverAndAssignDevices</code>: scan + assignment orchestration; discovery port via nested use case.</li>
+<li><code>test_connection.TestConnection</code>: settings connection test; <code>DevicePort.health</code> + <code>DevicePort.list_devices</code>.</li>
+<li><code>poll_device_status.PollDeviceStatus</code>: activity polling; <code>DevicePort.list_device_status</code> + <code>DevicePort.list_devices</code>.</li>
+<li><code>start_remote_update.StartRemoteUpdate</code>: settings package-update upload; <code>UpdatePort.start_package_update</code>.</li>
+<li><code>poll_remote_update.PollRemoteUpdate</code>: settings package-update polling; <code>UpdatePort.get_package_update</code>.</li>
+<li><code>test_relay.TestRelay</code>: relay diagnostics; <code>RelayPort.test</code>.</li>
+<li><code>set_electrode_mode.SetElectrodeMode</code>: relay control; <code>RelayPort.set_electrode_mode</code>.</li>
+<li><code>save_plate_layout.SavePlateLayout</code>: toolbar save layout; <code>StoragePort.save_layout</code>.</li>
+<li><code>load_plate_layout.LoadPlateLayout</code>: toolbar load layout; <code>StoragePort.load_layout</code>.</li>
+<li><code>error_mapping.map_api_error</code>: shared adapter-error to use-case-error mapping utility.</li>
+<li><code>load_device_status</code> module: reserved for future orchestration.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Docs track the main branch.
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "toc.follow", "content.code.copy", "search.suggest", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
