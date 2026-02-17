@@ -228,8 +228,8 @@ def test_version_endpoint_prefers_update_manifest_versions(api_module, monkeypat
     response = client.get("/version")
     assert response.status_code == 200
     payload = response.json()
+    assert payload["api"] == "2.0"
     assert payload["pybeep"] == "9.9.9"
-    assert payload["rest_api"] == "2.0"
     assert payload["firmware"] == "1.2.3"
 
 

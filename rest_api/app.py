@@ -967,9 +967,8 @@ def version_info() -> Dict[str, str]:
     """
     preferred = UPDATES_MANAGER.preferred_component_versions()
     return {
-        "api": API_VERSION,
+        "api": preferred.get("rest_api") or API_VERSION,
         "pybeep": preferred.get("pybeep") or PYBEEP_VERSION,
-        "rest_api": preferred.get("rest_api") or API_VERSION,
         "firmware": preferred.get("firmware") or "unknown",
         "python": PYTHON_VERSION,
         "build": BUILD_IDENTIFIER,

@@ -510,6 +510,6 @@ if __name__ == "__main__":
     dialog.set_debug_logging(False)
     dialog.set_relay_config(ip="10.0.10.40", port=502)
     dialog.set_update_package_path(r"C:\Users\User\Downloads\update-package.zip")
-    dialog.set_version_info_text("A(api=1.2.3, pybeep=0.9.1, python=3.13.0, build=build-42)")
+    dialog.set_version_info_text("A(api=1.2.3, pybeep=0.9.1, firmware=1.0.0, python=3.13.0, build=build-42)")
 
     dialog.mainloop()
