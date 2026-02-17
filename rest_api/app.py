@@ -909,12 +909,26 @@ def _restart_service_for_update() -> Dict[str, Any]:
             message="Service restart command not found",
             hint=str(exc),
         ) from exc
+    allowed_codes_env = os.getenv("BOX_RESTART_ALLOWED_EXIT_CODES", "")
+    allowed_codes = set()
+    if allowed_codes_env.strip():
+        for token in allowed_codes_env.split(","):
+            stripped = token.strip()
+            if not stripped:
+                continue
+            try:
+                allowed_codes.add(int(stripped))
+            except ValueError:
+                log.warning("Ignoring invalid BOX_RESTART_ALLOWED_EXIT_CODES token: %s", stripped)
+    allowed_codes.add(-15)
+    ok = result.returncode == 0 or result.returncode in allowed_codes
     return {
-        "ok": result.returncode == 0,
+        "ok": ok,
         "command": command_text,
         "exit_code": result.returncode,
         "stdout": result.stdout or "",
         "stderr": result.stderr or "",
+        "allowed_exit_codes": sorted(allowed_codes),
     }
 
 
@@ -951,9 +965,11 @@ def version_info() -> Dict[str, str]:
     HTTPException
         Raises HTTPException when request data, auth, or storage resolution fails.
     """
+    preferred = UPDATES_MANAGER.preferred_component_versions()
     return {
-        "api": API_VERSION,
-        "pybeep": PYBEEP_VERSION,
+        "api": preferred.get("rest_api") or API_VERSION,
+        "pybeep": preferred.get("pybeep") or PYBEEP_VERSION,
+        "firmware": preferred.get("firmware") or "unknown",
         "python": PYTHON_VERSION,
         "build": BUILD_IDENTIFIER,
     }

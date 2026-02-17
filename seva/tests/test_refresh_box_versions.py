@@ -22,6 +22,7 @@ class FakeDevicePort:
         return {
             "api": "1.2.3",
             "pybeep": "0.9.1",
+            "firmware": "1.0.0",
             "python": "3.13.0",
             "build": "build-42",
         }
@@ -40,6 +41,7 @@ def test_refresh_box_versions_collects_infos_and_failures() -> None:
     assert set(result.infos.keys()) == {"A"}
     assert "B" in result.failures
     assert result.infos["A"].api_version == "1.2.3"
+    assert result.infos["A"].firmware_version == "1.0.0"
     assert result.infos["A"].reported_box_id == "BOX-A"
     assert result.infos["A"].health_devices == 8
     assert port.version_calls == ["A", "B"]

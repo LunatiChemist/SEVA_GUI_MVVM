@@ -357,10 +357,11 @@ class SettingsController:
             reported_box = info.reported_box_id or "-"
             api_version = info.api_version or "-"
             pybeep_version = info.pybeep_version or "-"
+            firmware_version = info.firmware_version or "-"
             python_version = info.python_version or "-"
             build_identifier = info.build_identifier or "-"
             lines.append(
-                f"{box_id}(api={api_version},pybeep={pybeep_version},python={python_version},"
+                f"{box_id}(api={api_version},pybeep={pybeep_version},firmware={firmware_version},python={python_version},"
                 f"build={build_identifier},health={health_label},devices={devices},box_id={reported_box})"
             )
 

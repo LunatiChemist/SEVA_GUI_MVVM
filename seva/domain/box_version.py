@@ -13,6 +13,7 @@ class BoxVersionInfo:
     configured_box_id: str
     api_version: str
     pybeep_version: str
+    firmware_version: str
     python_version: str
     build_identifier: str
     health_ok: Optional[bool]
@@ -62,6 +63,7 @@ class BoxVersionInfo:
             configured_box_id=box_key,
             api_version=_as_text(version_payload, "api"),
             pybeep_version=_as_text(version_payload, "pybeep"),
+            firmware_version=_as_text(version_payload, "firmware"),
             python_version=_as_text(version_payload, "python"),
             build_identifier=_as_text(version_payload, "build"),
             health_ok=_as_bool(health_payload, "ok"),
