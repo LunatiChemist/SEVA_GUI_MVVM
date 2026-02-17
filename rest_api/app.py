@@ -60,14 +60,21 @@ from validation import (
     validate_mode_payload,
 )
 import storage
+from update_package import (
+    PackageUpdateManager,
+    UpdateApplyError,
+    UpdatePackageError,
+)
 
 API_KEY = os.getenv("BOX_API_KEY", "")
 BOX_ID = os.getenv("BOX_ID", "")
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 RUNS_ROOT = pathlib.Path(os.getenv("RUNS_ROOT", "/opt/box/runs"))
 RUNS_ROOT.mkdir(parents=True, exist_ok=True)
 storage.configure_runs_root(RUNS_ROOT)
 NAS_CONFIG_PATH = pathlib.Path(os.getenv("NAS_CONFIG_PATH", "/opt/box/nas_smb.json"))
 NAS = nas.NASManager(runs_root=RUNS_ROOT, config_path=NAS_CONFIG_PATH, logger=logging.getLogger("nas_smb"))
+UPDATES_ROOT = pathlib.Path(os.getenv("UPDATES_ROOT", "/opt/box/updates"))
 
 RunStorageInfo = storage.RunStorageInfo
 RUN_DIRECTORY_LOCK = storage.RUN_DIRECTORY_LOCK
@@ -737,6 +744,204 @@ def require_key(x_api_key: Optional[str]) -> Optional[JSONResponse]:
     return None
 
 
+class FirmwareFlashRuntimeError(RuntimeError):
+    """Typed firmware flashing error used by both REST routes and update jobs."""
+
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        code: str,
+        message: str,
+        hint: str,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.code = code
+        self.message = message
+        self.hint = hint
+
+
+def _firmware_storage_dir() -> pathlib.Path:
+    """Return configured firmware upload directory."""
+    return pathlib.Path(os.getenv("FIRMWARE_STORAGE_DIR", "/opt/box/firmware"))
+
+
+def _flash_script_path() -> pathlib.Path:
+    """Return configured firmware flashing script path."""
+    configured = os.getenv("FLASH_SCRIPT_PATH", "")
+    if configured.strip():
+        return pathlib.Path(configured.strip())
+    return pathlib.Path(__file__).resolve().with_name("auto_flash_linux.py")
+
+
+def _store_uploaded_firmware(file: UploadFile) -> pathlib.Path:
+    """Validate and persist uploaded firmware file and return target path."""
+    if not file or not file.filename:
+        raise FirmwareFlashRuntimeError(
+            status_code=400,
+            code="firmware.invalid_upload",
+            message="Invalid firmware upload",
+            hint="Upload a .bin firmware file.",
+        )
+
+    original_name = pathlib.Path(file.filename).name
+    if not original_name.lower().endswith(".bin"):
+        raise FirmwareFlashRuntimeError(
+            status_code=400,
+            code="firmware.invalid_upload",
+            message="Invalid firmware upload",
+            hint="Only .bin files are allowed.",
+        )
+
+    try:
+        sanitized_stem = _sanitize_path_segment(pathlib.Path(original_name).stem, "filename")
+    except HTTPException as exc:
+        raise FirmwareFlashRuntimeError(
+            status_code=400,
+            code="firmware.invalid_upload",
+            message="Invalid firmware upload",
+            hint=str(exc.detail),
+        ) from exc
+
+    firmware_dir = _firmware_storage_dir()
+    firmware_dir.mkdir(parents=True, exist_ok=True)
+    target_path = firmware_dir / f"{sanitized_stem}.bin"
+    try:
+        with target_path.open("wb") as handle:
+            shutil.copyfileobj(file.file, handle)
+    except Exception as exc:
+        log.exception("Failed to store firmware upload")
+        raise FirmwareFlashRuntimeError(
+            status_code=500,
+            code="firmware.store_failed",
+            message="Failed to store firmware file",
+            hint=str(exc) or "Check storage permissions and available space.",
+        ) from exc
+    return target_path
+
+
+def _run_flash_script(bin_path: pathlib.Path) -> Dict[str, Any]:
+    """Run the firmware flashing subprocess for one binary path."""
+    script_path = _flash_script_path()
+    if not script_path.is_file():
+        raise FirmwareFlashRuntimeError(
+            status_code=500,
+            code="firmware.script_missing",
+            message="Firmware flash script missing",
+            hint=f"Expected script at {script_path}.",
+        )
+    result = subprocess.run(
+        ["python", script_path.name, str(bin_path)],
+        cwd=str(script_path.parent),
+        capture_output=True,
+        text=True,
+    )
+    exit_code = result.returncode
+    stdout = result.stdout or ""
+    stderr = result.stderr or ""
+    if exit_code != 0:
+        raise FirmwareFlashRuntimeError(
+            status_code=500,
+            code="firmware.flash_failed",
+            message="Firmware flash failed",
+            hint=(
+                "Try increasing the Request timeout (s)\n"
+                f"exit_code={exit_code}\nstdout={stdout}\nstderr={stderr}"
+            ),
+        )
+    return {
+        "ok": True,
+        "exit_code": exit_code,
+        "stdout": stdout,
+        "stderr": stderr,
+    }
+
+
+def _flash_firmware_binary(bin_path: pathlib.Path) -> Dict[str, Any]:
+    """Shared firmware flashing core reused by both API routes and update worker."""
+    path = pathlib.Path(bin_path)
+    if not path.is_file():
+        raise FirmwareFlashRuntimeError(
+            status_code=400,
+            code="firmware.invalid_upload",
+            message="Invalid firmware upload",
+            hint=f"Firmware file not found: {path}",
+        )
+    if path.suffix.lower() != ".bin":
+        raise FirmwareFlashRuntimeError(
+            status_code=400,
+            code="firmware.invalid_upload",
+            message="Invalid firmware upload",
+            hint="Only .bin files are allowed.",
+        )
+    return _run_flash_script(path)
+
+
+def _flash_firmware_for_update(bin_path: pathlib.Path) -> Dict[str, Any]:
+    """Update-worker wrapper that maps firmware errors to update apply errors."""
+    try:
+        return _flash_firmware_binary(bin_path)
+    except FirmwareFlashRuntimeError as exc:
+        raise UpdateApplyError(
+            code=exc.code,
+            message=exc.message,
+            hint=exc.hint,
+            status_code=exc.status_code,
+        ) from exc
+
+
+def _restart_service_for_update() -> Dict[str, Any]:
+    """Execute configured service restart command after successful apply."""
+    command_text = os.getenv("BOX_RESTART_COMMAND", "systemctl restart pybeep-box.service")
+    args = shlex.split(command_text)
+    if not args:
+        raise UpdateApplyError(
+            code="updates.restart_failed",
+            message="Service restart command is empty",
+            hint="Set BOX_RESTART_COMMAND to a non-empty restart command.",
+        )
+    try:
+        result = subprocess.run(args, capture_output=True, text=True)
+    except FileNotFoundError as exc:
+        raise UpdateApplyError(
+            code="updates.restart_failed",
+            message="Service restart command not found",
+            hint=str(exc),
+        ) from exc
+    allowed_codes_env = os.getenv("BOX_RESTART_ALLOWED_EXIT_CODES", "")
+    allowed_codes = set()
+    if allowed_codes_env.strip():
+        for token in allowed_codes_env.split(","):
+            stripped = token.strip()
+            if not stripped:
+                continue
+            try:
+                allowed_codes.add(int(stripped))
+            except ValueError:
+                log.warning("Ignoring invalid BOX_RESTART_ALLOWED_EXIT_CODES token: %s", stripped)
+    allowed_codes.add(-15)
+    ok = result.returncode == 0 or result.returncode in allowed_codes
+    return {
+        "ok": ok,
+        "command": command_text,
+        "exit_code": result.returncode,
+        "stdout": result.stdout or "",
+        "stderr": result.stderr or "",
+        "allowed_exit_codes": sorted(allowed_codes),
+    }
+
+
+UPDATES_MANAGER = PackageUpdateManager(
+    repo_root=REPO_ROOT,
+    staging_root=UPDATES_ROOT / "staging",
+    audit_root=UPDATES_ROOT / "audit",
+    flash_firmware=_flash_firmware_for_update,
+    restart_service=_restart_service_for_update,
+    logger=logging.getLogger("rest_api.updates"),
+)
+
+
 @app.get("/version")
 def version_info() -> Dict[str, str]:
     """Return API, runtime, and build version metadata.
@@ -760,9 +965,11 @@ def version_info() -> Dict[str, str]:
     HTTPException
         Raises HTTPException when request data, auth, or storage resolution fails.
     """
+    preferred = UPDATES_MANAGER.preferred_component_versions()
     return {
-        "api": API_VERSION,
-        "pybeep": PYBEEP_VERSION,
+        "api": preferred.get("rest_api") or API_VERSION,
+        "pybeep": preferred.get("pybeep") or PYBEEP_VERSION,
+        "firmware": preferred.get("firmware") or "unknown",
         "python": PYTHON_VERSION,
         "build": BUILD_IDENTIFIER,
     }
@@ -1916,6 +2123,66 @@ def rescan(x_api_key: Optional[str] = Header(None)):
         return {"devices": list(DEVICES.keys())}
 
 
+@app.post("/updates/package")
+def start_package_update(file: UploadFile = File(...), x_api_key: Optional[str] = Header(None)):
+    """Upload one update package ZIP and enqueue asynchronous apply workflow."""
+    if auth_error := require_key(x_api_key):
+        return auth_error
+    try:
+        snapshot = UPDATES_MANAGER.enqueue_upload(
+            filename=file.filename or "",
+            source=file.file,
+        )
+    except UpdatePackageError as exc:
+        return http_error(
+            status_code=exc.status_code,
+            code=exc.code,
+            message=exc.message,
+            hint=exc.hint,
+        )
+    except Exception:
+        log.exception("Failed to enqueue package update")
+        return http_error(
+            status_code=500,
+            code="updates.enqueue_failed",
+            message="Failed to enqueue package update",
+            hint="Inspect server logs for details.",
+        )
+    return {
+        "update_id": snapshot.get("update_id"),
+        "status": snapshot.get("status"),
+        "step": snapshot.get("step"),
+        "queued_at": snapshot.get("created_at"),
+    }
+
+
+@app.get("/updates/{update_id}")
+def get_package_update(update_id: str, x_api_key: Optional[str] = Header(None)):
+    """Return server-authoritative status for one asynchronous package update."""
+    if auth_error := require_key(x_api_key):
+        return auth_error
+    snapshot = UPDATES_MANAGER.get_job(update_id)
+    if snapshot is None:
+        return http_error(
+            status_code=404,
+            code="updates.not_found",
+            message="Unknown update_id",
+            hint="Check update_id or query GET /updates.",
+        )
+    return snapshot
+
+
+@app.get("/updates")
+def list_package_updates(
+    limit: int = Query(20, ge=1, le=200),
+    x_api_key: Optional[str] = Header(None),
+):
+    """List recent package update jobs (newest first)."""
+    if auth_error := require_key(x_api_key):
+        return auth_error
+    return {"items": UPDATES_MANAGER.list_jobs(limit=limit)}
+
+
 @app.post("/firmware/flash")
 def flash_firmware(file: UploadFile = File(...), x_api_key: Optional[str] = Header(None)):
     """Invoke dfu-util to write firmware to the controller.
@@ -1944,77 +2211,25 @@ def flash_firmware(file: UploadFile = File(...), x_api_key: Optional[str] = Head
     if auth_error := require_key(x_api_key):
         return auth_error
 
-    if not file or not file.filename:
-        return http_error(
-            status_code=400,
-            code="firmware.invalid_upload",
-            message="Invalid firmware upload",
-            hint="Upload a .bin firmware file.",
-        )
-
-    original_name = pathlib.Path(file.filename).name
-    if not original_name.lower().endswith(".bin"):
-        return http_error(
-            status_code=400,
-            code="firmware.invalid_upload",
-            message="Invalid firmware upload",
-            hint="Only .bin files are allowed.",
-        )
-
     try:
-        sanitized_stem = _sanitize_path_segment(pathlib.Path(original_name).stem, "filename")
-    except HTTPException as exc:
+        target_path = _store_uploaded_firmware(file)
+        result = _flash_firmware_binary(target_path)
+    except FirmwareFlashRuntimeError as exc:
         return http_error(
-            status_code=400,
-            code="firmware.invalid_upload",
-            message="Invalid firmware upload",
-            hint=str(exc.detail),
+            status_code=exc.status_code,
+            code=exc.code,
+            message=exc.message,
+            hint=exc.hint,
         )
-
-    firmware_dir = pathlib.Path("/opt/box/firmware")
-    firmware_dir.mkdir(parents=True, exist_ok=True)
-    target_path = firmware_dir / f"{sanitized_stem}.bin"
-
-    try:
-        with target_path.open("wb") as handle:
-            shutil.copyfileobj(file.file, handle)
     except Exception:
-        log.exception("Failed to store firmware upload")
-        return http_error(
-            status_code=500,
-            code="firmware.store_failed",
-            message="Failed to store firmware file",
-            hint="Check storage permissions and available space.",
-        )
-
-    script_path = pathlib.Path("/opt/box/auto_flash_linux.py")
-    if not script_path.is_file():
-        return http_error(
-            status_code=500,
-            code="firmware.script_missing",
-            message="Firmware flash script missing",
-            hint=f"Expected script at {script_path}.",
-        )
-
-    result = subprocess.run(
-        ["python", script_path.name, str(target_path)],
-        cwd=str(script_path.parent),
-        capture_output=True,
-        text=True,
-    )
-    exit_code = result.returncode
-    stdout = result.stdout or ""
-    stderr = result.stderr or ""
-
-    if exit_code != 0:
+        log.exception("Unexpected firmware flashing failure")
         return http_error(
             status_code=500,
             code="firmware.flash_failed",
             message="Firmware flash failed",
-            hint=f"Try increasing the Request timeout (s)\nexit_code={exit_code}\nstdout={stdout}\nstderr={stderr}",
+            hint="Inspect server logs for details.",
         )
-
-    return {"ok": True, "exit_code": exit_code, "stdout": stdout, "stderr": stderr}
+    return result
 
 # ---------- SEE Stream (Endpoint there) ----------
 

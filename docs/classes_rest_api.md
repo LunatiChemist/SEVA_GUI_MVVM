@@ -14,6 +14,7 @@ The REST package currently contains the following Python modules:
 - `rest_api/nas_smb.py`: SMB/CIFS upload adapter used by `/nas/*` and `/runs/{run_id}/upload`.
 - `rest_api/nas.py`: SSH/rsync NAS adapter kept for SSH-based deployments.
 - `rest_api/auto_flash_linux.py`: Linux firmware flashing subprocess helper for `/firmware/flash`.
+- `rest_api/update_package.py`: package-update contract validation, async worker, lock, and audit orchestration.
 
 ## `rest_api/app.py`
 
@@ -28,6 +29,9 @@ The REST package currently contains the following Python modules:
 - Firmware flashing:
   - GUI callers: `seva/adapters/firmware_rest.py`
   - Endpoint: `/firmware/flash`
+- Remote package updates:
+  - GUI callers: `seva/adapters/update_rest.py`
+  - Endpoints: `/updates/package`, `/updates/{update_id}`, `/updates`
 - NAS management:
   - GUI callers: NAS settings flows through REST clients
   - Endpoints: `/nas/setup`, `/nas/health`, `/runs/{run_id}/upload`
@@ -59,6 +63,9 @@ The table below provides a practical, per-endpoint overview of method, purpose, 
 | GET | `/nas/health` | `nas_health` | Reports current NAS connectivity state from manager probes. | NAS status indicator |
 | POST | `/runs/{run_id}/upload` | `nas_upload_run` | Queues manual upload of one run to configured NAS target. | Post-run offload action |
 | POST | `/admin/rescan` | `rescan` | Triggers fresh hardware discovery scan. | Admin/maintenance tools |
+| POST | `/updates/package` | `start_package_update` | Stores update ZIP, acquires update lock, and enqueues async apply workflow. | `seva.adapters.update_rest` |
+| GET | `/updates/{update_id}` | `get_package_update` | Returns server-authoritative package-update status, step, heartbeat, and error/audit details. | `seva.adapters.update_rest` |
+| GET | `/updates` | `list_package_updates` | Lists recent package-update jobs for diagnostics. | Manual ops checks, update dashboards |
 | POST | `/firmware/flash` | `flash_firmware` | Stores uploaded firmware binary and invokes Linux flashing subprocess flow. | `seva.adapters.firmware_rest` |
 | GET | `/api/telemetry/temperature/latest` | `get_latest` | Returns latest cached telemetry sample per device (demo endpoint). | Telemetry demos |
 | GET | `/api/telemetry/temperature/stream` | `temperature_stream` | SSE stream emitting periodic telemetry + keepalive pings (demo endpoint). | Streaming demo clients |
@@ -173,3 +180,15 @@ Execution chain:
 6. wait for CDC serial to reappear
 
 Failure behavior is exit-code driven so `app.py` can convert it into a typed HTTP error payload.
+
+## `rest_api/update_package.py`
+
+This module owns package-update orchestration used by `/updates/*`:
+
+- manifest + checksum validation (`manifest.json`, `checksums.sha256`)
+- ZIP path safety checks and SHA-256 verification
+- service-wide single-job lock (`updates.locked`)
+- asynchronous worker apply order (`pybeep` -> `rest_api` -> `firmware`)
+- shared firmware flash callback reuse from `/firmware/flash` logic
+- restart command execution and per-job restart result capture
+- JSONL audit event writing per update id

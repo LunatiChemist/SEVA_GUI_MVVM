@@ -103,6 +103,10 @@ Parameter schema mapping examples:
   - consumed by `FlashFirmware`
   - performs multipart upload with shared retry/timeout policy
   - raises typed adapter errors from `seva/adapters/api_errors.py`
+- `update_rest.py` (`UpdatePort`): implements package-update upload and status polling.
+  - consumed by `StartRemoteUpdate` and `PollRemoteUpdate`
+  - uploads `.zip` package to `POST /updates/package` and polls `GET /updates/{update_id}`
+  - raises typed adapter errors from `seva/adapters/api_errors.py`
 - `discovery_http.py` (`DeviceDiscoveryPort`): implements host/base-url/CIDR discovery.
   - consumed by `DiscoverDevices` and `DiscoverAndAssignDevices`
   - expands CIDR ranges, probes `/version` for identity and `/health` for enrichment
@@ -138,7 +142,8 @@ Parameter schema mapping examples:
 - `poll_device_status.py`: per-channel status snapshots for activity UI.
 - `test_connection.py`: health + device diagnostics for a box.
 - `test_relay.py`, `set_electrode_mode.py`: relay diagnostics/configuration.
-- `flash_firmware.py`: multi-box firmware flashing.
+- `start_remote_update.py`: starts package update uploads across configured boxes.
+- `poll_remote_update.py`: polls package update status across configured boxes.
 
 ### Layout and persistence workflows
 
@@ -171,8 +176,8 @@ Parameter schema mapping examples:
 - `settings_vm.py` (`SettingsVM`, `SettingsConfig`)
   - bound view/controller: `seva/app/settings_controller.py` + `SettingsDialog`
   - app wiring: loaded at startup in `App._load_user_settings`; consumed by `AppController.ensure_ready`
-  - usecase dependency: parameters passed into `BuildStorageMeta`, `StartExperimentBatch`, polling cadence, diagnostics, discovery
-  - state owned: typed runtime config, API URLs/keys, dialog-only fields (`experiment_name`, `subdir`, relay/debug flags)
+  - usecase dependency: parameters passed into `BuildStorageMeta`, `StartExperimentBatch`, polling cadence, diagnostics, discovery, remote update upload path
+  - state owned: typed runtime config, API URLs/keys, dialog-only fields (`experiment_name`, `subdir`, relay/debug flags, `update_package_path`)
 - `live_data_vm.py` (`LiveDataVM`)
   - bound view: standalone plotter (`seva/app/dataplotter_standalone.py`)
   - usecase dependency: none currently; reserved for future post-processing workflows

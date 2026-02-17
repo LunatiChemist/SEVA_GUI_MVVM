@@ -19,7 +19,7 @@ The main window is your starting point.
 - **Start**: starts a new run group with the current plate/well configuration.
 - **Cancel Group**: cancels the currently active run group.
 - **Save Layout / Load Layout**: save or restore plate configuration presets.
-- **Settings**: open connectivity, storage, timing, relay, firmware, and NAS options.
+- **Settings**: open connectivity, storage, timing, relay, package-update, and NAS options.
 - **Data Plotter**: open the plotting tool for downloaded data.
 
 ### Tabs (right side)
@@ -61,9 +61,12 @@ Open **Settings** from the toolbar.
 - Set local **Results directory**.
 - Set **Experiment name** and optional subdirectory for organized output.
 
-### Firmware
+### Package update
 
-- Select a `.bin` image and use **Flash Firmware** when needed.
+- Select an update `.zip` package and use **Start Remote Update**.
+- The modal update dialog stays open until terminal status and shows backend step + heartbeat updates.
+- To build valid packages, use the standalone generator script:
+  - `py -3.13 StreamingStandalone/update_zip_generator.py`
 
 ### NAS (advanced / optional)
 

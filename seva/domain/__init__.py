@@ -22,6 +22,7 @@ from seva.domain.entities import (
 from seva.domain.naming import make_group_id
 from seva.domain.plan_builder import build_meta
 from seva.domain.snapshot_normalizer import normalize_status
+from seva.domain.remote_update import UpdateStartReceipt, UpdateSnapshot, TERMINAL_UPDATE_STATES
 
 __all__ = [
     "BoxId",
@@ -44,4 +45,7 @@ __all__ = [
     "from_well_params",
     "make_group_id",
     "normalize_status",
+    "UpdateStartReceipt",
+    "UpdateSnapshot",
+    "TERMINAL_UPDATE_STATES",
 ]

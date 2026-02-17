@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Protocol, Tuple
 
 from seva.domain.entities import BoxId, ExperimentPlan, WellId
+from seva.domain.remote_update import UpdateSnapshot, UpdateStartReceipt
 
 RunGroupId = str
 
@@ -65,6 +66,10 @@ class JobPort(Protocol):
 
 class DevicePort(Protocol):
     """Device metadata and capability endpoints provided by the boxes."""
+
+    def version(self, box_id: BoxId) -> Dict[str, Any]:
+        """Fetch `/version` metadata for one box."""
+        ...
 
     def health(self, box_id: BoxId) -> Dict[str, Any]:
         """Fetch box health metadata."""
@@ -132,4 +137,16 @@ class FirmwarePort(Protocol):
 
     def flash_firmware(self, box_id: BoxId, firmware_path: str | Path) -> Dict[str, Any]:
         """Upload and flash firmware on the selected box."""
+        ...
+
+
+class UpdatePort(Protocol):
+    """Package-update operations exposed by box REST APIs."""
+
+    def start_package_update(self, box_id: BoxId, package_path: str | Path) -> UpdateStartReceipt:
+        """Upload one package update ZIP and return queued update metadata."""
+        ...
+
+    def get_package_update(self, box_id: BoxId, update_id: str) -> UpdateSnapshot:
+        """Fetch authoritative status for one asynchronous package update."""
         ...

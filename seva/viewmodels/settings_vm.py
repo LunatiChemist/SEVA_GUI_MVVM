@@ -31,7 +31,7 @@ class SettingsConfig:
         poll_backoff_max_ms: Maximum backoff interval for polling.
         auto_download_on_complete: Whether completed groups auto-download.
         api_base_urls: Box id -> base URL mapping.
-        firmware_path: Selected firmware binary path.
+        update_package_path: Selected update package ZIP path.
     """
 
     results_dir: str = "."
@@ -41,7 +41,7 @@ class SettingsConfig:
     poll_backoff_max_ms: int = 5000
     auto_download_on_complete: bool = True
     api_base_urls: Dict[BoxId, str] = field(default_factory=dict)
-    firmware_path: str = ""
+    update_package_path: str = ""
 
 
 def _default_debug_logging() -> bool:
@@ -86,6 +86,7 @@ class SettingsVM:
         self.use_streaming: bool = False
         self.relay_ip: str = ""
         self.relay_port: int = 0
+        self.version_info_text: str = ""
         self.debug_logging: bool = _default_debug_logging()
 
     # ------------------------------------------------------------------
@@ -162,14 +163,14 @@ class SettingsVM:
         self.config = replace(self.config, api_base_urls=dict(value or {}))
 
     @property
-    def firmware_path(self) -> str:
-        """Return selected firmware binary path."""
-        return self.config.firmware_path
+    def update_package_path(self) -> str:
+        """Return selected package-update ZIP path."""
+        return self.config.update_package_path
 
-    @firmware_path.setter
-    def firmware_path(self, value: str) -> None:
-        """Replace selected firmware binary path."""
-        self.config = replace(self.config, firmware_path=str(value or ""))
+    @update_package_path.setter
+    def update_package_path(self, value: str) -> None:
+        """Replace selected package-update ZIP path."""
+        self.config = replace(self.config, update_package_path=str(value or ""))
 
     # ------------------------------------------------------------------
     def is_valid(self) -> bool:
@@ -224,8 +225,8 @@ class SettingsVM:
         if "relay_port" in payload:
             self.relay_port = int(payload.get("relay_port") or 0)
 
-        if "firmware_path" in payload:
-            self.firmware_path = str(payload.get("firmware_path") or "")
+        if "update_package_path" in payload:
+            self.update_package_path = str(payload.get("update_package_path") or "")
 
     def to_dict(self) -> dict:
         """Serialize current settings state for persistence and callback handoff."""
@@ -239,7 +240,7 @@ class SettingsVM:
                 "debug_logging": bool(self.debug_logging),
                 "relay_ip": self.relay_ip,
                 "relay_port": self.relay_port,
-                "firmware_path": self.firmware_path,
+                "update_package_path": self.update_package_path,
             }
         )
         return snapshot
