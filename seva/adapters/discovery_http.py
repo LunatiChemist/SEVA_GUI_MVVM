@@ -83,6 +83,16 @@ class _MdnsListener(ServiceListener):
 class HttpDiscoveryAdapter(DeviceDiscoveryPort):
     """Browse LAN mDNS services and return health-validated devices."""
 
+    def __init__(self, default_port: int = 8000, service_type: str = SERVICE_TYPE):
+        """Keep constructor compatibility with existing GUI bootstrap wiring.
+
+        Args:
+            default_port: Fallback port used when a service advertises `0`.
+            service_type: Zeroconf service type that should be browsed.
+        """
+        self._default_port = int(default_port)
+        self._service_type = service_type
+
     def discover(self, *, duration_s: float = 2.5, health_timeout_s: float = 0.6) -> List[DiscoveredBox]:
         """Browse `_myapp._tcp.local.` for ``duration_s`` and validate `/health`."""
         try:
@@ -91,7 +101,7 @@ class HttpDiscoveryAdapter(DeviceDiscoveryPort):
             raise DiscoveryAdapterError(f"Could not start Zeroconf browser: {exc}") from exc
 
         listener = _MdnsListener(zeroconf)
-        browser = ServiceBrowser(zeroconf, SERVICE_TYPE, listener=listener)
+        browser = ServiceBrowser(zeroconf, self._service_type, listener=listener)
         try:
             time.sleep(max(0.0, float(duration_s)))
             candidates = listener.snapshot()
@@ -103,7 +113,8 @@ class HttpDiscoveryAdapter(DeviceDiscoveryPort):
         name_counts: Dict[str, int] = {}
 
         for candidate in candidates:
-            health_url = f"http://{candidate.ip}:{candidate.port}/health"
+            port = candidate.port if candidate.port > 0 else self._default_port
+            health_url = f"http://{candidate.ip}:{port}/health"
             try:
                 response = requests.get(health_url, timeout=max(0.1, float(health_timeout_s)))
             except requests.RequestException:
@@ -120,7 +131,7 @@ class HttpDiscoveryAdapter(DeviceDiscoveryPort):
                 DiscoveredBox(
                     name=unique_name,
                     ip=candidate.ip,
-                    port=candidate.port,
+                    port=port,
                     health_url=health_url,
                     properties=dict(candidate.properties),
                 )
