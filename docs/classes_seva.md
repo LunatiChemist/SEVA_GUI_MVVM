@@ -107,10 +107,10 @@ Parameter schema mapping examples:
   - consumed by `StartRemoteUpdate` and `PollRemoteUpdate`
   - uploads `.zip` package to `POST /updates/package` and polls `GET /updates/{update_id}`
   - raises typed adapter errors from `seva/adapters/api_errors.py`
-- `discovery_http.py` (`DeviceDiscoveryPort`): implements host/base-url/CIDR discovery.
+- `discovery_http.py` (`DeviceDiscoveryPort`): implements mDNS (`_myapp._tcp.local.`) discovery.
   - consumed by `DiscoverDevices` and `DiscoverAndAssignDevices`
-  - expands CIDR ranges, probes `/version` for identity and `/health` for enrichment
-  - deduplicates discovered `base_url` values before returning domain `DiscoveredBox` objects
+  - browses Zeroconf services for a fixed duration, extracts IPv4 + TXT properties, validates `/health` (HTTP 200)
+  - returns normalized domain `DiscoveredBox` objects (`name`, `ip`, `port`, `health_url`, `properties`) with duplicate-name suffixing
 
 ### Local/test adapters
 
@@ -137,7 +137,7 @@ Parameter schema mapping examples:
 
 ### Discovery and diagnostics
 
-- `discover_devices.py`: candidate probing and registry merge helpers.
+- `discover_devices.py`: mDNS discovery invocation and registry merge helpers.
 - `discover_and_assign_devices.py`: combined discovery + assignment operation.
 - `poll_device_status.py`: per-channel status snapshots for activity UI.
 - `test_connection.py`: health + device diagnostics for a box.

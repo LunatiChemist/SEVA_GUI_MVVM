@@ -1,101 +1,87 @@
-"""Dialog view for presenting discovered device rows.
-
-The dialog is UI-only and displays discovery payloads produced by use-case and
-controller layers.
-"""
+"""Dialog view for presenting discovered device rows."""
 
 from __future__ import annotations
+
 import tkinter as tk
 from tkinter import ttk
 from typing import Iterable, Mapping, Optional
 
-class DiscoveryResultsDialog(tk.Toplevel):
-    """
-    Simple modal dialog that shows a table of discovered SEVA devices.
-    Expects an iterable of mappings with keys:
-      base_url, box_id, devices, api_version, build
-    """
-    def __init__(self, master, rows: Iterable[Mapping], title: str = "Discovered Devices",
-                 on_close: Optional[callable] = None):
-        """Build and show modal results dialog.
 
-        Args:
-            master: Parent window for modality/transient behavior.
-            rows: Iterable of discovery result mappings.
-            title: Window title string.
-            on_close: Optional callback invoked before dialog destroy.
-        """
+class DiscoveryResultsDialog(tk.Toplevel):
+    """Simple modal dialog that shows a table of discovered devices."""
+
+    def __init__(
+        self,
+        master,
+        rows: Iterable[Mapping],
+        title: str = "Discovered Devices",
+        on_close: Optional[callable] = None,
+    ):
         super().__init__(master)
         self.title(title)
         self.on_close = on_close
         self.resizable(True, True)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
-        # --- Layout
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
 
-        # --- Treeview
-        cols = ("base_url", "box_id", "devices", "api_version", "build")
+        cols = ("name", "ip", "port", "health_url", "properties")
         headings = {
-            "base_url": "Base URL",
-            "box_id": "Box ID",
-            "devices": "Devices",
-            "api_version": "API",
-            "build": "Build",
+            "name": "Name",
+            "ip": "IPv4",
+            "port": "Port",
+            "health_url": "Health URL",
+            "properties": "Properties",
         }
         self.tree = ttk.Treeview(self, columns=cols, show="headings", height=12)
         for key in cols:
             self.tree.heading(key, text=headings[key])
-            # Heuristic widths - the user can resize columns later
-            width = 200 if key == "base_url" else 100
+            width = 260 if key in {"health_url", "properties"} else 120
             self.tree.column(key, width=width, anchor="w")
+
         yscroll = ttk.Scrollbar(self, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=yscroll.set)
 
         self.tree.grid(row=0, column=0, sticky="nsew")
         yscroll.grid(row=0, column=1, sticky="ns")
 
-        # --- Buttons
-        btn = ttk.Button(self, text="Close", command=self._on_close)
-        btn.grid(row=1, column=0, columnspan=2, pady=8)
+        ttk.Button(self, text="Close", command=self._on_close).grid(
+            row=1, column=0, columnspan=2, pady=8
+        )
 
-        # --- Populate
         self._populate(rows)
 
-        # --- Modal
         self.transient(master)
         try:
             self.grab_set()
         except tk.TclError:
-            pass  # if another grab is already active
+            pass
         self.focus_set()
-
-        # gently center over the parent window
         self._center_over_master()
 
     def _populate(self, rows: Iterable[Mapping]) -> None:
-        """Render discovery rows into the treeview.
-
-        Args:
-            rows: Iterable of discovery result mappings.
-        """
         self.tree.delete(*self.tree.get_children())
         any_rows = False
         for item in rows:
             any_rows = True
-            base_url = str(item.get("base_url", "")).strip()
-            box_id = item.get("box_id", "") or ""
-            devices = item.get("devices", "")
-            api_version = item.get("api_version", "") or ""
-            build = item.get("build", "") or ""
-            self.tree.insert("", "end", values=(base_url, box_id, devices, api_version, build))
+            properties = item.get("properties", {}) or {}
+            properties_text = ", ".join(f"{k}={v}" for k, v in properties.items())
+            self.tree.insert(
+                "",
+                "end",
+                values=(
+                    str(item.get("name", "") or ""),
+                    str(item.get("ip", "") or ""),
+                    str(item.get("port", "") or ""),
+                    str(item.get("health_url", "") or ""),
+                    properties_text,
+                ),
+            )
         if not any_rows:
-            # Placeholder row so the user sees that nothing was found
             self.tree.insert("", "end", values=("—", "—", "—", "—", "—"))
 
     def _center_over_master(self):
-        """Center dialog over parent when possible; fallback to screen center."""
         try:
             self.update_idletasks()
             if self.master and self.master.winfo_ismapped():
@@ -108,12 +94,11 @@ class DiscoveryResultsDialog(tk.Toplevel):
                 w, h = self.winfo_width(), self.winfo_height()
                 x = (self.winfo_screenwidth() - w) // 2
                 y = (self.winfo_screenheight() - h) // 3
-            self.geometry(f"+{max(0,x)}+{max(0,y)}")
+            self.geometry(f"+{max(0, x)}+{max(0, y)}")
         except Exception:
             pass
 
     def _on_close(self):
-        """Release modal grab, fire callback, and destroy the dialog."""
         try:
             self.grab_release()
         except Exception:
@@ -124,55 +109,3 @@ class DiscoveryResultsDialog(tk.Toplevel):
             except Exception:
                 pass
         self.destroy()
-
-demo_rows = [
-    {
-        "base_url": "http://192.168.1.10",
-        "box_id": "SEVA-001",
-        "devices": ["10"],
-        "api_version": "v1.2.0",
-        "build": "2025-10-10",
-    },
-    {
-        "base_url": "http://192.168.1.18",
-        "box_id": "SEVA-002",
-        "devices": ["10"],
-        "api_version": "v1.1.5",
-        "build": "2025-09-22",
-    },
-    # An entry with missing fields (test how your dialog handles it)
-    {
-        "base_url": "http://192.168.1.98",
-        "devices": ["10"],
-        "box_id": "SEVA-003",
-        "api_version": "v1.2.0",
-        "build": "2025-10-10",
-    },
-    # You can also pass an empty list to see the placeholder row:
-    # {}
-]
-
-if __name__ == "__main__":
-    root = tk.Tk()
-    root.title("Demo: DiscoveryResultsDialog")
-    root.geometry("400x120")
-
-    def open_demo_dialog():
-        """Open dialog with bundled demo rows for manual preview."""
-        # Open dialog modally - on_close callback removes nothing special in this demo
-        DiscoveryResultsDialog(root, demo_rows, title="Discovered SEVA Devices")
-
-    # Simple GUI with a button to open the dialog
-    frame = ttk.Frame(root, padding=12)
-    frame.pack(expand=True, fill="both")
-
-    lbl = ttk.Label(frame, text="Click 'Show results' to show the demo.")
-    lbl.pack(pady=(0, 8))
-
-    btn = ttk.Button(frame, text="Show results", command=open_demo_dialog)
-    btn.pack()
-
-    # Optional: open dialog directly on start
-    # open_demo_dialog()
-
-    root.mainloop()

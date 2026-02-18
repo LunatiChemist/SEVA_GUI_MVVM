@@ -9,12 +9,12 @@ For the full end-user workflow, see [GUI Overview & How to Use](gui_overview_how
 
 If device discovery returns nothing:
 
-1. Verify the REST API is running on the target device.
-2. In the GUI **Settings**, confirm the base URL/IP and port are correct.
-3. Use **Test Connection** to verify `/health` and `/devices` respond.
-4. On the Pi, ensure devices are attached and recognized by the OS.
+1. Verify the REST API is running on the Raspberry Pi target device.
+2. Verify the Pi and GUI host are in the same LAN segment (mDNS is LAN-local).
+3. On the Pi, ensure the FastAPI process started successfully and registered `_myapp._tcp.local.`.
+4. Wait for discovery to finish (fixed browse duration) and then run **Geräte suchen** again.
 
-Note: discovery uses existing configured box URLs plus derived subnet hints. If your configured URLs are outdated, discovery quality will also be poor.
+Note: GUI discovery uses mDNS only and validates each result with `GET /health` (HTTP 200 required). It does not use manual IP hints or subnet scans.
 
 ## Wrong base URL / API not reachable
 

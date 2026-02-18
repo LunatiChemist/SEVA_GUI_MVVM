@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 from dataclasses import dataclass
-from typing import Dict, Iterable, Mapping, Optional, Sequence, Tuple
+from typing import Dict, Iterable, Mapping, Sequence, Tuple
 
 from seva.domain.discovery import DiscoveredBox
 from seva.domain.ports import UseCaseError
@@ -19,9 +19,8 @@ class DiscoveryRequest:
     Attributes:
         Fields are consumed by use-case orchestration code and callers.
     """
-    candidates: Sequence[str]
-    api_key: Optional[str]
-    timeout_s: float
+    duration_s: float
+    health_timeout_s: float
     box_ids: Sequence[str]
     existing_registry: Mapping[str, str]
 
@@ -51,7 +50,7 @@ class DiscoverAndAssignDevices:
         """Discover devices, merge URLs, and assign new URLs to empty slots.
 
         Args:
-            request: Discovery candidates plus current registry and slot ids.
+            request: Discovery timing plus current registry and slot ids.
 
         Returns:
             DiscoveryResult: Discovered boxes, normalized registry, assignments,
@@ -68,18 +67,12 @@ class DiscoverAndAssignDevices:
             Auto-populates empty box slots while preserving existing mappings.
 
         Raises:
-            UseCaseError: If no candidates are provided.
             UseCaseError: If adapter discovery fails and error mapping applies.
         """
-        candidates = [str(item).strip() for item in request.candidates if str(item).strip()]
-        if not candidates:
-            raise UseCaseError("NO_CANDIDATES", "No discovery candidates available.")
-
         try:
             discovered = self.discover(
-                candidates=candidates,
-                api_key=request.api_key,
-                timeout_s=request.timeout_s,
+                duration_s=request.duration_s,
+                health_timeout_s=request.health_timeout_s,
             )
         except Exception as exc:
             raise map_api_error(
@@ -207,18 +200,17 @@ class DiscoverAndAssignDevices:
         Returns:
             str: Message suitable for settings status banners/logs.
         """
-        summary_seen: set[tuple[str, Optional[str], Optional[str]]] = set()
+        summary_seen: set[tuple[str, str, str]] = set()
         summary_parts: list[str] = []
         for box in discovered:
-            base_url = (getattr(box, "base_url", "") or "").strip()
+            base_url = f"http://{box.ip}:{box.port}".strip()
             if not base_url:
                 continue
-            key = (base_url, getattr(box, "box_id", None), getattr(box, "build", None))
+            key = (base_url, box.name, box.health_url)
             if key in summary_seen:
                 continue
             summary_seen.add(key)
-            label = getattr(box, "box_id", None) or getattr(box, "build", None) or "unknown"
-            summary_parts.append(f"{base_url} ({label})")
+            summary_parts.append(f"{base_url} ({box.name})")
 
         found_summary = ", ".join(summary_parts) if summary_parts else "none"
         message_bits = [f"Found: {found_summary}"]

@@ -18,7 +18,7 @@ Error responses are normalized through `http_error(...)` so GUI ViewModels can
 surface stable error codes/messages without parsing framework-native payloads.
 """
 
-import logging, os, uuid, threading, zipfile, io, pathlib, datetime, platform, subprocess, shutil
+import logging, os, uuid, threading, zipfile, io, pathlib, datetime, platform, subprocess, shutil, socket
 from typing import Optional, Literal, Dict, List, Any
 from datetime import timezone
 import serial.tools.list_ports
@@ -65,6 +65,7 @@ from update_package import (
     UpdateApplyError,
     UpdatePackageError,
 )
+from mdns_service import MdnsRegistrar, resolve_local_ipv4
 
 API_KEY = os.getenv("BOX_API_KEY", "")
 BOX_ID = os.getenv("BOX_ID", "")
@@ -279,6 +280,8 @@ def http_error(status_code: int, code: str, message: str, hint: Optional[str] = 
 PYBEEP_VERSION = _detect_pybeep_version()
 PYTHON_VERSION = platform.python_version()
 BUILD_IDENTIFIER = _detect_build_identifier()
+
+MDNS_REGISTRAR: MdnsRegistrar | None = None
 
 # ---------- Device registry ----------
 class DeviceInfo(BaseModel):
@@ -653,7 +656,19 @@ async def lifespan(app: FastAPI):
     HTTPException
         Raises HTTPException when request data, auth, or storage resolution fails.
     """
+    global MDNS_REGISTRAR
+
     discover_devices()
+    try:
+        MDNS_REGISTRAR = MdnsRegistrar(
+            hostname=socket.gethostname(),
+            ip_address=resolve_local_ipv4(),
+            port=8000,
+        )
+        MDNS_REGISTRAR.register()
+    except Exception:
+        log.exception("Failed to register mDNS service")
+
     try:
         NAS.start_background()
     except Exception:
@@ -661,6 +676,12 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        if MDNS_REGISTRAR is not None:
+            try:
+                MDNS_REGISTRAR.deregister()
+            except Exception:
+                log.exception("Failed to deregister mDNS service")
+            MDNS_REGISTRAR = None
         for ctrl in DEVICES.values():
             try:
                 ctrl.device.device.serial.close()

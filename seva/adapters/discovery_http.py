@@ -1,173 +1,129 @@
-"""HTTP discovery adapter for finding reachable SEVA boxes.
+"""mDNS/Zeroconf discovery adapter for SEVA devices.
 
-This adapter implements ``DeviceDiscoveryPort`` by probing network candidates
-against lightweight public endpoints. It is intentionally side-effect free
-outside network calls and returns domain ``DiscoveredBox`` objects.
-
-Dependencies:
-    - ``requests`` for probing HTTP endpoints.
-    - ``concurrent.futures.ThreadPoolExecutor`` for parallel host checks.
-    - ``ipaddress`` for CIDR expansion.
-
-Call context:
-    - Invoked by ``DiscoverDevices`` and ``DiscoverAndAssignDevices`` use cases.
+This adapter browses `_myapp._tcp.local.` services for a fixed duration,
+extracts IPv4 endpoints and TXT properties, validates `/health`, and returns
+normalized discovery domain records.
 """
 
-# seva/adapters/discovery_http.py
 from __future__ import annotations
-from typing import Optional, Sequence, List, Iterable
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import ipaddress
+
+import threading
+import time
+from dataclasses import dataclass
+from typing import Dict, List
+
 import requests
+from zeroconf import IPVersion, ServiceBrowser, ServiceListener, Zeroconf
 
-from seva.domain.discovery import DeviceDiscoveryPort, DiscoveredBox
+from seva.domain.discovery import DeviceDiscoveryPort, DiscoveredBox, DiscoveryAdapterError
 
-DEFAULT_PORT = 8000
-
-
-def _normalize_candidate(x: str, default_port: int) -> str:
-    """Normalize host/base-url candidate to canonical base URL.
-
-    Args:
-        x: Candidate host, host:port, or full ``http(s)://`` base URL.
-        default_port: Port used when host does not include a port.
-
-    Returns:
-        Canonical base URL without trailing slash.
-
-    Raises:
-        ValueError: If candidate is empty after whitespace trimming.
-    """
-    x = x.strip()
-    if not x:
-        raise ValueError("empty candidate")
-    if x.startswith("http://") or x.startswith("https://"):
-        return x.rstrip("/")
-    # Handle ``host:port`` input without scheme.
-    if ":" in x and all(part.isdigit() for part in x.split(":")[-1:]):
-        host, port = x.rsplit(":", 1)
-        return f"http://{host}:{port}"
-    return f"http://{x}:{default_port}"
+SERVICE_TYPE = "_myapp._tcp.local."
 
 
-def _try_expand_cidr(candidate: str) -> Optional[Iterable[str]]:
-    """Expand CIDR notation into host IP strings when possible.
+@dataclass(frozen=True)
+class _Candidate:
+    """Internal representation of one discovered service candidate."""
 
-    Args:
-        candidate: Candidate string that may contain CIDR notation.
+    name: str
+    ip: str
+    port: int
+    properties: Dict[str, str]
 
-    Returns:
-        Host iterator for valid CIDR input, otherwise ``None``.
-    """
-    try:
-        network = ipaddress.ip_network(candidate, strict=False)
-    except ValueError:
-        return None
-    return (str(ip) for ip in network.hosts())
+
+class _MdnsListener(ServiceListener):
+    """Collect candidates from Zeroconf callbacks."""
+
+    def __init__(self, zeroconf: Zeroconf):
+        self._zeroconf = zeroconf
+        self._lock = threading.Lock()
+        self._by_instance: Dict[str, _Candidate] = {}
+
+    def update_service(self, zeroconf: Zeroconf, service_type: str, name: str) -> None:
+        self._capture(service_type, name)
+
+    def add_service(self, zeroconf: Zeroconf, service_type: str, name: str) -> None:
+        self._capture(service_type, name)
+
+    def remove_service(self, zeroconf: Zeroconf, service_type: str, name: str) -> None:
+        with self._lock:
+            self._by_instance.pop(name, None)
+
+    def _capture(self, service_type: str, name: str) -> None:
+        info = self._zeroconf.get_service_info(service_type, name, timeout=500)
+        if info is None:
+            return
+        ipv4 = info.parsed_addresses(IPVersion.V4Only)
+        if not ipv4:
+            return
+        ip = ipv4[0]
+        if not ip:
+            return
+
+        properties: Dict[str, str] = {}
+        for key, value in (info.properties or {}).items():
+            text_key = key.decode("utf-8", errors="ignore") if isinstance(key, bytes) else str(key)
+            text_val = value.decode("utf-8", errors="ignore") if isinstance(value, bytes) else str(value)
+            if text_key:
+                properties[text_key] = text_val
+
+        instance_name = name.split(".", 1)[0].strip() or ip
+        with self._lock:
+            self._by_instance[name] = _Candidate(
+                name=instance_name,
+                ip=ip,
+                port=int(info.port),
+                properties=properties,
+            )
+
+    def snapshot(self) -> List[_Candidate]:
+        with self._lock:
+            return list(self._by_instance.values())
 
 
 class HttpDiscoveryAdapter(DeviceDiscoveryPort):
-    """Probe candidate hosts and return discovered SEVA boxes.
+    """Browse LAN mDNS services and return health-validated devices."""
 
-    Discovery strategy:
-        1. ``GET /version`` identifies a compatible service.
-        2. ``GET /health`` enriches result with ``box_id`` and ``devices``.
-    """
+    def discover(self, *, duration_s: float = 2.5, health_timeout_s: float = 0.6) -> List[DiscoveredBox]:
+        """Browse `_myapp._tcp.local.` for ``duration_s`` and validate `/health`."""
+        try:
+            zeroconf = Zeroconf(ip_version=IPVersion.V4Only)
+        except Exception as exc:
+            raise DiscoveryAdapterError(f"Could not start Zeroconf browser: {exc}") from exc
 
-    def __init__(self, default_port: int = DEFAULT_PORT, max_workers: int = 64):
-        """Create discovery adapter.
+        listener = _MdnsListener(zeroconf)
+        browser = ServiceBrowser(zeroconf, SERVICE_TYPE, listener=listener)
+        try:
+            time.sleep(max(0.0, float(duration_s)))
+            candidates = listener.snapshot()
+        finally:
+            browser.cancel()
+            zeroconf.close()
 
-        Args:
-            default_port: Port applied to host-only candidates.
-            max_workers: Thread-pool size used for parallel probing.
-        """
-        self._port = default_port
-        self._max_workers = max_workers
+        validated: List[DiscoveredBox] = []
+        name_counts: Dict[str, int] = {}
 
-    def discover(
-        self,
-        candidates: Sequence[str],
-        api_key: Optional[str] = None,  # not used for MVP (health is open)
-        timeout_s: float = 0.3
-    ) -> List[DiscoveredBox]:
-        """Discover boxes from host/base-url/CIDR candidates.
-
-        Args:
-            candidates: Candidate strings entered by user/settings layer.
-            api_key: Unused for current endpoints (kept for port compatibility).
-            timeout_s: Per-request timeout in seconds.
-
-        Returns:
-            List of unique ``DiscoveredBox`` records.
-
-        Side Effects:
-            Performs parallel network requests to candidate hosts.
-
-        Call Chain:
-            Settings controller -> discovery use case -> ``discover``.
-        """
-        # Normalize/expand candidates before probing.
-        base_urls: List[str] = []
-        for c in candidates:
-            c = c.strip()
-            if not c:
+        for candidate in candidates:
+            health_url = f"http://{candidate.ip}:{candidate.port}/health"
+            try:
+                response = requests.get(health_url, timeout=max(0.1, float(health_timeout_s)))
+            except requests.RequestException:
                 continue
-            cidr_hosts = _try_expand_cidr(c)
-            if cidr_hosts is not None:
-                for host in cidr_hosts:
-                    base_urls.append(_normalize_candidate(host, self._port))
-            else:
-                base_urls.append(_normalize_candidate(c, self._port))
+            if response.status_code != 200:
+                continue
 
-        # Probe in parallel to keep settings dialog responsive on large subnets.
-        results: List[DiscoveredBox] = []
-        seen = set()
-        with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
-            futs = {pool.submit(self._probe_single, url, timeout_s): url for url in base_urls}
-            for fut in as_completed(futs):
-                box = fut.result()
-                if box and box.base_url not in seen:
-                    seen.add(box.base_url)
-                    results.append(box)
-        return results
+            base_name = candidate.name or candidate.ip
+            used = name_counts.get(base_name, 0)
+            unique_name = base_name if used == 0 else f"{base_name}-{used + 1}"
+            name_counts[base_name] = used + 1
 
-    def _probe_single(self, base_url: str, timeout_s: float) -> Optional[DiscoveredBox]:
-        """Probe a single base URL and build a discovery record.
+            validated.append(
+                DiscoveredBox(
+                    name=unique_name,
+                    ip=candidate.ip,
+                    port=candidate.port,
+                    health_url=health_url,
+                    properties=dict(candidate.properties),
+                )
+            )
 
-        Args:
-            base_url: Canonical base URL candidate.
-            timeout_s: Per-request timeout in seconds.
-
-        Returns:
-            ``DiscoveredBox`` when probe succeeds, else ``None``.
-        """
-        try:
-            vresp = requests.get(f"{base_url}/version", timeout=timeout_s)
-            if vresp.status_code != 200:
-                return None
-            vjson = vresp.json()
-        except Exception:
-            return None
-
-        api_version = vjson.get("api")
-        build = vjson.get("build")
-
-        # Health enrichment is best-effort; discovery still succeeds without it.
-        box_id = None
-        devices = None
-        try:
-            hresp = requests.get(f"{base_url}/health", timeout=timeout_s)
-            if hresp.status_code == 200:
-                hjson = hresp.json()
-                box_id = hjson.get("box_id")
-                devices = hjson.get("devices")
-        except Exception:
-            pass
-
-        return DiscoveredBox(
-            base_url=base_url,
-            api_version=api_version,
-            build=build,
-            box_id=box_id,
-            devices=devices,
-        )
+        return validated
