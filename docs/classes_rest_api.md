@@ -15,10 +15,11 @@ The REST package currently contains the following Python modules:
 - `rest_api/nas.py`: SSH/rsync NAS adapter kept for SSH-based deployments.
 - `rest_api/auto_flash_linux.py`: Linux firmware flashing subprocess helper for `/firmware/flash`.
 - `rest_api/update_package.py`: package-update contract validation, async worker, lock, and audit orchestration.
+- `rest_api/mdns_service.py`: IPv4 mDNS registration helper for `_myapp._tcp.local.` service publication at startup/shutdown.
 
 ## `rest_api/app.py`
 
-`app.py` is the only HTTP surface consumed by the GUI. The route families map to adapters and usecases as follows:
+`app.py` is the only HTTP surface consumed by the GUI. It also manages process lifecycle hooks, including startup mDNS registration and shutdown deregistration via `rest_api/mdns_service.py`. The route families map to adapters and usecases as follows:
 
 - Device discovery and mode metadata:
   - GUI callers: `seva/adapters/device_rest.py`
@@ -45,7 +46,7 @@ The table below provides a practical, per-endpoint overview of method, purpose, 
 | Method | Path | Handler | Purpose | Typical caller(s) |
 |---|---|---|---|---|
 | GET | `/version` | `version_info` | Returns API/runtime/build metadata for diagnostics and support. | Manual ops checks, service introspection |
-| GET | `/health` | `health` | Basic service liveness + discovered device count. | `seva.adapters.discovery_http`, startup checks |
+| GET | `/health` | `health` | Basic service liveness + discovered device count. | `seva.adapters.discovery_http`, startup checks, mDNS post-discovery validation |
 | GET | `/devices` | `list_devices` | Enumerates discovered potentiostat slots and port metadata. | `seva.adapters.device_rest` |
 | GET | `/devices/status` | `list_device_status` | Returns slot state derived from active jobs (`idle/queued/running/...`). | GUI status polling |
 | GET | `/modes` | `list_modes` | Lists available measurement modes exposed by controller integration. | GUI mode selectors |

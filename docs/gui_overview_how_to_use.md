@@ -39,12 +39,11 @@ Open **Settings** from the toolbar.
 
 ### Boxes
 
-- Enter **Box A/B/C/D URL**.
 - Enter **API Key** (if required by your deployment).
-- Use **Test** per box to verify connectivity.
-- Use **Scan Network** to discover available devices automatically.
+- Use **Geräte suchen** to discover available devices automatically via mDNS (`_myapp._tcp.local.`).
+- Use **Test** per box to verify connectivity after discovery mapped URLs into slots.
 
-**Feature detail:** discovery is not a blind scan only. The app uses your configured box URLs as discovery candidates and also derives subnet hints (for example `/24`) from those URLs, then deduplicates the candidate list before scanning.
+**Feature detail:** discovery is fully automatic on the local LAN and runs for a fixed browse window. It does not perform IP range scanning, broadcast probing, or manual subnet hints.
 
 ### Relay box
 
@@ -90,7 +89,7 @@ When you run network discovery, this result dialog shows detected SEVA devices.
 
 ![Discovery results dialog](assets/gui/discovery_results_dialog.png)
 
-Use this to confirm that expected boxes are reachable and to validate API/build information.
+Use this to confirm discovered service name, IPv4, port, health URL, and advertised mDNS properties.
 
 ---
 

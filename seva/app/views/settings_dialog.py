@@ -122,7 +122,7 @@ class SettingsDialog(tk.Toplevel):
 
         ttk.Button(
             connection,
-            text="Scan Network",
+            text="Geräte suchen",
             command=lambda: self._safe(self._on_discover_devices),
         ).grid(row=len(self._boxes), column=0, columnspan=5, sticky="w", pady=(8, 0))
 
